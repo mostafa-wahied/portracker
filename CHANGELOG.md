@@ -2,6 +2,16 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.1.1] - 2025-01-17
+
+### Features
+- **TrueNAS Enhanced Features**: Add your TrueNAS API key directly from the UI to unlock VM and LXC container monitoring with step-by-step setup instructions
+
+### Fixes
+- **TrueNAS API Key Revocation**: Fixed automatic key revocation issue by prioritizing secure WebSocket connections
+- **Virtual Machines & Containers**: VMs and LXC containers now display correctly with icons and badges to distinguish between them
+- **Debug Logging**: DEBUG environment variable now properly enables debug output
+
 ## [1.1.0] - 2025-08-23
 
 ### Frontend & Backend
@@ -14,7 +24,7 @@ All notable changes to portracker will be documented in this file.
 - **Batch rename migration fix**: Fix migration issue affecting batch rename operations so renamed services persist correctly.
 
 ### Dev
-- **Misc**: minor migration-related fix for batch rename flow.
+- **Misc.**: minor migration-related fix for batch rename flow.
 
 ## [1.0.7] - 2025-08-19
 
@@ -74,7 +84,7 @@ All notable changes to portracker will be documented in this file.
 ## [1.0.0] - 2025-07-07
 
 ### Initial Release
-- **Multi-platform Port Tracking**: Initial release of Portracker with support for monitoring ports across multiple servers
+- **Multi-platform Port Tracking**: Initial release of portracker with support for monitoring ports across multiple servers
 - **Docker Integration**: Native Docker container port monitoring
 - **Web Interface**: Clean, responsive web interface for port management
 - **Server Management**: Support for multiple server configurations
