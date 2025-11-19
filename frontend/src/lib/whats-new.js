@@ -2,45 +2,76 @@ import Logger from './logger';
 
 const logger = new Logger('WhatsNewUtils');
 
+const CATEGORY_KEYS = [
+  'security',
+  'dashboard',
+  'integrations',
+  'data',
+  'tooling',
+  'frontend',
+  'backend',
+  'fixes',
+  'misc'
+];
+
+function createFeatureBuckets() {
+  return CATEGORY_KEYS.reduce((acc, key) => {
+    acc[key] = [];
+    return acc;
+  }, {});
+}
+
+const CATEGORY_MAPPINGS = [
+  { match: /(security|auth|access)/i, bucket: 'security' },
+  { match: /(dashboard|ui|ux|interface)/i, bucket: 'dashboard' },
+  { match: /(server|collector|truenas|docker|integration)/i, bucket: 'integrations' },
+  { match: /(data|db|database|infrastructure|performance|cache)/i, bucket: 'data' },
+  { match: /(tooling|ops|operation|automation|deploy)/i, bucket: 'tooling' },
+  { match: /(frontend|client)/i, bucket: 'frontend' },
+  { match: /(backend|api)/i, bucket: 'backend' },
+  { match: /(fix|bug|stability|patch)/i, bucket: 'fixes' },
+];
+
+function mapSectionToCategory(sectionName) {
+  const normalized = sectionName.toLowerCase();
+  for (const mapping of CATEGORY_MAPPINGS) {
+    if (mapping.match.test(normalized)) {
+      return mapping.bucket;
+    }
+  }
+  return 'misc';
+}
+
 export function parseChangelog(changelogContent) {
   try {
     const versions = {};
     const lines = changelogContent.split('\n');
     let currentVersion = null;
     let currentSection = null;
-    let features = { frontend: [], backend: [], development: [], infrastructure: [] };
+    let features = createFeatureBuckets();
+    let lastFeature = null;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
 
       const versionMatch = line.match(/^##\s*\[([^\]]+)\]/);
       if (versionMatch) {
-        if (currentVersion && (features.frontend.length > 0 || features.backend.length > 0 || features.development.length > 0 || features.infrastructure.length > 0)) {
+        const hasContent = Object.values(features).some(arr => arr.length > 0);
+        if (currentVersion && hasContent) {
           versions[currentVersion] = { ...features };
         }
         
         currentVersion = versionMatch[1];
         currentSection = null;
-        features = { frontend: [], backend: [], development: [], infrastructure: [] };
+        features = createFeatureBuckets();
+        lastFeature = null;
         continue;
       }
 
       const sectionMatch = line.match(/^###\s+(.+)$/);
       if (sectionMatch && currentVersion) {
-        const sectionName = sectionMatch[1].toLowerCase();
-        if (sectionName.includes('frontend')) {
-          currentSection = 'frontend';
-        } else if (sectionName.includes('backend')) {
-          currentSection = 'backend';  
-        } else if (sectionName.includes('development') || sectionName.includes('infrastructure')) {
-          currentSection = 'development';
-        } else if (sectionName.includes('security') || sectionName.includes('improvements')) {
-          currentSection = 'development';
-        } else if (sectionName.includes('initial')) {
-          currentSection = 'development';
-        } else {
-          currentSection = 'development';
-        }
+        currentSection = mapSectionToCategory(sectionMatch[1]);
+        lastFeature = null;
         continue;
       }
 
@@ -49,14 +80,39 @@ export function parseChangelog(changelogContent) {
         const title = featureMatch[1].trim();
         const description = featureMatch[2].trim();
         
-        features[currentSection].push({
-          title,
-          description
-        });
+        const isSubItem = title.startsWith('[sub]');
+        
+        if (isSubItem && lastFeature) {
+          const cleanTitle = title.replace(/^\[sub\]\s*/, '').trim();
+          if (!lastFeature.details) {
+            lastFeature.details = [];
+          }
+          lastFeature.details.push({ title: cleanTitle, description });
+        } else {
+          const feature = {
+            title: isSubItem ? title.replace(/^\[sub\]\s*/, '').trim() : title,
+            description,
+            details: []
+          };
+          
+          features[currentSection].push(feature);
+          lastFeature = feature;
+        }
+        continue;
+      }
+
+      const subItemMatch = line.match(/^-\s*\*\*\[sub\]\*\*\s+(.+)$/);
+      if (subItemMatch && lastFeature && currentSection) {
+        const text = subItemMatch[1].trim();
+        if (!lastFeature.details) {
+          lastFeature.details = [];
+        }
+        lastFeature.details.push({ title: '', description: text });
       }
     }
 
-    if (currentVersion && (features.frontend.length > 0 || features.backend.length > 0 || features.development.length > 0 || features.infrastructure.length > 0)) {
+    const hasContent = Object.values(features).some(arr => arr.length > 0);
+    if (currentVersion && hasContent) {
       versions[currentVersion] = { ...features };
     }
 
@@ -140,25 +196,18 @@ export function getNewVersions(parsedVersions, lastSeenVersion) {
 }
 
 export function combineVersionChanges(versions, versionKeys) {
-  const combined = { frontend: [], backend: [], development: [] };
+  const combined = createFeatureBuckets();
   
   const sortedVersions = versionKeys.sort((a, b) => compareVersions(b, a));
   
   for (const version of sortedVersions) {
     const versionChanges = versions[version];
     if (versionChanges) {
-      if (versionChanges.frontend) {
-        combined.frontend.push(...versionChanges.frontend);
-      }
-      if (versionChanges.backend) {
-        combined.backend.push(...versionChanges.backend);
-      }
-      if (versionChanges.development) {
-        combined.development.push(...versionChanges.development);
-      }
-      if (versionChanges.infrastructure) {
-        combined.development.push(...versionChanges.infrastructure);
-      }
+      CATEGORY_KEYS.forEach(key => {
+        if (versionChanges[key]?.length) {
+          combined[key].push(...versionChanges[key]);
+        }
+      });
     }
   }
   
@@ -170,32 +219,21 @@ export function groupVersionChanges(versions, versionKeys) {
   
   return sortedVersions.map(version => {
     const versionChanges = versions[version];
-    const changes = { frontend: [], backend: [], development: [] };
+    const changes = createFeatureBuckets();
     
     if (versionChanges) {
-      if (versionChanges.frontend) {
-        changes.frontend.push(...versionChanges.frontend);
-      }
-      if (versionChanges.backend) {
-        changes.backend.push(...versionChanges.backend);
-      }
-      if (versionChanges.development) {
-        changes.development.push(...versionChanges.development);
-      }
-      if (versionChanges.infrastructure) {
-        changes.development.push(...versionChanges.infrastructure);
-      }
+      CATEGORY_KEYS.forEach(key => {
+        if (versionChanges[key]?.length) {
+          changes[key].push(...versionChanges[key]);
+        }
+      });
     }
     
     return {
       version,
       changes
     };
-  }).filter(item => 
-    item.changes.frontend.length > 0 || 
-    item.changes.backend.length > 0 || 
-    item.changes.development.length > 0
-  );
+  }).filter(item => CATEGORY_KEYS.some(key => item.changes[key]?.length > 0));
 }
 
 export function shouldShowWhatsNew(currentVersion) {

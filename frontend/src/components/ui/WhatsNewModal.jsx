@@ -1,12 +1,13 @@
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './dialog';
 import { Button } from './button';
-import { Globe, Database, Zap, Sparkles } from 'lucide-react';
+import { Globe, Database, Zap, Sparkles, Shield, Layout, Server, HardDrive, Wrench, Package, Bandage } from 'lucide-react';
 import { getFeatureIcon } from '../../lib/feature-icons';
 import { cn } from '@/lib/utils';
 
 const FeatureCard = ({ feature, index }) => {
   const IconComponent = getFeatureIcon(feature);
+  const hasDetails = feature.details?.length > 0;
   
   return (
     <div
@@ -30,6 +31,27 @@ const FeatureCard = ({ feature, index }) => {
           <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
             {feature.description}
           </p>
+          {hasDetails && (
+            <ul className="mt-2 ml-3 space-y-1.5">
+              {feature.details.map((detail, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-400">
+                  <span className="text-indigo-600 dark:text-indigo-400 mt-0.5">•</span>
+                  <div>
+                    {detail.title ? (
+                      <>
+                        <span className="font-medium text-slate-800 dark:text-slate-200">{detail.title}</span>
+                        {detail.description && (
+                          <span className="text-slate-600 dark:text-slate-400">: {detail.description}</span>
+                        )}
+                      </>
+                    ) : (
+                      <span>{detail.description}</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>
@@ -75,6 +97,54 @@ const VersionSection = ({ versionData, index }) => (
     </div>
 
     <div className="space-y-4">
+      {versionData.changes.security?.length > 0 && (
+        <CategorySection
+          title="Security & Access Control"
+          features={versionData.changes.security}
+          icon={Shield}
+        />
+      )}
+
+      {versionData.changes.dashboard?.length > 0 && (
+        <CategorySection
+          title="Dashboard & UX"
+          features={versionData.changes.dashboard}
+          icon={Layout}
+        />
+      )}
+
+      {versionData.changes.integrations?.length > 0 && (
+        <CategorySection
+          title="Server Integrations"
+          features={versionData.changes.integrations}
+          icon={Server}
+        />
+      )}
+
+      {versionData.changes.data?.length > 0 && (
+        <CategorySection
+          title="Data & Infrastructure"
+          features={versionData.changes.data}
+          icon={HardDrive}
+        />
+      )}
+
+      {versionData.changes.tooling?.length > 0 && (
+        <CategorySection
+          title="Operations & Tooling"
+          features={versionData.changes.tooling}
+          icon={Wrench}
+        />
+      )}
+
+      {versionData.changes.fixes?.length > 0 && (
+        <CategorySection
+          title="Stability & Fixes"
+          features={versionData.changes.fixes}
+          icon={Bandage}
+        />
+      )}
+
       {versionData.changes.frontend?.length > 0 && (
         <CategorySection
           title="Frontend Improvements"
@@ -91,11 +161,11 @@ const VersionSection = ({ versionData, index }) => (
         />
       )}
 
-      {versionData.changes.development?.length > 0 && (
+      {versionData.changes.misc?.length > 0 && (
         <CategorySection
-          title="Development & Infrastructure"
-          features={versionData.changes.development}
-          icon={Zap}
+          title="Other Updates"
+          features={versionData.changes.misc}
+          icon={Package}
         />
       )}
     </div>
@@ -104,6 +174,54 @@ const VersionSection = ({ versionData, index }) => (
 
 const FlatChangesDisplay = ({ changes }) => (
   <>
+    {changes.security?.length > 0 && (
+      <CategorySection
+        title="Security & Access Control"
+        features={changes.security}
+        icon={Shield}
+      />
+    )}
+
+    {changes.dashboard?.length > 0 && (
+      <CategorySection
+        title="Dashboard & UX"
+        features={changes.dashboard}
+        icon={Layout}
+      />
+    )}
+
+    {changes.integrations?.length > 0 && (
+      <CategorySection
+        title="Server Integrations"
+        features={changes.integrations}
+        icon={Server}
+      />
+    )}
+
+    {changes.data?.length > 0 && (
+      <CategorySection
+        title="Data & Infrastructure"
+        features={changes.data}
+        icon={HardDrive}
+      />
+    )}
+
+    {changes.tooling?.length > 0 && (
+      <CategorySection
+        title="Operations & Tooling"
+        features={changes.tooling}
+        icon={Wrench}
+      />
+    )}
+
+    {changes.fixes?.length > 0 && (
+      <CategorySection
+        title="Stability & Fixes"
+        features={changes.fixes}
+        icon={Bandage}
+      />
+    )}
+
     {changes.frontend?.length > 0 && (
       <CategorySection
         title="Frontend Improvements"
@@ -120,11 +238,11 @@ const FlatChangesDisplay = ({ changes }) => (
       />
     )}
 
-    {changes.development?.length > 0 && (
+    {changes.misc?.length > 0 && (
       <CategorySection
-        title="Development & Infrastructure"
-        features={changes.development}
-        icon={Zap}
+        title="Other Updates"
+        features={changes.misc}
+        icon={Package}
       />
     )}
   </>

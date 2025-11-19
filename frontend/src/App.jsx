@@ -161,6 +161,15 @@ export default function App() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPorts, setSelectedPorts] = useState(new Set());
 
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem("autoRefreshEnabled");
+      return saved === "true";
+    } catch {
+      return false;
+    }
+  });
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add("dark");
@@ -237,6 +246,14 @@ export default function App() {
       logger.warn("Failed to save search scope setting:", error);
     }
   }, [searchScope]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("autoRefreshEnabled", autoRefreshEnabled.toString());
+    } catch (error) {
+      logger.warn("Failed to save auto-refresh setting:", error);
+    }
+  }, [autoRefreshEnabled]);
 
   const handleSelectServer = useCallback((serverId) => {
     setSelectedServer(serverId);
@@ -605,6 +622,19 @@ export default function App() {
       fetchAll();
     }
   }, [auth.authenticated, auth.loading, fetchAll, groups.length]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || auth.loading || (auth.authEnabled && !auth.authenticated)) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      logger.debug('Auto-refresh triggered');
+      fetchAll();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [autoRefreshEnabled, fetchAll, auth.loading, auth.authEnabled, auth.authenticated]);
 
   useEffect(() => {
     if (!loading && groups.length > 0) {
@@ -1631,6 +1661,8 @@ export default function App() {
           onToggleSidebar={() => setSidebarOpen(!isSidebarOpen)}
           onShowWhatsNew={shouldShowWhatsNewButton ? handleShowWhatsNew : null}
           hasNewFeatures={shouldShowWhatsNewButton}
+          autoRefreshEnabled={autoRefreshEnabled}
+          onAutoRefreshToggle={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
         />
         <DashboardLayout
           isSidebarOpen={isSidebarOpen}

@@ -10,11 +10,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User } from "lucide-react";
+import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
+import { RefreshProgress } from "@/components/ui/RefreshProgress";
 
 export function AppHeader({
   loading,
@@ -34,6 +35,8 @@ export function AppHeader({
   onToggleSidebar,
   onShowWhatsNew,
   hasNewFeatures = false,
+  autoRefreshEnabled = false,
+  onAutoRefreshToggle,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -253,6 +256,26 @@ export function AppHeader({
             <TooltipContent>{loading ? "Refreshing..." : "Refresh all data"}</TooltipContent>
           </Tooltip>
 
+          {onAutoRefreshToggle && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onAutoRefreshToggle}
+                  className={`hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                    autoRefreshEnabled ? 'text-indigo-600 dark:text-indigo-400' : ''
+                  }`}
+                >
+                  <Timer className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {autoRefreshEnabled ? "Auto-refresh enabled (30s)" : "Enable auto-refresh"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           <div className="h-6 border-l border-gray-200 dark:border-gray-700 hidden sm:block"></div>
 
           {onShowWhatsNew && (
@@ -327,7 +350,7 @@ export function AppHeader({
         </div>
       </div>
 
-      
+      <RefreshProgress active={autoRefreshEnabled && !loading} duration={30000} />
     </header>
   );
 }
