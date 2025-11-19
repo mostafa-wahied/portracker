@@ -23,6 +23,10 @@ export function RefreshProgress({ active, duration = 30000 }) {
     return () => clearInterval(interval);
   }, [active, duration]);
 
+  if (!active) {
+    return null;
+  }
+
   return (
     <div className="relative h-0.5 w-full overflow-hidden bg-gray-100 dark:bg-gray-800">
       <div
