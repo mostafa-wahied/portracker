@@ -2,7 +2,7 @@
 
 All notable changes to portracker will be documented in this file.
 
-## [Unreleased]
+## [1.2.0] - 2025-11-20
 
 ### Security
 
@@ -14,6 +14,7 @@ All notable changes to portracker will be documented in this file.
 ### Dashboard
 
 - **Auto-Refresh**: Added a toggle to auto-refresh ports and services every 30 seconds
+- **Random Port Generator**: Generate an unused port with a single click
 
 ## [1.1.1] - 2025-01-17
 
