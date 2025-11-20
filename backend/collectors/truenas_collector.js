@@ -66,6 +66,20 @@ class TrueNASCollector extends BaseCollector {
   }
 
   /**
+   * Return only ports (used for quick port generation flows)
+   * @returns {Promise<Array>} List of port entries
+   */
+  async getPorts() {
+    try {
+      const full = await this.collect();
+      return full?.ports || [];
+    } catch (err) {
+      this.logError("Error collecting ports in getPorts:", err.message, err.stack);
+      throw err;
+    }
+  }
+
+  /**
    * Initialize Docker API (async initialization)
    * @private
    */

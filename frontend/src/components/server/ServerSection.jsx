@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from "react";
+import React, { useMemo, useEffect, useState, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -14,6 +14,10 @@ import {
   Info,
   Lock,
   CheckSquare,
+  Sparkles,
+  RefreshCw,
+  Copy,
+  Check,
 } from "lucide-react";
 import { PortCard } from "./PortCard";
 import { PortGridItem } from "./PortGridItem";
@@ -36,6 +40,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useClipboard } from "@/lib/hooks/useClipboard";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 /**
  * Renders a comprehensive server overview section, including system information, virtual machines, and port management with sorting, filtering, and multiple layout options.
@@ -74,8 +87,15 @@ function ServerSectionComponent({
   onToggleSelection,
   onToggleServerSelectionMode,
   onSelectAllPorts,
+  portSuggestion,
+  onGeneratePort,
 }) {
   const logger = useMemo(() => new Logger('ServerSection'), []);
+  const { copiedKey, copy } = useClipboard();
+  const suggestionPort = portSuggestion?.port;
+  const suggestionLoading = !!portSuggestion?.loading;
+  const suggestionError = portSuggestion?.error;
+  const [showPortModal, setShowPortModal] = useState(false);
   
   const [sortConfig, setSortConfig] = useState(() => {
     try {
@@ -129,6 +149,20 @@ function ServerSectionComponent({
     return { internal, published, total: list.length };
   }, [data]);
 
+  const portMood = useMemo(() => {
+    const count = visiblePorts.length;
+    if (count === 0) {
+      return "It's empty in here.";
+    }
+    if (count < 10) {
+      return `Feels lonely with ${count} service${count === 1 ? "" : "s"}.`;
+    }
+    if (count > 99) {
+      return `Hoarder alert: Wow.. ${count} services.`;
+    }
+    return null;
+  }, [visiblePorts.length]);
+
   useEffect(() => {
     const validKeys = ["default", "host_port", "owner", "created"];
     let { key, direction } = sortConfig;
@@ -145,18 +179,6 @@ function ServerSectionComponent({
     if (changed) setSortConfig({ key, direction });
     
   }, [sortConfig]);
-
-  const portMood = useMemo(() => {
-    const count = visiblePorts.length;
-    if (count === 0) return null;
-    if (count < 10) {
-      return `Feels a bit lonely here, only ${count} service${count === 1 ? "" : "s"} standing watch.`;
-    }
-    if (count > 100) {
-      return `Hoarder alert: ${count} services piled into this host.`;
-    }
-    return null;
-  }, [visiblePorts.length]);
 
   const sortedPorts = useMemo(() => {
     let sortablePorts = [...visiblePorts];
@@ -252,6 +274,22 @@ function ServerSectionComponent({
       return serverUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "") || "localhost";
     }
   };
+
+  const handleCopySuggestedPort = useCallback(async () => {
+    if (!suggestionPort) return;
+    await copy(`suggested-port-${id}`, suggestionPort.toString());
+  }, [copy, id, suggestionPort]);
+
+  const handleOpenPortModal = useCallback(() => {
+    setShowPortModal(true);
+    if (!suggestionPort && !suggestionLoading) {
+      onGeneratePort?.(id);
+    }
+  }, [id, onGeneratePort, suggestionLoading, suggestionPort]);
+
+  const handleRegenerate = useCallback(() => {
+    onGeneratePort?.(id);
+  }, [id, onGeneratePort]);
 
   return (
     <div className="space-y-8">
@@ -371,7 +409,20 @@ function ServerSectionComponent({
         <div className="p-4 sm:p-6 border-b border-slate-200 dark:border-slate-700/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center">
-              <Network className="h-5 w-5 mr-2 text-slate-600 dark:text-slate-400" />
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Network className="h-5 w-5 mr-2 text-slate-600 dark:text-slate-400" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {portMood
+                      ? portMood
+                      : `Published: ${counts.published}, Internal: ${counts.internal}${showInternal ? " (showing internal)" : " (hiding internal)"}`}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               Ports
               <TooltipProvider>
                 <Tooltip>
@@ -387,6 +438,30 @@ function ServerSectionComponent({
               </TooltipProvider>
             </h2>
             <div className="flex items-center justify-start sm:justify-end flex-wrap gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleOpenPortModal}
+                      disabled={suggestionLoading}
+                      className={`inline-flex items-center px-2 sm:px-3 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                        suggestionLoading
+                          ? "bg-blue-50 dark:bg-slate-700/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 cursor-not-allowed"
+                          : "border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {suggestionLoading ? (
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-2" />
+                      )}
+                      Generate port
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Generate an unused port for this server</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -638,11 +713,6 @@ function ServerSectionComponent({
               )}
             </div>
           </div>
-          {portMood && (
-            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
-              {portMood}
-            </p>
-          )}
         </div>
 
         {ok && visiblePorts.length > 0 && (
@@ -844,6 +914,73 @@ function ServerSectionComponent({
             Server is offline or API is not reachable.
           </div>
         )}
+
+        <Dialog open={showPortModal} onOpenChange={setShowPortModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Available Port Generator</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {suggestionLoading && (
+                <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Checking for an available port...
+                </div>
+              )}
+
+              {suggestionError && !suggestionLoading && (
+                <div className="text-sm text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-md px-3 py-2 bg-red-50 dark:bg-red-900/20">
+                  {suggestionError}
+                </div>
+              )}
+
+              {suggestionPort && !suggestionLoading && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                    <span className="text-2xl font-mono font-semibold text-slate-900 dark:text-slate-100">{suggestionPort}</span>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={handleCopySuggestedPort}
+                            className="inline-flex items-center justify-center p-2 rounded-md bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
+                          >
+                            {copiedKey === `suggested-port-${id}` ? (
+                              <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{copiedKey === `suggested-port-${id}` ? "Copied!" : "Copy to clipboard"}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="flex flex-col sm:flex-row sm:justify-center sm:space-x-2 space-y-2 sm:space-y-0">
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowPortModal(false)}>
+                  Close
+                </Button>
+                <Button onClick={handleRegenerate} disabled={suggestionLoading}>
+                  {suggestionLoading ? (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Generating...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4" />
+                      Regenerate
+                    </span>
+                  )}
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {hiddenPorts.length > 0 && (
           <div className="border-t border-slate-200 dark:border-slate-700/50">

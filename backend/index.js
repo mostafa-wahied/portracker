@@ -18,6 +18,7 @@ const fetch = (...args) => (globalThis.fetch ? globalThis.fetch(...args) : impor
 const { Logger } = require('./lib/logger');
 const DockerAPIClient = require('./lib/docker-api');
 const { createCollector, detectCollector } = require('./collectors');
+const net = require('net');
 const db = require('./db');
 const https = require("https");
 const os = require("os");
@@ -31,6 +32,10 @@ const dockerApi = new DockerAPIClient();
 const { SimpleTTLCache } = require('./utils/cache');
 const responseCache = new SimpleTTLCache();
 const RESP_TTL_PORTS = parseInt(process.env.ENDPOINT_CACHE_PORTS_TTL_MS || '3000', 10);
+const PORT_SUGGEST_MIN = parseInt(process.env.GENERATE_PORT_MIN || '30000', 10);
+const PORT_SUGGEST_MAX = parseInt(process.env.GENERATE_PORT_MAX || '60999', 10);
+const PORT_SUGGEST_BIND_HOST = process.env.GENERATE_PORT_BIND_HOST || '0.0.0.0';
+const PORT_SUGGEST_MAX_RANDOM_ATTEMPTS = 60;
 
 if (isAuthEnabled()) {
   logger.info('Authentication is ENABLED - Login required for dashboard access');
@@ -744,6 +749,144 @@ async function getLocalPortsUsingCollectors(options = {}) {
   }
 }
 
+function getPortRangeForSuggestion() {
+  const floor = 1024;
+  const ceiling = 65535;
+  let min = Number.isInteger(PORT_SUGGEST_MIN) ? PORT_SUGGEST_MIN : 30000;
+  let max = Number.isInteger(PORT_SUGGEST_MAX) ? PORT_SUGGEST_MAX : 60999;
+
+  if (min < floor) min = floor;
+  if (max > ceiling) max = ceiling;
+  if (min >= max) {
+    min = 30000;
+    max = 60999;
+  }
+  return { min, max };
+}
+
+function buildReservedPortSet() {
+  const reserved = new Set();
+  Object.keys(WELL_KNOWN_PORTS).forEach((p) => {
+    const num = parseInt(p, 10);
+    if (!Number.isNaN(num)) reserved.add(num);
+  });
+  const appPort = parseInt(process.env.PORT || "3000", 10);
+  if (!Number.isNaN(appPort)) reserved.add(appPort);
+  [3000, 3001, 5173, 8080, 8443].forEach((p) => reserved.add(p));
+  return reserved;
+}
+
+function getUsedPortsFromEntries(entries) {
+  const set = new Set();
+  (entries || []).forEach((entry) => {
+    const hp = parseInt(entry.host_port, 10);
+    if (!Number.isNaN(hp) && hp > 0) {
+      set.add(hp);
+    }
+  });
+  return set;
+}
+
+function testTcpPortAvailable(port, host = PORT_SUGGEST_BIND_HOST, timeoutMs = 750) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    let resolved = false;
+    const finish = (result) => {
+      if (resolved) return;
+      resolved = true;
+      server.close(() => resolve(result));
+    };
+
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    server.once("error", () => {
+      clearTimeout(timer);
+      finish(false);
+    });
+
+    server.listen({ port, host, exclusive: true }, () => {
+      clearTimeout(timer);
+      finish(true);
+    });
+  });
+}
+
+function reservePortsAndMerge(reserved, used) {
+  for (const p of reserved) {
+    used.add(p);
+  }
+}
+
+async function generateUnusedPortWithSet(usedPortsInput, { bindCheck = false, method = "scan-only" } = {}) {
+  const { min, max } = getPortRangeForSuggestion();
+  const reservedPorts = buildReservedPortSet();
+  const usedPorts = new Set(usedPortsInput || []);
+  reservePortsAndMerge(reservedPorts, usedPorts);
+
+  const rangeSize = max - min + 1;
+  if (rangeSize <= 0) {
+    throw new Error("Invalid port range for generation");
+  }
+
+  const seen = new Set();
+  const attemptLimit = Math.min(rangeSize, PORT_SUGGEST_MAX_RANDOM_ATTEMPTS);
+
+  const isCandidateFree = async (candidate) => {
+    if (usedPorts.has(candidate)) return false;
+    if (!bindCheck) return true;
+    return testTcpPortAvailable(candidate);
+  };
+
+  for (let i = 0; i < attemptLimit; i++) {
+    const candidate = min + Math.floor(Math.random() * rangeSize);
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+
+    if (await isCandidateFree(candidate)) {
+      return {
+        port: candidate,
+        meta: {
+          range: { min, max },
+          attempts: i + 1,
+          method,
+          bindHost: PORT_SUGGEST_BIND_HOST,
+          checkedPorts: Array.from(seen.values()),
+          usedCount: usedPorts.size,
+        },
+      };
+    }
+  }
+
+  for (let candidate = min; candidate <= max; candidate++) {
+    if (await isCandidateFree(candidate)) {
+      return {
+        port: candidate,
+        meta: {
+          range: { min, max },
+          attempts: attemptLimit + (candidate - min + 1),
+          method,
+          bindHost: PORT_SUGGEST_BIND_HOST,
+          checkedPorts: Array.from(seen.values()).concat(candidate),
+          usedCount: usedPorts.size,
+        },
+      };
+    }
+  }
+
+  throw new Error("No available port found in the configured range");
+}
+
+async function generateUnusedPortLocal({ debug = false, bindCheck = true } = {}) {
+  const ports = await getLocalPortsUsingCollectors({ debug });
+  const usedPorts = getUsedPortsFromEntries(ports);
+  return generateUnusedPortWithSet(usedPorts, { bindCheck, method: bindCheck ? "scan+bind" : "scan-only" });
+}
+
+async function generateUnusedPortFromPortList(portEntries, { bindCheck = false, method = "scan-only" } = {}) {
+  const usedPorts = getUsedPortsFromEntries(portEntries || []);
+  return generateUnusedPortWithSet(usedPorts, { bindCheck, method });
+}
+
 /**
  * New endpoint to scan a server with the appropriate collector
  */
@@ -896,6 +1039,99 @@ app.get("/api/servers/:id/scan", async (req, res) => {
     res
       .status(500)
       .json({ error: "Failed to scan server", details: error.message });
+  } finally {
+    if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
+  }
+});
+
+/**
+ * Generate an unused TCP port for the given server.
+ * - For local: uses collectors to find used ports, excludes well-known/reserved, then validates with a TCP bind test.
+ * - For peers: forwards the request to the peer's /api/servers/local/generate-port endpoint.
+ */
+app.post("/api/servers/:id/generate-port", async (req, res) => {
+  const serverId = req.params.id;
+  const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
+  if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(currentDebug);
+
+  try {
+    const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(serverId);
+    if (!server) {
+      return res.status(404).json({ error: "Server not found" });
+    }
+
+    if (serverId === "local") {
+      const suggestion = await generateUnusedPortLocal({ debug: currentDebug, bindCheck: true });
+      return res.json({
+        port: suggestion.port,
+        meta: suggestion.meta,
+      });
+    }
+
+    if (server.type === "peer" && server.url) {
+      const peerUrl = new URL("/api/servers/local/generate-port", server.url).href;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      try {
+        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (peerResponse.ok) {
+          const payload = await peerResponse.json();
+          return res.json(payload);
+        }
+
+        if (peerResponse.status === 404 || peerResponse.status === 405 || peerResponse.status === 501) {
+          logger.warn(`[generate-port] Peer ${server.label} missing generate endpoint, falling back to scan.`);
+          try {
+            const scanUrl = new URL("/api/servers/local/scan", server.url).href;
+            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal });
+
+            if (scanResponse.ok) {
+              const scanData = await scanResponse.json();
+              const suggestion = await generateUnusedPortFromPortList(scanData?.ports || [], { bindCheck: false, method: "scan-only-peer-fallback" });
+              return res.json({
+                port: suggestion.port,
+                meta: {
+                  ...suggestion.meta,
+                  fallbackUsed: true,
+                  fallbackReason: "peer-generate-port-missing",
+                },
+              });
+            }
+          } catch (fallbackError) {
+            logger.warn(`[generate-port] Peer scan fallback failed for ${server.label}: ${fallbackError.message}`);
+          }
+        }
+
+        const body = await peerResponse.text().catch(() => "");
+        return res.status(peerResponse.status).json({
+          error: "Peer port generation failed",
+          details: body || `Status ${peerResponse.status}`,
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const errMsg = err.name === "AbortError" ? "Peer request timed out" : err.message;
+        logger.error(`[generate-port] Failed to reach peer ${server.label} (${server.url}): ${errMsg}`);
+        return res.status(502).json({
+          error: "Failed to reach peer for port generation",
+          details: errMsg,
+        });
+      }
+    }
+
+    return res.status(501).json({
+      error: "Port generation not supported for this server type",
+      server_id: serverId,
+    });
+  } catch (error) {
+    logger.error(`Error in POST /api/servers/${serverId}/generate-port: ${error.message}`);
+    logger.debug("Stack trace:", error.stack || "");
+    return res.status(500).json({
+      error: "Failed to generate port",
+      details: error.message,
+    });
   } finally {
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }

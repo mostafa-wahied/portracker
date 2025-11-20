@@ -265,6 +265,7 @@ export default function App() {
       return false;
     }
   });
+  const [portSuggestions, setPortSuggestions] = useState({});
 
   useEffect(() => {
     if (isDarkMode) {
@@ -350,6 +351,46 @@ export default function App() {
       logger.warn("Failed to save auto-refresh setting:", error);
     }
   }, [autoRefreshEnabled]);
+
+  const generatePortForServer = useCallback(async (serverId) => {
+    setPortSuggestions((prev) => ({
+      ...prev,
+      [serverId]: { ...(prev[serverId] || {}), loading: true, error: null },
+    }));
+
+    try {
+      const response = await fetch(`/api/servers/${encodeURIComponent(serverId)}/generate-port`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || `Failed to generate port (HTTP ${response.status})`);
+      }
+
+      const payload = await response.json();
+      setPortSuggestions((prev) => ({
+        ...prev,
+        [serverId]: {
+          port: payload.port,
+          meta: payload.meta || null,
+          generatedAt: Date.now(),
+          loading: false,
+          error: null,
+        },
+      }));
+    } catch (error) {
+      logger.error("Failed to generate unused port:", error);
+      setPortSuggestions((prev) => ({
+        ...prev,
+        [serverId]: {
+          ...(prev[serverId] || {}),
+          loading: false,
+          error: error.message || "Failed to generate port",
+        },
+      }));
+    }
+  }, []);
 
   const handleSelectServer = useCallback((serverId) => {
     setSelectedServer(serverId);
@@ -515,6 +556,7 @@ export default function App() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setPortSuggestions({});
 
     try {
       const serversResponse = await fetch("/api/servers");
@@ -1779,14 +1821,16 @@ export default function App() {
         onToggleExpanded={() => toggleServerExpanded(server.id)}
         openAccordionItems={openAccordions[server.id] ?? ["system-info", "vms"]}
   onAccordionChange={(items) => handleAccordionChange(server.id, items)}
-  deepLinkContainerId={selectedServer === server.id ? deepLinkContainer : null}
-  onOpenContainerDetails={(containerId) => handleContainerOpen(server.id, containerId)}
-  onCloseContainerDetails={handleContainerClose}
-  selectionMode={selectionMode}
-  selectedPorts={selectedPorts}
-  onToggleSelection={togglePortSelection}
-  onToggleServerSelectionMode={() => toggleServerSelectionMode(server.id)}
-  onSelectAllPorts={(ports) => selectAllPortsForServer(server.id, ports)}
+        deepLinkContainerId={selectedServer === server.id ? deepLinkContainer : null}
+        onOpenContainerDetails={(containerId) => handleContainerOpen(server.id, containerId)}
+        onCloseContainerDetails={handleContainerClose}
+        selectionMode={selectionMode}
+        selectedPorts={selectedPorts}
+        onToggleSelection={togglePortSelection}
+        onToggleServerSelectionMode={() => toggleServerSelectionMode(server.id)}
+        onSelectAllPorts={(ports) => selectAllPortsForServer(server.id, ports)}
+        portSuggestion={portSuggestions[server.id]}
+        onGeneratePort={generatePortForServer}
       />
     );
   }
