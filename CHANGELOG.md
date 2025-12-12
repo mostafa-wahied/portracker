@@ -2,6 +2,12 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.2.2] - 2025-12-12
+
+### Performance & Reliability
+
+- **TrueNAS Integration**: Improved timeout handling with parallel API calls, granular per-call timeouts, and connection reuse for reliable VM and container collection
+
 ## [1.2.1] - 2025-11-21
 
 ### Performance & Reliability

@@ -33,7 +33,10 @@ class TrueNASCollector extends BaseCollector {
     this.platform = "truenas";
     this.platformName = "TrueNAS";
     this.name = "TrueNAS Collector";
-    this.client = new TrueNASClient({ debug: this.debug });
+    this.client = null;
+    this._clientInitPromise = null;
+    this._collectionInProgress = false;
+    this._pendingCollectionPromise = null;
   this.procParser = new ProcParser();
   this.dockerApi = new DockerAPIClient();
     this._initializeDocker();
@@ -90,6 +93,33 @@ class TrueNASCollector extends BaseCollector {
       this.logWarn('Docker API initialization failed:', error.message);
       return false;
     }
+  }
+
+  async _ensureTrueNASClient() {
+    if (this.client && this.client.connected) {
+      return this.client;
+    }
+    
+    if (this._clientInitPromise) {
+      return this._clientInitPromise;
+    }
+    
+    this._clientInitPromise = (async () => {
+      try {
+        this.client = new TrueNASClient({ debug: this.debug });
+        await this.client.connect();
+        this.log('TrueNAS client connected and ready');
+        return this.client;
+      } catch (err) {
+        this.logWarn('TrueNAS client initialization failed:', err.message);
+        this.client = null;
+        throw err;
+      } finally {
+        this._clientInitPromise = null;
+      }
+    })();
+    
+    return this._clientInitPromise;
   }
 
   /**
@@ -899,6 +929,24 @@ class TrueNASCollector extends BaseCollector {
    * @returns {Promise<Object>} Collection results
    */
   async collect() {
+    if (this._collectionInProgress) {
+      this.log('Collection already in progress, returning pending promise');
+      return this._pendingCollectionPromise;
+    }
+
+    this._collectionInProgress = true;
+    this._pendingCollectionPromise = this._performCollection();
+
+    try {
+      const results = await this._pendingCollectionPromise;
+      return results;
+    } finally {
+      this._collectionInProgress = false;
+      this._pendingCollectionPromise = null;
+    }
+  }
+
+  async _performCollection() {
     const perf = new PerformanceTracker();
     perf.start("total-collection");
 
@@ -1206,15 +1254,18 @@ class TrueNASCollector extends BaseCollector {
       const apiKey = process.env.TRUENAS_API_KEY;
       if (apiKey) {
         this.logInfo("API key detected - collecting enhanced TrueNAS features");
+        this.logInfo("First collection may take longer as middleware initializes connections...");
         
-        const enhancedFeaturesTimeout = parseInt(process.env.TRUENAS_TIMEOUT_MS || '45000', 10);
+        const enhancedFeaturesTimeout = parseInt(process.env.TRUENAS_TIMEOUT_MS || '90000', 10);
         this.log(`Using enhanced features timeout: ${enhancedFeaturesTimeout/1000}s`);
         
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`TrueNAS enhanced features timeout after ${enhancedFeaturesTimeout/1000} seconds - your TrueNAS middleware may be slow or unresponsive`)), enhancedFeaturesTimeout)
-        );
-        
         try {
+          await this._ensureTrueNASClient();
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`TrueNAS enhanced features timeout after ${enhancedFeaturesTimeout/1000} seconds - your TrueNAS middleware may be slow or unresponsive`)), enhancedFeaturesTimeout)
+          );
+          
           const enhancedData = await Promise.race([
             this._collectEnhancedFeatures(),
             timeoutPromise
@@ -1305,15 +1356,29 @@ class TrueNASCollector extends BaseCollector {
           this.logInfo("Continuing with Docker and system port data only");
           
           if (err.message.includes('timeout')) {
-            this.logInfo("💡 Troubleshooting tips:");
+            this.logInfo("TrueNAS middleware timeout - your system may be slow or under load");
+            this.logInfo("Troubleshooting steps:");
             this.logInfo("  1. Check TrueNAS system resources: CPU, RAM, disk I/O");
             this.logInfo("  2. Restart TrueNAS middleware: systemctl restart middlewared");
-            this.logInfo("  3. Increase timeout: set TRUENAS_TIMEOUT_MS=60000 (60 seconds)");
-            this.logInfo("  4. Check middleware logs: journalctl -u middlewared -n 100");
+            this.logInfo("  3. Increase overall timeout: TRUENAS_TIMEOUT_MS=120000 (2 minutes)");
+            this.logInfo("  4. Or adjust specific API timeouts:");
+            this.logInfo("     - TRUENAS_SYSTEM_INFO_TIMEOUT_MS=60000 (system info)");
+            this.logInfo("     - TRUENAS_APP_QUERY_TIMEOUT_MS=45000 (apps - slow with many apps)");
+            this.logInfo("     - TRUENAS_VM_QUERY_TIMEOUT_MS=30000 (VMs)");
+            this.logInfo("     - TRUENAS_CONTAINER_QUERY_TIMEOUT_MS=30000 (containers)");
+            this.logInfo("  5. Check middleware logs: journalctl -u middlewared -n 100");
+            this.logInfo("  6. See troubleshooting guide: https://github.com/mostafa-wahied/portracker#truenas-troubleshooting");
+          }
+          
+          if (this.client) {
+            try {
+              this.client.close();
+              this.client = null;
+            } catch (closeErr) {
+              this.logWarn("Error closing TrueNAS client after failure:", closeErr.message);
+            }
           }
         }
-        /* Note: WebSocket connection is kept alive for reuse in subsequent scans
-         * The connection has a keep-alive ping mechanism and will be closed when collector is destroyed */
       } else {
         this.logInfo(
           "No TRUENAS_API_KEY provided - enhanced features disabled"
@@ -1808,74 +1873,96 @@ class TrueNASCollector extends BaseCollector {
       apps: [],
       vms: [],
       containers: [],
-      partialFailure: false,
+      failures: [],
     };
     
-    this.logInfo("Attempting enhanced TrueNAS API calls...");
+    this.logInfo("Attempting enhanced TrueNAS API calls in parallel...");
     
-    try {
-      const startTime = Date.now();
-      const systemInfo = await this.client.call("system.info");
-      results.systemInfo = systemInfo;
-      const duration = Date.now() - startTime;
-      this.log(`Enhanced system info retrieved in ${duration}ms`);
-      if (duration > 5000) {
-        this.logWarn(`system.info took ${(duration/1000).toFixed(1)}s - middleware may be slow`);
-      }
-    } catch (err) {
-      this.logWarn(
-        "Enhanced system info API call failed (continuing with basic info):",
-        err.message.substring(0, 100)
-      );
-      results.partialFailure = true;
-    }
+    const systemInfoTimeout = parseInt(process.env.TRUENAS_SYSTEM_INFO_TIMEOUT_MS || '30000', 10);
+    const appQueryTimeout = parseInt(process.env.TRUENAS_APP_QUERY_TIMEOUT_MS || '20000', 10);
+    const vmQueryTimeout = parseInt(process.env.TRUENAS_VM_QUERY_TIMEOUT_MS || '15000', 10);
+    const containerQueryTimeout = parseInt(process.env.TRUENAS_CONTAINER_QUERY_TIMEOUT_MS || '15000', 10);
     
-    try {
+    const apiCalls = [
+      {
+        name: 'system.info',
+        timeout: systemInfoTimeout,
+        call: () => this.client.call("system.info"),
+        resultKey: 'systemInfo',
+      },
+      {
+        name: 'app.query',
+        timeout: appQueryTimeout,
+        call: () => this.client.call("app.query"),
+        resultKey: 'apps',
+      },
+      {
+        name: 'vm.query',
+        timeout: vmQueryTimeout,
+        call: () => this.client.call("vm.query"),
+        resultKey: 'vms',
+      },
+      {
+        name: 'virt.instance.query',
+        timeout: containerQueryTimeout,
+        call: () => this.client.call("virt.instance.query"),
+        resultKey: 'containers',
+      },
+    ];
+    
+    const apiPromises = apiCalls.map(async (apiCall) => {
       const startTime = Date.now();
-      this.log("Querying TrueNAS apps (this may take a while on systems with many apps)...");
-      const apps = await this.client.call("app.query");
-      results.apps = apps || [];
-      const duration = Date.now() - startTime;
-      this.log(`TrueNAS apps query completed in ${duration}ms (${(apps || []).length} apps found)`);
       
-      if (duration > 10000) {
-        this.logWarn(`app.query took ${(duration/1000).toFixed(1)}s - consider reducing number of TrueNAS apps for better performance`);
+      try {
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`${apiCall.name} timeout after ${apiCall.timeout/1000}s`)), apiCall.timeout)
+        );
+        
+        const data = await Promise.race([apiCall.call(), timeoutPromise]);
+        const duration = Date.now() - startTime;
+        
+        this.log(`${apiCall.name} completed in ${duration}ms`);
+        
+        if (duration > apiCall.timeout * 0.7) {
+          this.logWarn(`${apiCall.name} took ${(duration/1000).toFixed(1)}s (70% of ${apiCall.timeout/1000}s timeout - consider increasing if this becomes frequent)`);
+        }
+        
+        return { success: true, name: apiCall.name, data, resultKey: apiCall.resultKey, duration };
+      } catch (err) {
+        const duration = Date.now() - startTime;
+        this.logWarn(`${apiCall.name} failed after ${(duration/1000).toFixed(1)}s:`, err.message.substring(0, 100));
+        return { success: false, name: apiCall.name, error: err.message, resultKey: apiCall.resultKey, duration };
       }
-    } catch (err) {
-      this.logWarn(
-        "TrueNAS apps API query failed (VMs will still be collected):",
-        err.message.substring(0, 100)
-      );
-      results.partialFailure = true;
-    }
-      
-    try {
-      const startTime = Date.now();
-      const vms = await this.client.call("vm.query");
-      results.vms = vms || [];
-      const duration = Date.now() - startTime;
-      this.log(`VM query completed in ${duration}ms (${(vms || []).length} VMs found)`);
-    } catch (err) {
-      this.logWarn("VM API query failed (continuing with other data):", err.message.substring(0, 100));
-      results.partialFailure = true;
-    }
+    });
     
-    try {
-      const startTime = Date.now();
-      const containers = await this.client.call("virt.instance.query");
-      results.containers = containers || [];
-      const duration = Date.now() - startTime;
-      this.log(`LXC container query completed in ${duration}ms (${(containers || []).length} containers found)`);
-    } catch (err) {
-      this.logWarn("LXC Container API query failed (continuing with other data):", err.message.substring(0, 100));
-      results.partialFailure = true;
-    }
+    const apiResults = await Promise.allSettled(apiPromises);
+    
+    apiResults.forEach((promiseResult) => {
+      if (promiseResult.status === 'fulfilled') {
+        const result = promiseResult.value;
+        if (result.success) {
+          if (result.resultKey === 'systemInfo') {
+            results.systemInfo = result.data;
+          } else {
+            results[result.resultKey] = result.data || [];
+          }
+        } else {
+          results.failures.push(result.name);
+        }
+      } else {
+        this.logWarn('Unexpected API call rejection:', promiseResult.reason);
+      }
+    });
     
     const totalCollected = (results.apps?.length || 0) + (results.vms?.length || 0) + (results.containers?.length || 0);
-    if (results.partialFailure) {
-      this.logWarn(`Partial enhanced features collection: ${totalCollected} items collected (some API calls failed)`);
+    const successCount = apiCalls.length - results.failures.length;
+    
+    if (results.failures.length === 0) {
+      this.logInfo(`Enhanced features collected successfully: ${results.apps?.length || 0} apps, ${results.vms?.length || 0} VMs, ${results.containers?.length || 0} containers (${successCount}/${apiCalls.length} API calls)`);
+    } else if (results.failures.length === apiCalls.length) {
+      this.logWarn(`Enhanced features collection failed: all ${apiCalls.length} API calls failed (${results.failures.join(', ')})`);
     } else {
-      this.log(`Enhanced features collection successful: ${totalCollected} items collected`);
+      this.logWarn(`Partial enhanced features collection: ${results.apps?.length || 0} apps, ${results.vms?.length || 0} VMs, ${results.containers?.length || 0} containers from ${successCount}/${apiCalls.length} API calls (failed: ${results.failures.join(', ')})`);
     }
     
     return results;

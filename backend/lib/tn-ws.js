@@ -326,10 +326,11 @@ async function connectWs(options = {}) {
         ws.on("message", messageHandler);
         ws.send(payload);
 
+        const requestTimeout = parseInt(process.env.TRUENAS_WS_REQUEST_TIMEOUT_MS || '40000', 10);
         const requestTimeoutId = setTimeout(() => {
           ws.removeListener("message", messageHandler);
-          reject(new Error(`Request timeout for method ${method}`));
-        }, 30000);
+          reject(new Error(`Request timeout for method ${method} after ${requestTimeout/1000}s`));
+        }, requestTimeout);
       };
 
       if (
