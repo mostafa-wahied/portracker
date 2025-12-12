@@ -1,5 +1,5 @@
 /**
- * Frontend Logger System for Portracker
+ * Frontend Logger System for portracker
  * Provides centralized logging with component identification and timestamp formatting
  * Consistent with backend logging patterns
  */

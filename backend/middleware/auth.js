@@ -1,7 +1,7 @@
 /**
  * Authentication Middleware
  * 
- * Provides session management and authentication checking for Portracker.
+ * Provides session management and authentication checking for portracker.
  * Authentication can be enabled/disabled via ENABLE_AUTH environment variable.
  */
 

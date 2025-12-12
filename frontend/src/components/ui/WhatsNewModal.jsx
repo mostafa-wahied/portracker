@@ -261,7 +261,7 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                What's New in Portracker {version}
+                What's New in portracker {version}
               </DialogTitle>
               <DialogDescription className="text-slate-600 dark:text-slate-400 mt-1">
                 Discover the latest features and improvements

@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     
     # Required for comprehensive system port detection
-    # This allows Portracker to see all host processes for accurate port mapping
+    # This allows portracker to see all host processes for accurate port mapping
     pid: "host"
 
     # Capabilities & security (universal, required)
@@ -38,7 +38,7 @@ services:
       # CORE CONFIGURATION (Required)
       # - DATABASE_PATH=/data/portracker.db
       # - PORT=4999
-      # Tell Portracker where to find the host /proc (matches the volume above)
+      # Tell portracker where to find the host /proc (matches the volume above)
       # - HOST_PROC=/host/proc
       
       # DOCKER CONFIGURATION
@@ -86,14 +86,14 @@ services:
 
   # OPTIONAL: Enhanced Security with Docker Socket Proxy
   # Uncomment the entire section below for additional Docker socket security
-  # This adds a proxy layer between Portracker and the Docker socket
+  # This adds a proxy layer between portracker and the Docker socket
   
   # docker-proxy:
   #   image: tecnativa/docker-socket-proxy:latest
   #   container_name: portracker-docker-proxy
   #   restart: unless-stopped
   #   environment:
-  #     # Only allow read operations Portracker needs
+  #     # Only allow read operations portracker needs
   #     - CONTAINERS=1
   #     - IMAGES=1
   #     - INFO=1

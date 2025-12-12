@@ -1,5 +1,5 @@
 /**
- * Centralized logging system for Portracker
+ * Centralized logging system for portracker
  * Provides consistent logging across all components
  */
 
