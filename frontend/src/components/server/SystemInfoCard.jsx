@@ -9,6 +9,7 @@ import {
   Container,
 } from "lucide-react";
 import { formatBytes, formatUptime } from "@/lib/utils";
+import { t } from '@/lib/i18n';
 
 function InfoItem({ icon, label, value, fullWidth = false }) {
   if (value === undefined || value === null || value === "") return null;
@@ -52,9 +53,9 @@ export function SystemInfoCard({ systemInfo, platformName }) {
   let memoryMessage = null;
   if (memoryGb != null) {
     if (memoryGb >= 128) {
-      memoryMessage = "That's a lot of RAM.";
+      memoryMessage = t("That's a lot of RAM.");
     } else if (memoryGb < 4) {
-      memoryMessage = "Running lean. Respect.";
+      memoryMessage = t('Running lean. Respect.');
     }
   }
 
@@ -78,25 +79,25 @@ export function SystemInfoCard({ systemInfo, platformName }) {
         <div className="space-y-2 border-b border-slate-200 dark:border-slate-700/50 pb-3">
           <InfoItem
             icon={Home}
-            label="Hostname"
+            label={t('Hostname')}
             value={info.hostname}
             fullWidth={true}
           />
           <InfoItem
             icon={ServerIcon}
-            label="Product"
+            label={t('Product')}
             value={info.product}
             fullWidth={true}
           />
           <InfoItem
             icon={Terminal}
-            label="OS"
+            label={t('OS')}
             value={info.os}
             fullWidth={true}
           />
           <InfoItem
             icon={Cpu}
-            label="CPU Model"
+            label={t('CPU Model')}
             value={info.cpuModel}
             fullWidth={true}
           />
@@ -104,11 +105,11 @@ export function SystemInfoCard({ systemInfo, platformName }) {
 
         
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-1">
-          <InfoItem icon={Cpu} label="CPU Cores" value={info.cpuCores} />
+          <InfoItem icon={Cpu} label={t('CPU Cores')} value={info.cpuCores} />
           <InfoItem
             icon={MemoryStick}
-            label="Memory"
-            value={info.memory ? `Total: ${formatBytes(info.memory)}` : "N/A"}
+            label={t('Memory')}
+            value={info.memory ? `${t('Total')}: ${formatBytes(info.memory)}` : t('N/A')}
           />
           {memoryMessage && (
             <div className="col-span-2 text-xs text-slate-500 dark:text-slate-400 italic">
@@ -117,15 +118,15 @@ export function SystemInfoCard({ systemInfo, platformName }) {
           )}
           <InfoItem
             icon={Clock}
-            label="Uptime"
-            value={info.uptime ? formatUptime(info.uptime) : "N/A"}
+            label={t('Uptime')}
+            value={info.uptime ? formatUptime(info.uptime) : t('N/A')}
           />
           <InfoItem
             icon={Container}
-            label="Containers"
+            label={t('Containers')}
             value={containerInfoValue()}
           />
-          <InfoItem icon={Package} label="Docker" value={info.dockerVersion} />
+          <InfoItem icon={Package} label={t('Docker')} value={info.dockerVersion} />
         </div>
       </div>
     </div>

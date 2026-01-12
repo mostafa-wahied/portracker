@@ -5,6 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/lib/i18n";
 
 export function PortStatusIndicator({
   serverId,
@@ -64,7 +65,7 @@ export function PortStatusIndicator({
         reachable: false, 
         status: 'unreachable',
         color: 'red',
-        title: 'Connection failed'
+        title: t('Connection failed')
       }))
       .finally(() => {
         clearTimeout(timeoutId);
@@ -81,14 +82,14 @@ export function PortStatusIndicator({
     if (checking) {
       return {
         color: "bg-blue-400 animate-pulse",
-        title: "Checking service status...",
+        title: t('Checking service status...'),
       };
     }
     
     if (!statusData) {
       return {
         color: "bg-gray-400",
-        title: "Status unknown",
+        title: t('Status unknown'),
       };
     }
     
@@ -101,7 +102,7 @@ export function PortStatusIndicator({
     
     return {
       color: colorMap[statusData.color] || "bg-gray-400",
-      title: statusData.title || "Status unknown",
+      title: statusData.title || t('Status unknown'),
     };
   };
 

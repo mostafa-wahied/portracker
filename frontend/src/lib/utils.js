@@ -66,8 +66,10 @@ export function formatCpuSpeed(mhz) {
   return (mhz / 1000).toFixed(2) + ' GHz';
 }
 
+import { t } from '@/lib/i18n';
+
 export function formatCreatedDate(dateString) {
-  if (!dateString) return "N/A";
+  if (!dateString) return t('N/A');
   
   let date;
   if (typeof dateString === 'number') {
@@ -75,7 +77,7 @@ export function formatCreatedDate(dateString) {
   } else if (typeof dateString === 'string') {
     date = new Date(dateString.replace(" +0000 UTC", "Z"));
   } else {
-    return "N/A";
+    return t('N/A');
   }
   
   if (isNaN(date.getTime())) return dateString;
@@ -89,16 +91,16 @@ export function formatCreatedDate(dateString) {
   const diffWeek = Math.floor(diffDay / 7);
   const diffMonth = Math.floor(diffDay / 30);
 
-  if (diffMonth >= 1) return `${diffMonth} month${diffMonth > 1 ? "s" : ""} ago`;
-  if (diffWeek >= 1) return `${diffWeek} week${diffWeek > 1 ? "s" : ""} ago`;
-  if (diffDay >= 1) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
-  if (diffHr >= 1) return `${diffHr} hour${diffHr > 1 ? "s" : ""} ago`;
-  if (diffMin >= 1) return `${diffMin} minute${diffMin > 1 ? "s" : ""} ago`;
-  return "just now";
+  if (diffMonth >= 1) return `${diffMonth} ${diffMonth > 1 ? t('months') : t('month')} ${t('ago')}`;
+  if (diffWeek >= 1) return `${diffWeek} ${diffWeek > 1 ? t('weeks') : t('week')} ${t('ago')}`;
+  if (diffDay >= 1) return `${diffDay} ${diffDay > 1 ? t('days') : t('day')} ${t('ago')}`;
+  if (diffHr >= 1) return `${diffHr} ${diffHr > 1 ? t('hours') : t('hour')} ${t('ago')}`;
+  if (diffMin >= 1) return `${diffMin} ${diffMin > 1 ? t('minutes') : t('minute')} ${t('ago')}`;
+  return t('just now');
 }
 
 export function formatCreatedTooltip(dateString) {
-  if (!dateString) return "Created: N/A";
+  if (!dateString) return `${t('Created')}: ${t('N/A')}`;
   
   let date;
   if (typeof dateString === 'number') {
@@ -106,12 +108,12 @@ export function formatCreatedTooltip(dateString) {
   } else if (typeof dateString === 'string') {
     date = new Date(dateString.replace(" +0000 UTC", "Z"));
   } else {
-    return "Created: N/A";
+    return `${t('Created')}: ${t('N/A')}`;
   }
   
-  if (isNaN(date.getTime())) return `Created: ${dateString}`;
+  if (isNaN(date.getTime())) return `${t('Created')}: ${dateString}`;
   return (
-    "Created: " +
+    `${t('Created')}: ` +
     date.toLocaleString(undefined, {
       year: "numeric",
       month: "short",

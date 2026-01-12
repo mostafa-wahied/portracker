@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Key, Check } from "lucide-react";
 import Logger from '../../lib/logger';
+import { t } from '@/lib/i18n';
 
 const logger = new Logger('TrueNASApiKeyModal');
 
@@ -74,10 +75,10 @@ export function TrueNASApiKeyModal({ isOpen, onClose }) {
         <DialogHeader>
           <div className="flex items-center space-x-2">
             <Key className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-            <DialogTitle>Setup TrueNAS API Key</DialogTitle>
+            <DialogTitle>{t('Setup TrueNAS API Key')}</DialogTitle>
           </div>
           <DialogDescription>
-            Enable VMs, LXC containers, and enhanced system information.
+            {t('Enable VMs, LXC containers, and enhanced system information.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -89,12 +90,12 @@ export function TrueNASApiKeyModal({ isOpen, onClose }) {
                 1
               </div>
               <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-                Generate API Key in TrueNAS
+                {t('Generate API Key in TrueNAS')}
               </h3>
             </div>
             <div className="ml-8 text-sm text-slate-600 dark:text-slate-400 space-y-1.5">
-              <div>Navigate to: <span className="font-mono text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">System Settings → API Keys</span></div>
-              <div>Click <span className="font-semibold">Add</span>, give it a name, then copy the generated key</div>
+              <div>{t('Navigate to:')} <span className="font-mono text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">System Settings → API Keys</span></div>
+              <div>{t('Click Add, give it a name, then copy the generated key')}</div>
             </div>
           </div>
 
@@ -105,7 +106,7 @@ export function TrueNASApiKeyModal({ isOpen, onClose }) {
                 2
               </div>
               <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-                Add to portracker
+                {t('Add to portracker')}
               </h3>
             </div>
             <div className="ml-8 space-y-2.5">
@@ -113,9 +114,9 @@ export function TrueNASApiKeyModal({ isOpen, onClose }) {
                 <span className="font-semibold">Apps</span> → <span className="font-semibold">portracker</span> → <span className="font-semibold">Edit</span> → <span className="font-semibold">Environment Variables</span> → <span className="font-semibold">Add</span>
               </div>
               <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
-                <div className="space-y-1.5 text-xs">
+                  <div className="space-y-1.5 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Name:</span>
+                    <span className="text-slate-500 dark:text-slate-400">{t('Name:')}</span>
                     <div
                       onClick={handleCopyEnvVar}
                       className="inline-flex items-center space-x-1.5 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors cursor-pointer"
@@ -129,13 +130,13 @@ export function TrueNASApiKeyModal({ isOpen, onClose }) {
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">Value:</span>
+                    <span className="text-slate-500 dark:text-slate-400">{t('Value:')}</span>
                     <span className="text-slate-500 dark:text-slate-400 italic">[paste your key]</span>
                   </div>
                 </div>
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-500 italic">
-                Click <span className="font-semibold not-italic">Update</span> and wait for restart
+                {t('Click Update and wait for restart')}
               </div>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { t } from "@/lib/i18n";
 import { PortTableRow } from "./PortTableRow";
 import { generatePortKey } from "../../lib/utils/portUtils";
 
@@ -88,7 +89,7 @@ export function PortTable({
               scope="col"
               className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
-              Status
+              {t('Status')}
             </th>
             <th
               scope="col"
@@ -98,7 +99,7 @@ export function PortTable({
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 onClick={() => handleSort("host_port")}
               >
-                Port
+                {t('Port')}
                 {getSortIcon("host_port")}
               </button>
             </th>
@@ -110,7 +111,7 @@ export function PortTable({
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 onClick={() => handleSort("owner")}
               >
-                Service
+                {t('Service')}
                 {getSortIcon("owner")}
               </button>
             </th>
@@ -118,13 +119,13 @@ export function PortTable({
               scope="col"
               className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
-              Source
+              {t('Source')}
             </th>
             <th
               scope="col"
               className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
-              Host
+              {t('Host')}
             </th>
             <th
               scope="col"
@@ -134,7 +135,7 @@ export function PortTable({
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 onClick={() => handleSort("created")}
               >
-                Created
+                {t('Created')}
                 {getSortIcon("created")}
               </button>
             </th>
@@ -142,7 +143,7 @@ export function PortTable({
               scope="col"
               className="px-4 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
-              Actions
+              {t('Actions')}
             </th>
           </tr>
         </thead>

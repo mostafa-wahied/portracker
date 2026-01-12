@@ -33,6 +33,7 @@ import { generatePortKey } from "./lib/utils/portUtils";
 import { formatUptime } from "@/lib/utils";
 import { useAuth } from "./contexts/AuthContext";
 import { buildAutoRefreshMessages } from "@/lib/autoRefreshMessages";
+import { t } from '@/lib/i18n';
 
 const keyOf = (srvId, p) => generatePortKey(srvId, p);
 
@@ -51,12 +52,17 @@ const KONAMI_SEQUENCE = [
   "a"
 ];
 
-const KONAMI_HINTS = ["↑", "Course input detected…", "gg, keyboard pilot."];
-
 
 export default function App() {
   const auth = useAuth();
   const { shouldShowButton: shouldShowWhatsNewButton, handleShow: handleShowWhatsNew, getModalProps: getWhatsNewModalProps } = useWhatsNew();
+  
+  // Create translated Konami hints
+  const KONAMI_HINTS = useMemo(() => [
+    "↑",
+    t('Course input detected…'),
+    t('gg, keyboard pilot.')
+  ], []);
   
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -125,8 +131,8 @@ export default function App() {
       pushHealthToast({
         type: "info",
         message: next
-          ? "Hacker mode activated. Use Ctrl+Shift+H to toggle."
-          : "Hacker mode disabled."
+          ? t('Hacker mode activated. Use Ctrl+Shift+H to toggle.')
+          : t('Hacker mode disabled.')
       });
       return next;
     });
@@ -139,7 +145,7 @@ export default function App() {
       if (!prev) return prev;
       pushHealthToast({
         type: "info",
-        message: "Hacker mode disabled."
+        message: t('Hacker mode disabled.')
       });
       return false;
     });

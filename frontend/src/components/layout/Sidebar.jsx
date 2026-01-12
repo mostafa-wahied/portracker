@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatBytes, formatUptime } from "@/lib/utils";
 import { SidebarSkeleton } from "./SidebarSkeleton";
+import { t } from '@/lib/i18n';
 
 const generateServerId = (label) => {
   if (!label || !label.trim()) {
@@ -63,7 +64,7 @@ const ServerCard = React.memo(function ServerCard({
   onDelete,
   children,
 }) {
-  const name = server.server || "Unknown Server";
+  const name = server.server || t('Unknown Server');
   const portCount = server.data?.length || 0;
   const isUpdating = server.ok === null || server.loading;
   const systemInfo = server.systemInfo || {};
@@ -87,15 +88,15 @@ const ServerCard = React.memo(function ServerCard({
     }
   };
 
-  let typeLabel = "Services";
+  let typeLabel = t('Services');
   let typeIcon = <Settings className="h-3 w-3 mr-1" />;
   let typeCount = portCount;
   if (server.platform === "docker" || containerCount > 0) {
-    typeLabel = containerCount === 1 ? "Container" : "Containers";
+    typeLabel = containerCount === 1 ? t('Container') : t('Containers');
     typeIcon = <Container className="h-3 w-3 mr-1" />;
     typeCount = containerCount;
   } else if (vmCount > 0) {
-    typeLabel = "VMs";
+    typeLabel = t('VMs');
     typeIcon = <Server className="h-3 w-3 mr-1" />;
     typeCount = vmCount;
   }
@@ -116,9 +117,9 @@ const ServerCard = React.memo(function ServerCard({
       <div className="flex items-center justify-between">
         <div className="flex-1 min-w-0">
           <h4 className="font-semibold text-slate-800 dark:text-slate-200 truncate pr-2 group-hover:text-slate-900 dark:group-hover:text-slate-100 transition-colors flex items-center">
-            {server.label || name}
+            {server.id === 'local' ? t('Local Server') : (server.label || name)}
           </h4>
-          <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
             {getHostDisplay()}
           </p>
         </div>
@@ -130,7 +131,7 @@ const ServerCard = React.memo(function ServerCard({
               onEdit(server.id);
             }}
             className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
-            aria-label="Edit Server"
+            aria-label={t('Edit Server')}
           >
             <Pencil className="h-4 w-4" />
           </button>
@@ -141,7 +142,7 @@ const ServerCard = React.memo(function ServerCard({
                 onDelete(server);
               }}
               className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-500"
-              aria-label="Delete Server"
+              aria-label={t('Delete')}
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -154,7 +155,7 @@ const ServerCard = React.memo(function ServerCard({
               <button
                 onClick={(e) => e.stopPropagation()}
                 className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
-                aria-label="More options"
+                  aria-label={t('More options')}
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
@@ -163,18 +164,18 @@ const ServerCard = React.memo(function ServerCard({
               onClick={(e) => e.stopPropagation()}
               align="end"
             >
-              <DropdownMenuItem onClick={() => onEdit(server.id)}>
+                  <DropdownMenuItem onClick={() => onEdit(server.id)}>
                 <Pencil className="mr-2 h-4 w-4" />
-                <span>Edit</span>
+                <span>{t('Edit')}</span>
               </DropdownMenuItem>
         
               {server.id !== "local" && (
-                <DropdownMenuItem
+                  <DropdownMenuItem
                   onClick={() => onDelete(server)}
                   className="text-red-600 focus:text-red-600 dark:text-red-500 dark:focus:text-red-500"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  <span>Delete</span>
+                  <span>{t('Delete')}</span>
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -183,20 +184,20 @@ const ServerCard = React.memo(function ServerCard({
       </div>
 
         
-      <div className="mt-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors">
+          <div className="mt-3 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors">
         <div className="flex items-center space-x-3">
           <HardDrive className="h-3 w-3 mr-1" />
-          <span>{memory ? formatBytes(memory) : "N/A"}</span>
+          <span>{memory ? formatBytes(memory) : t('N/A')}</span>
         </div>
         <div className="flex items-center space-x-3">
           <Clock className="h-3 w-3 mr-1" />
-          <span>{uptime ? formatUptime(uptime, true) : "N/A"}</span>
+          <span>{uptime ? formatUptime(uptime, true) : t('N/A')}</span>
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors">
-        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3">
           <Zap className="h-3 w-3 mr-1" />
-          <span>{portCount} ports</span>
+          <span>{portCount} {t('ports')}</span>
         </div>
         <div className="flex items-center space-x-3">
           {typeIcon}
@@ -272,7 +273,7 @@ export function Sidebar({
     const hasValidFormat =
       /^(https?:\/\/)?[\w-]+(\.[\w-]+)*([:\d]+)?(\/.*)?$/i.test(originalUrl);
     if (!hasValidFormat) {
-      setValidationStatus({ type: "warning", message: "Invalid URL format" });
+      setValidationStatus({ type: "warning", message: t('Invalid URL format') });
       setUrlValid(false);
       setValidating(false);
       return;
@@ -283,7 +284,7 @@ export function Sidebar({
       setError("");
       setValidationStatus({
         type: "loading",
-        message: "Checking server availability...",
+        message: t('Checking server availability...'),
       });
       let urlForCheck = originalUrl.startsWith("http")
         ? originalUrl
@@ -294,7 +295,7 @@ export function Sidebar({
           setValidating(false);
           setValidationStatus({
             type: "success",
-            message: "URL bypassed (unreachable allowed)",
+            message: t('URL bypassed (unreachable allowed)'),
           });
         }
         return;
@@ -313,30 +314,30 @@ export function Sidebar({
             setUrlValid(true);
             setValidationStatus({
               type: "success",
-              message: "Server is reachable",
+              message: t('Server is reachable'),
             });
           } else {
             setUrlValid(false);
             setValidationStatus({
               type: "error",
-              message: `Server responded with ${response.status}`,
+              message: t('Server responded with {status}', { status: response.status }),
             });
           }
           setValidating(false);
         }
       } catch (e) {
-        if (currentValidation === latestValidationRef.current) {
+          if (currentValidation === latestValidationRef.current) {
           setUrlValid(false);
           setValidating(false);
           if (e.name === "AbortError") {
             setValidationStatus({
               type: "error",
-              message: "Connection timeout",
+              message: t('Connection timeout'),
             });
           } else {
             setValidationStatus({
               type: "error",
-              message: `Cannot reach server: ${e.message}`,
+              message: t('Cannot reach server: {msg}', { msg: e.message }),
             });
           }
         }
@@ -349,13 +350,11 @@ export function Sidebar({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.label.trim()) {
-      setError("Server name is required");
+      setError(t('Server name is required'));
       return;
     }
     if (form.type === "peer" && !allowUnreachable && !urlValid) {
-      setError(
-        "Please enter a valid, reachable URL or allow unreachable servers"
-      );
+      setError(t('Please enter a valid, reachable URL or allow unreachable servers'));
       return;
     }
     setSubmitting(true);
@@ -382,18 +381,18 @@ export function Sidebar({
         type: "success",
         message:
           mode === "add"
-            ? "Server added successfully!"
-            : "Server updated successfully!",
+            ? t('Server added successfully!')
+            : t('Server updated successfully!'),
       });
       setTimeout(() => {
         setMode("list");
         setValidationStatus(null);
       }, 1000);
     } catch (e) {
-      setError(e.message || "Failed to save server");
+      setError(e.message || t('Failed to save server'));
       setValidationStatus({
         type: "error",
-        message: e.message || "Operation failed",
+        message: e.message || t('Operation failed'),
       });
     } finally {
       setSubmitting(false);
@@ -442,7 +441,7 @@ export function Sidebar({
         >
           <Icon className={`h-4 w-4 ${className}`} />
           <span className="text-sm text-blue-700 dark:text-blue-300">
-            Checking server availability...
+            {t('Checking server availability...')}
           </span>
         </div>
       );
@@ -518,14 +517,14 @@ export function Sidebar({
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1 flex items-center">
                 <BarChart3 className="h-5 w-5 mr-2 text-slate-600 dark:text-slate-400" />
-                Dashboard
+                {t('Dashboard')}
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                Server Overview
+                {t('Server Overview')}
               </p>
             </div>
             <h3 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
-              Servers ({servers.length})
+              {t('Servers')} ({servers.length})
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-4">
@@ -538,35 +537,35 @@ export function Sidebar({
               className="w-full p-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-600 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex flex-col items-center justify-center"
             >
               <Plus className="h-5 w-5 mb-1" />
-              <span className="text-sm font-medium">Add Server</span>
+              <span className="text-sm font-medium">{t('Add Server')}</span>
             </button>
           </div>
         </>
       ) : (
         <div className="p-6 flex-1 overflow-y-auto">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-6">
-            {mode === "add" ? "Add New Server" : "Edit Server"}
+            {mode === "add" ? t('Add New Server') : t('Edit Server')}
           </h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="label">Server Name *</Label>
+              <Label htmlFor="label">{t('Server Name')} *</Label>
               <Input
                 id="label"
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="My Web Server"
+                placeholder={t('My Web Server')}
                 className="mt-1.5"
                 disabled={submitting}
               />
             </div>
             <div>
-              <Label htmlFor="url">Server URL</Label>
+              <Label htmlFor="url">{t('Server URL')}</Label>
               <div className="relative">
                 <Input
                   id="server-url"
                   value={form.url}
                   onChange={(e) => setForm({ ...form, url: e.target.value })}
-                  placeholder="http://localhost:3000"
+                  placeholder={t('http://localhost:3000')}
                   className={`pr-10 ${
                     urlValid
                       ? "border-green-500 focus:border-green-500"
@@ -593,9 +592,9 @@ export function Sidebar({
               </div>
               <ValidationStatus />
             </div>
-            {availableParents.length > 0 && (
+                {availableParents.length > 0 && (
               <div>
-                <Label htmlFor="parent">Parent Server (Optional)</Label>
+                <Label htmlFor="parent">{t('Parent Server (Optional)')}</Label>
                 <select
                   id="parent"
                   value={form.parentId}
@@ -605,7 +604,7 @@ export function Sidebar({
                   className="w-full mt-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 text-sm disabled:opacity-50"
                   disabled={submitting}
                 >
-                  <option value="">None (Top-level server)</option>
+                  <option value="">{t('None (Top-level server)')}</option>
                   {availableParents.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.label || s.server}
@@ -628,7 +627,7 @@ export function Sidebar({
                   htmlFor="allow-unreachable"
                   className="ml-2 text-sm font-normal text-slate-600 dark:text-slate-400"
                 >
-                  Save even if unreachable
+                  {t('Save even if unreachable')}
                 </Label>
               </div>
             </div>
@@ -639,7 +638,7 @@ export function Sidebar({
             )}
             <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
               <Button variant="outline" onClick={() => setMode("list")}>
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button
                 onClick={handleSubmit}
@@ -653,12 +652,12 @@ export function Sidebar({
                 {submitting ? (
                   <div className="flex items-center">
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {mode === "add" ? "Adding..." : "Saving..."}
+                    {mode === "add" ? t('Adding...') : t('Saving...')}
                   </div>
                 ) : mode === "add" ? (
-                  "Add Server"
+                  t('Add Server')
                 ) : (
-                  "Save Changes"
+                  t('Save Changes')
                 )}
               </Button>
             </div>
@@ -669,22 +668,20 @@ export function Sidebar({
         open={!!serverToDelete}
         onOpenChange={() => setServerToDelete(null)}
       >
-        <AlertDialogContent>
+          <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Server</AlertDialogTitle>
+            <AlertDialogTitle>{t('Delete Server')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "
-              {serverToDelete?.label || serverToDelete?.server}"? This action
-              cannot be undone and will remove all associated data.
+              {t('Are you sure you want to delete')} "{serverToDelete?.label || serverToDelete?.server}"? {t('This action cannot be undone and will remove all associated data.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700 focus:ring-red-500"
             >
-              Delete Server
+              {t('Delete Server')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

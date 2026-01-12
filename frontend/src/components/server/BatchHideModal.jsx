@@ -1,4 +1,5 @@
 import React from "react";
+import { t } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -31,10 +32,10 @@ export function BatchHideModal({
 
   const portCount = selectedPorts?.size || 0;
   const isHiding = action === "hide";
-  const actionText = isHiding ? "Hide" : "Show";
-  const actionDescription = isHiding 
-    ? "Hidden ports will no longer appear in the main view but can be accessed through the hidden ports drawer."
-    : "These ports will be restored to the main view.";
+  const actionText = isHiding ? t('Hide') : t('Show');
+  const actionDescription = isHiding
+    ? t('Hidden ports will no longer appear in the main view but can be accessed through the hidden ports drawer.')
+    : t('These ports will be restored to the main view.');
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -42,7 +43,7 @@ export function BatchHideModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isHiding ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-            {actionText} {portCount} Port{portCount !== 1 ? 's' : ''}
+            {actionText} {t('Port')} {portCount}
           </DialogTitle>
           <DialogDescription>
             {actionDescription}
@@ -50,8 +51,8 @@ export function BatchHideModal({
         </DialogHeader>
         
         <div className="py-4">
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Are you sure you want to {action} {portCount} selected port{portCount !== 1 ? 's' : ''}?
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+            {t('Are you sure you want to {action} {count} selected ports?', { action: actionText, count: portCount })}
           </p>
         </div>
 
@@ -61,7 +62,7 @@ export function BatchHideModal({
             onClick={onClose}
             disabled={loading}
           >
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button 
             onClick={handleConfirm}
@@ -72,12 +73,12 @@ export function BatchHideModal({
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {actionText}ing...
+                {isHiding ? t('Hiding...') : t('Showing...')}
               </>
             ) : (
               <>
                 {isHiding ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-                {actionText} {portCount} Port{portCount !== 1 ? 's' : ''}
+                {actionText} {t('Port')} {portCount}
               </>
             )}
           </Button>

@@ -4,6 +4,7 @@ import { Button } from './button';
 import { Globe, Database, Sparkles, Shield, Layout, Server, HardDrive, Wrench, Package, Bandage } from 'lucide-react';
 import { getFeatureIcon } from '../../lib/feature-icons';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 const FeatureCard = ({ feature, index }) => {
   const IconComponent = getFeatureIcon(feature);
@@ -92,14 +93,14 @@ const VersionSection = ({ versionData, index }) => (
     <div className="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
       <VersionBadge version={versionData.version} />
       <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-        Version {versionData.version}
+        {t('Version {version}', { version: versionData.version })}
       </h2>
     </div>
 
     <div className="space-y-4">
       {versionData.changes.security?.length > 0 && (
         <CategorySection
-          title="Security & Access Control"
+          title={t('Security & Access Control')}
           features={versionData.changes.security}
           icon={Shield}
         />
@@ -107,7 +108,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.dashboard?.length > 0 && (
         <CategorySection
-          title="Dashboard & UX"
+          title={t('Dashboard & UX')}
           features={versionData.changes.dashboard}
           icon={Layout}
         />
@@ -115,7 +116,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.integrations?.length > 0 && (
         <CategorySection
-          title="Server Integrations"
+          title={t('Server Integrations')}
           features={versionData.changes.integrations}
           icon={Server}
         />
@@ -123,7 +124,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.data?.length > 0 && (
         <CategorySection
-          title="Data & Infrastructure"
+          title={t('Data & Infrastructure')}
           features={versionData.changes.data}
           icon={HardDrive}
         />
@@ -131,7 +132,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.tooling?.length > 0 && (
         <CategorySection
-          title="Operations & Tooling"
+          title={t('Operations & Tooling')}
           features={versionData.changes.tooling}
           icon={Wrench}
         />
@@ -139,7 +140,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.fixes?.length > 0 && (
         <CategorySection
-          title="Stability & Fixes"
+          title={t('Stability & Fixes')}
           features={versionData.changes.fixes}
           icon={Bandage}
         />
@@ -147,7 +148,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.frontend?.length > 0 && (
         <CategorySection
-          title="Frontend Improvements"
+          title={t('Frontend Improvements')}
           features={versionData.changes.frontend}
           icon={Globe}
         />
@@ -155,7 +156,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.backend?.length > 0 && (
         <CategorySection
-          title="Backend Enhancements"
+          title={t('Backend Enhancements')}
           features={versionData.changes.backend}
           icon={Database}
         />
@@ -163,7 +164,7 @@ const VersionSection = ({ versionData, index }) => (
 
       {versionData.changes.misc?.length > 0 && (
         <CategorySection
-          title="Other Updates"
+          title={t('Other Updates')}
           features={versionData.changes.misc}
           icon={Package}
         />
@@ -192,7 +193,7 @@ const FlatChangesDisplay = ({ changes }) => (
 
     {changes.integrations?.length > 0 && (
       <CategorySection
-        title="Server Integrations"
+        title={t('Server Integrations')}
         features={changes.integrations}
         icon={Server}
       />
@@ -224,7 +225,7 @@ const FlatChangesDisplay = ({ changes }) => (
 
     {changes.frontend?.length > 0 && (
       <CategorySection
-        title="Frontend Improvements"
+        title={t('Frontend Improvements')}
         features={changes.frontend}
         icon={Globe}
       />
@@ -232,7 +233,7 @@ const FlatChangesDisplay = ({ changes }) => (
 
     {changes.backend?.length > 0 && (
       <CategorySection
-        title="Backend Enhancements"
+        title={t('Backend Enhancements')}
         features={changes.backend}
         icon={Database}
       />
@@ -240,7 +241,7 @@ const FlatChangesDisplay = ({ changes }) => (
 
     {changes.misc?.length > 0 && (
       <CategorySection
-        title="Other Updates"
+        title={t('Other Updates')}
         features={changes.misc}
         icon={Package}
       />
@@ -261,10 +262,10 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                What's New in portracker {version}
+                {t("What's New in portracker {version}", { version })}
               </DialogTitle>
               <DialogDescription className="text-slate-600 dark:text-slate-400 mt-1">
-                Discover the latest features and improvements
+                {t('Discover the latest features and improvements')}
               </DialogDescription>
             </div>
           </div>
@@ -293,14 +294,14 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
             }}
             className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           >
-            Don't show again
+            {t("Don't show again")}
           </Button>
           
           <Button
             onClick={onClose}
             className="min-w-[120px] bg-indigo-600 hover:bg-indigo-700 text-white dark:bg-indigo-500 dark:hover:bg-indigo-600 transition-colors duration-200"
           >
-            Get Started
+            {t('Get Started')}
           </Button>
         </div>
       </DialogContent>

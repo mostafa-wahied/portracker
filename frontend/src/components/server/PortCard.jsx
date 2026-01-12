@@ -6,6 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from '@/lib/i18n';
 import { PortStatusIndicator } from "./PortStatusIndicator";
 import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
@@ -36,7 +37,7 @@ const renderHighlightedText = (content) => {
 };
 
 const getDisplayServiceName = (port) => {
-  return port.customServiceName || port.owner || "Unknown Service";
+  return port.customServiceName || port.owner || t('Unknown Service');
 };
 
 function PortCardComponent({
@@ -142,13 +143,13 @@ function PortCardComponent({
                 )}
                 </TooltipTrigger>
                 {port.internal ? (
-                  <TooltipContent>Internal only</TooltipContent>
+                  <TooltipContent>{t('Internal only')}</TooltipContent>
                 ) : (
                   !port.internal && port.target && (
                     <TooltipContent>
                       {searchMatches.target ? (
                         <span>
-                          Internal:{" "}
+                          {t('Internal')}: {" "}
                           {shouldHighlight
                             ? renderHighlightedText(
                                 highlightText(port.target, searchTerm)
@@ -156,7 +157,7 @@ function PortCardComponent({
                             : port.target}
                         </span>
                       ) : (
-                        `Internal: ${port.target}`
+                        <span>{t('Internal')}: {port.target}</span>
                       )}
                     </TooltipContent>
                   )
