@@ -1,5 +1,6 @@
 import { Copy, Edit, EyeOff, Eye } from "lucide-react";
 import { ActionButton } from "./ActionButton";
+import { t } from '@/lib/i18n';
 
 export function PortActions({
   port,
@@ -18,7 +19,7 @@ export function PortActions({
         actionFeedback={actionFeedback}
         onClick={onCopy}
         icon={Copy}
-        title="Copy URL to clipboard"
+        title={t('Copy URL to clipboard')}
         size={size}
       />
       <ActionButton
@@ -27,7 +28,7 @@ export function PortActions({
         actionFeedback={actionFeedback}
         onClick={onEdit}
         icon={Edit}
-        title="Edit note"
+        title={t('Edit note')}
         size={size}
       />
       <ActionButton
@@ -36,7 +37,7 @@ export function PortActions({
         actionFeedback={actionFeedback}
         onClick={onHide}
         icon={port.ignored ? Eye : EyeOff}
-        title={port.ignored ? "Unhide this port" : "Hide this port"}
+        title={port.ignored ? t('Unhide this port') : t('Hide this port')}
         size={size}
       />
     </div>

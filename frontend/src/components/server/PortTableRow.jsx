@@ -6,6 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/lib/i18n";
 import { PortStatusIndicator } from "./PortStatusIndicator";
 import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
@@ -37,7 +38,7 @@ const renderHighlightedText = (content) => {
 };
 
 const getDisplayServiceName = (port) => {
-  return port.customServiceName || port.owner || "Unknown Service";
+  return port.customServiceName || port.owner || t('Unknown Service');
 };
 
 function PortTableRowComponent({
@@ -149,13 +150,13 @@ function PortTableRowComponent({
                   )}
                 </TooltipTrigger>
                 {port.internal ? (
-                  <TooltipContent>Internal only</TooltipContent>
+                  <TooltipContent>{t('Internal only')}</TooltipContent>
                 ) : (
                   !port.internal && port.target && (
                     <TooltipContent>
                       {searchMatches.target ? (
                         <span>
-                          Internal:{" "}
+                          {t('Internal')}: {" "}
                           {shouldHighlight
                             ? renderHighlightedText(
                                 highlightText(port.target, searchTerm)
@@ -163,7 +164,7 @@ function PortTableRowComponent({
                             : port.target}
                         </span>
                       ) : (
-                        `Internal: ${port.target}`
+                        `${t('Internal')}: ${port.target}`
                       )}
                     </TooltipContent>
                   )
@@ -176,7 +177,7 @@ function PortTableRowComponent({
           
           {searchMatches.target && port.target !== port.host_port.toString() && (
             <span className="text-xs text-slate-500 dark:text-slate-400 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-1 rounded border border-yellow-200 dark:border-yellow-700/50">
-              Internal:{" "}
+              {t('Internal')}: {" "}
               {shouldHighlight
                 ? renderHighlightedText(highlightText(port.target, searchTerm))
                 : port.target}
@@ -203,17 +204,17 @@ function PortTableRowComponent({
                         : getDisplayServiceName(port)}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Open container details</TooltipContent>
+                  <TooltipContent>{t('Open container details')}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
               <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-                <ActionButton
+                  <ActionButton
                   type="rename"
                   itemKey={itemKey}
                   actionFeedback={actionFeedback}
                   onClick={() => onRename(serverId, port)}
                   icon={Tag}
-                  title="Rename service"
+                  title={t('Rename service')}
                   size="sm"
                 />
               </div>
@@ -232,7 +233,7 @@ function PortTableRowComponent({
                   actionFeedback={actionFeedback}
                   onClick={() => onRename(serverId, port)}
                   icon={Tag}
-                  title="Rename service"
+                  title={t('Rename service')}
                   size="sm"
                 />
               </div>
@@ -289,7 +290,7 @@ function PortTableRowComponent({
             </Tooltip>
           </TooltipProvider>
         ) : (
-          "N/A"
+          t('N/A')
         )}
       </td>
 

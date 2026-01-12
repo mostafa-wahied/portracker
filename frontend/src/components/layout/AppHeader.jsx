@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer } from "lucide-react";
+import { t } from '@/lib/i18n';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/Logo";
@@ -51,21 +52,21 @@ export function AppHeader({
     () => [
       {
         key: "docker",
-        label: "Docker",
+        label: t('Docker'),
         isActive: filters.docker,
         activeClass:
           "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
         onClick: () => onFilterChange({ ...filters, docker: !filters.docker }),
-        title: filters.docker ? "Disable Docker filter" : "Enable Docker filter",
+        title: filters.docker ? t('Disable Docker filter') : t('Enable Docker filter'),
       },
       {
         key: "system",
-        label: "System",
+        label: t('System'),
         isActive: filters.system,
         activeClass:
           "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
         onClick: () => onFilterChange({ ...filters, system: !filters.system }),
-        title: filters.system ? "Disable System filter" : "Enable System filter",
+        title: filters.system ? t('Disable System filter') : t('Enable System filter'),
       },
     ],
     [filters, onFilterChange]
@@ -155,9 +156,9 @@ export function AppHeader({
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
               {searchIcon}
             </div>
-            <Input
+              <Input
               type="text"
-              placeholder="Search ports, processes..."
+              placeholder={t('Search ports, processes...')}
               className={`pl-10 ${getInputPadding()} w-full max-w-[36rem] sm:max-w-[28rem] md:max-w-[32rem] lg:max-w-[40rem] border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}
               value={localSearchTerm}
               onChange={(e) => setLocalSearchTerm(e.target.value)}
@@ -177,7 +178,7 @@ export function AppHeader({
                       <X className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Clear search</TooltipContent>
+                  <TooltipContent>{t('Clear search')}</TooltipContent>
                 </Tooltip>
               )}
             </div>
@@ -197,23 +198,23 @@ export function AppHeader({
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Search options</TooltipContent>
+              <TooltipContent>{t('Search options')}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-56" onOpenAutoFocus={e => e.preventDefault()}>
               <TooltipProvider delayDuration={500} skipDelayDuration={0}>
-                <div className="px-2 pt-1 pb-2 text-xs text-slate-500">Scope</div>
+                <div className="px-2 pt-1 pb-2 text-xs text-slate-500">{t('Scope')}</div>
                 <DropdownMenuRadioGroup value={searchScope} onValueChange={onSearchScopeChange}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuRadioItem value="server">Server</DropdownMenuRadioItem>
                     </TooltipTrigger>
-                    <TooltipContent>Search only the selected server</TooltipContent>
+                    <TooltipContent>{t('Search only the selected server')}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <DropdownMenuRadioItem value="all">Global</DropdownMenuRadioItem>
                     </TooltipTrigger>
-                    <TooltipContent>Search across all servers</TooltipContent>
+                    <TooltipContent>{t('Search across all servers')}</TooltipContent>
                   </Tooltip>
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
@@ -226,7 +227,7 @@ export function AppHeader({
                       Highlight
                     </DropdownMenuCheckboxItem>
                   </TooltipTrigger>
-                  <TooltipContent>Highlight matching text in results</TooltipContent>
+                  <TooltipContent>{t('Highlight matching text in results')}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </DropdownMenuContent>
@@ -268,7 +269,7 @@ export function AppHeader({
                 {refreshIcon}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{loading ? "Refreshing..." : "Refresh all data"}</TooltipContent>
+                  <TooltipContent>{loading ? t('Refreshing...') : t('Refresh all data')}</TooltipContent>
           </Tooltip>
 
           {onAutoRefreshToggle && (
@@ -286,7 +287,7 @@ export function AppHeader({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {autoRefreshEnabled ? "Auto-refresh enabled (30s)" : "Enable auto-refresh"}
+                {autoRefreshEnabled ? t('Auto-refresh enabled (30s)') : t('Enable auto-refresh')}
               </TooltipContent>
             </Tooltip>
           )}
@@ -311,7 +312,7 @@ export function AppHeader({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {hasNewFeatures ? "See what's new!" : "What's new"}
+                {hasNewFeatures ? t("See what's new!") : t("What's new")}
               </TooltipContent>
             </Tooltip>
           )}
@@ -331,7 +332,7 @@ export function AppHeader({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{isDarkMode ? "Switch to light mode" : "Switch to dark mode"}</TooltipContent>
+            <TooltipContent>{isDarkMode ? t('Switch to light mode') : t('Switch to dark mode')}</TooltipContent>
           </Tooltip>
 
           {hackerMode && onDisableHackerMode && (
@@ -359,7 +360,7 @@ export function AppHeader({
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>Account</TooltipContent>
+                <TooltipContent>{t('Account')}</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="w-48">
                 <div className="px-2 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">

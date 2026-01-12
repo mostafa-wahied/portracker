@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { t } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -67,27 +68,27 @@ export function BatchRenameModal({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Batch Rename Services</DialogTitle>
+          <DialogTitle>{t('Batch Rename Services')}</DialogTitle>
           <DialogDescription>
-            Set a custom service name for {portCount} selected port{portCount !== 1 ? 's' : ''}.
+            {t('Set a custom service name for {count} selected services.', { count: portCount })}
           </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="batch-service-name">Service Name</Label>
+            <Label htmlFor="batch-service-name">{t('Service Name')}</Label>
             <Input
               id="batch-service-name"
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter custom service name..."
+              placeholder={t('Enter custom service name...')}
               className="w-full"
               disabled={loading}
               autoFocus
             />
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              This name will be applied to all {portCount} selected services.
+              {t('This name will be applied to all {count} selected services.', { count: portCount })}
             </p>
           </div>
         </div>
@@ -101,7 +102,7 @@ export function BatchRenameModal({
                 disabled={loading}
                 className="flex-1"
               >
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button 
                 onClick={handleSave}
@@ -111,10 +112,10 @@ export function BatchRenameModal({
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
+                    {t('Saving...')}
                   </>
                 ) : (
-                  `Rename ${portCount}`
+                  t('Rename {count}', { count: portCount })
                 )}
               </Button>
             </div>
@@ -126,7 +127,7 @@ export function BatchRenameModal({
               className="w-full"
             >
               <RotateCcw className="h-4 w-4 mr-2" />
-              Reset All to Original
+              {t('Reset All to Original')}
             </Button>
           </div>
         </DialogFooter>

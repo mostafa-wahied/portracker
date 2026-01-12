@@ -6,6 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/lib/i18n";
 import { PortStatusIndicator } from "./PortStatusIndicator";
 import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
@@ -37,7 +38,7 @@ const renderHighlightedText = (content) => {
 };
 
 const getDisplayServiceName = (port) => {
-  return port.customServiceName || port.owner || "Unknown Service";
+  return port.customServiceName || port.owner || t('Unknown Service');
 };
 
 /**
@@ -147,13 +148,13 @@ export function PortGridItem({
                 )}
                 </TooltipTrigger>
                 {port.internal ? (
-                  <TooltipContent>Internal only</TooltipContent>
+                  <TooltipContent>{t('Internal only')}</TooltipContent>
                 ) : (
                   !port.internal && port.target && (
                   <TooltipContent>
                     {searchMatches.target ? (
                       <span>
-                        Internal:{" "}
+                        {t('Internal')}: {" "}
                         {shouldHighlight
                           ? renderHighlightedText(
                               highlightText(port.target, searchTerm)
@@ -161,7 +162,7 @@ export function PortGridItem({
                           : port.target}
                       </span>
                     ) : (
-                      `Internal: ${port.target}`
+                      `${t('Internal')}: ${port.target}`
                     )}
                   </TooltipContent>
                   )
@@ -187,7 +188,7 @@ export function PortGridItem({
       {searchMatches.target && port.target !== port.host_port.toString() && (
         <div className="mb-2">
           <span className="text-xs text-slate-500 dark:text-slate-400 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-1 rounded border border-yellow-200 dark:border-yellow-700/50">
-            Internal:{" "}
+            {t('Internal')}: {" "}
             {shouldHighlight
               ? renderHighlightedText(highlightText(port.target, searchTerm))
               : port.target}
@@ -215,7 +216,7 @@ export function PortGridItem({
                         : getDisplayServiceName(port)}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Open container details</TooltipContent>
+                  <TooltipContent>{t('Open container details')}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             ) : (
@@ -232,7 +233,7 @@ export function PortGridItem({
                 actionFeedback={actionFeedback}
                 onClick={() => onRename(serverId, port)}
                 icon={Tag}
-                title="Rename service"
+                title={t('Rename service')}
                 size="sm"
               />
             </div>

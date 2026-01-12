@@ -61,7 +61,7 @@ WORKDIR /app
 
 # For What's New feature
 COPY package.json ./
-COPY CHANGELOG.md ./
+#COPY CHANGELOG.md ./
 
 # Copy the properly compiled backend
 COPY --from=backend-build /app/backend ./backend/
