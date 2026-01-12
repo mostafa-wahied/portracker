@@ -12,6 +12,7 @@ const db = require('../db');
 const { Logger } = require('../lib/logger');
 const { isAuthEnabled } = require('../middleware/auth');
 const recoveryManager = require('../lib/recovery-manager');
+const { translateForReq } = require('../lib/i18n');
 
 const router = express.Router();
 const logger = new Logger('AuthRoutes', { debug: process.env.DEBUG === 'true' });
@@ -49,28 +50,38 @@ router.get('/status', (req, res) => {
     });
   } catch (error) {
     logger.error('Error checking auth status:', error.message);
-    res.status(500).json({ error: 'Failed to check authentication status' });
+    const def = 'Failed to check authentication status';
+    const localized = translateForReq(req, 'auth.check_status_failed', def);
+    res.status(500).json({ error: def, error_code: 'auth.check_status_failed', error_localized: localized });
   }
 });
 
 router.post('/setup', async (req, res) => {
   try {
     if (!isAuthEnabled()) {
-      return res.status(400).json({ error: 'Authentication is not enabled' });
+      const def = 'Authentication is not enabled';
+      const localized = translateForReq(req, 'auth.not_enabled', def);
+      return res.status(400).json({ error: def, error_code: 'auth.not_enabled', error_localized: localized });
     }
 
     const { username, password } = req.body;
 
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+      const def = 'Username and password are required';
+      const localized = translateForReq(req, 'auth.username_password_required', def);
+      return res.status(400).json({ error: def, error_code: 'auth.username_password_required', error_localized: localized });
     }
 
     if (typeof username !== 'string' || username.trim().length < 3) {
-      return res.status(400).json({ error: 'Username must be at least 3 characters' });
+      const def = 'Username must be at least 3 characters';
+      const localized = translateForReq(req, 'auth.username_min', def);
+      return res.status(400).json({ error: def, error_code: 'auth.username_min', error_localized: localized });
     }
 
     if (typeof password !== 'string' || password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      const def = 'Password must be at least 8 characters';
+      const localized = translateForReq(req, 'auth.password_min', def);
+      return res.status(400).json({ error: def, error_code: 'auth.password_min', error_localized: localized });
     }
 
     let userCount;
@@ -78,11 +89,15 @@ router.post('/setup', async (req, res) => {
       userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
     } catch (dbError) {
       logger.error('Users table does not exist:', dbError.message);
-      return res.status(500).json({ error: 'Database not initialized' });
+      const def = 'Database not initialized';
+      const localized = translateForReq(req, 'auth.db_not_initialized', def);
+      return res.status(500).json({ error: def, error_code: 'auth.db_not_initialized', error_localized: localized });
     }
 
     if (userCount.count > 0) {
-      return res.status(400).json({ error: 'Setup already completed' });
+      const def = 'Setup already completed';
+      const localized = translateForReq(req, 'auth.setup_already_completed', def);
+      return res.status(400).json({ error: def, error_code: 'auth.setup_already_completed', error_localized: localized });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -96,7 +111,9 @@ router.post('/setup', async (req, res) => {
     req.session.regenerate((err) => {
       if (err) {
         logger.error('Session regeneration failed:', err.message);
-        return res.status(500).json({ error: 'Setup failed' });
+        const def = 'Setup failed';
+        const localized = translateForReq(req, 'auth.setup_failed', def);
+        return res.status(500).json({ error: def, error_code: 'auth.setup_failed', error_localized: localized });
       }
 
       req.session.userId = userId;
@@ -105,7 +122,9 @@ router.post('/setup', async (req, res) => {
       req.session.save((saveErr) => {
         if (saveErr) {
           logger.error('Session save failed:', saveErr.message);
-          return res.status(500).json({ error: 'Setup failed' });
+          const def = 'Setup failed';
+          const localized = translateForReq(req, 'auth.setup_failed', def);
+          return res.status(500).json({ error: def, error_code: 'auth.setup_failed', error_localized: localized });
         }
 
         logger.info(`Initial admin user created: ${username.trim()}`);
@@ -113,13 +132,17 @@ router.post('/setup', async (req, res) => {
         res.json({
           success: true,
           message: 'Setup completed successfully',
+          message_code: 'auth.setup_completed',
+          message_localized: translateForReq(req, 'auth.setup_completed', 'Setup completed successfully'),
           username: username.trim()
         });
       });
     });
   } catch (error) {
     logger.error('Error during setup:', error.message);
-    res.status(500).json({ error: 'Setup failed' });
+    const def = 'Setup failed';
+    const localized = translateForReq(req, 'auth.setup_failed', def);
+    res.status(500).json({ error: def, error_code: 'auth.setup_failed', error_localized: localized });
   }
 });
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { t } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -66,28 +67,28 @@ export function BatchNotesModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Batch Add Notes
+            {t('Batch Add Notes')}
           </DialogTitle>
           <DialogDescription>
-            Add a note to {portCount} selected port{portCount !== 1 ? 's' : ''}.
+            {t('Add a note to {count} selected ports.', { count: portCount })}
           </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="batch-note">Note</Label>
+            <Label htmlFor="batch-note">{t('Note')}</Label>
             <textarea
               id="batch-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter a note for all selected ports..."
+              placeholder={t('Enter a note for all selected ports...')}
               className="w-full min-h-[100px] p-3 border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-vertical"
               disabled={loading}
               autoFocus
             />
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              This note will be applied to all {portCount} selected ports. Press Ctrl+Enter to save.
+              {t('This note will be applied to all {count} selected ports. Press Ctrl+Enter to save.', { count: portCount })}
             </p>
           </div>
         </div>
@@ -99,7 +100,7 @@ export function BatchNotesModal({
               onClick={onClose}
               disabled={loading}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button 
               onClick={handleSave}
@@ -109,12 +110,12 @@ export function BatchNotesModal({
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('Saving...')}
                 </>
               ) : (
                 <>
                   <FileText className="h-4 w-4 mr-2" />
-                  {isDirty ? `Add Note to ${portCount} Port${portCount !== 1 ? 's' : ''}` : 'Save'}
+                  {isDirty ? t('Add Note to {count} ports', { count: portCount }) : t('Save')}
                 </>
               )}
             </Button>
@@ -127,7 +128,7 @@ export function BatchNotesModal({
             className="sm:order-0 text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Clear All Notes
+            {t('Clear All Notes')}
           </Button>
         </DialogFooter>
       </DialogContent>

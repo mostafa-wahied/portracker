@@ -71,7 +71,7 @@ export function ChangePasswordPage() {
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={t('At least 8 characters')}
                 required
                 autoComplete="new-password"
                 disabled={loading}
@@ -89,13 +89,13 @@ export function ChangePasswordPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword">{t('Confirm Password')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter new password"
+                placeholder={t('Re-enter new password')}
                 required
                 autoComplete="new-password"
                 disabled={loading}

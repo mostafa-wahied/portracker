@@ -2,6 +2,7 @@ import { Eye, EyeOff, ChevronDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { generatePortKey } from "../../lib/utils/portUtils";
+import { t } from "@/lib/i18n";
 
 export function HiddenPortsDrawer({ hiddenPorts, onUnhide, onUnhideAll, serverId }) {
   if (hiddenPorts.length === 0) return null;
@@ -15,7 +16,7 @@ export function HiddenPortsDrawer({ hiddenPorts, onUnhide, onUnhideAll, serverId
       <details className="group">
         <summary className="flex items-center cursor-pointer text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
           <EyeOff className="w-4 h-4 mr-2" />
-          <span>Hidden Ports ({hiddenPorts.length})</span>
+          <span>{t('Hidden Ports')} ({hiddenPorts.length})</span>
           <ChevronDown className="w-4 h-4 ml-auto transition-transform group-open:rotate-180" />
         </summary>
         
@@ -31,7 +32,7 @@ export function HiddenPortsDrawer({ hiddenPorts, onUnhide, onUnhideAll, serverId
               className="text-xs h-7"
             >
               <Eye className="w-3 h-3 mr-1" />
-              Unhide All ({hiddenPorts.length})
+              {t('Unhide All')} ({hiddenPorts.length})
             </Button>
           </div>
           
@@ -55,7 +56,7 @@ export function HiddenPortsDrawer({ hiddenPorts, onUnhide, onUnhideAll, serverId
                         <Eye className="w-4 h-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Unhide port</TooltipContent>
+                    <TooltipContent>{t('Unhide port')}</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </li>

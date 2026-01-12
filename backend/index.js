@@ -25,6 +25,13 @@ const os = require("os");
 const { requireAuth, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const recoveryManager = require('./lib/recovery-manager');
+const { translateForReq } = require('./lib/i18n');
+
+function sendError(res, req, status, code, def, extras = {}) {
+  const localized = translateForReq(req, code, def);
+  const payload = Object.assign({ error: def, error_code: code, error_localized: localized }, extras);
+  return res.status(status).json(payload);
+}
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
 const BASE_DEBUG = process.env.DEBUG === 'true';
@@ -668,9 +675,7 @@ app.get("/api/ports", async (req, res) => {
   } catch (error) {
     logger.error("Error in GET /api/ports:", error.message);
     logger.debug("Stack trace:", error.stack || "");
-    res
-      .status(500)
-      .json({ error: "Failed to scan ports", details: error.message });
+    return sendError(res, req, 500, 'ports.scan_failed', 'Failed to scan ports', { details: error.message });
   } finally {
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }
@@ -715,9 +720,7 @@ app.get("/api/all-ports", async (req, res) => {
   } catch (error) {
     logger.error("Error in GET /api/all-ports:", error.message);
     logger.debug("Stack trace:", error.stack || "");
-    res
-      .status(500)
-      .json({ error: "Failed to process all ports", details: error.message });
+    return sendError(res, req, 500, 'ports.process_failed', 'Failed to process all ports', { details: error.message });
   } finally {
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }
@@ -905,7 +908,9 @@ app.get("/api/servers/:id/scan", async (req, res) => {
 
     if (!server) {
       logger.warn(`[GET /api/servers/${serverId}/scan] Server not found.`);
-      return res.status(404).json({ error: "Server not found" });
+      const def = 'Server not found';
+      const localized = translateForReq(req, 'server.not_found', def);
+      return res.status(404).json({ error: def, error_code: 'server.not_found', error_localized: localized });
     }
 
     if (serverId === "local") {
@@ -977,7 +982,7 @@ app.get("/api/servers/:id/scan", async (req, res) => {
           });
           clearTimeout(timeoutId);
 
-          if (!peerResponse.ok) {
+            if (!peerResponse.ok) {
             let errorBody = "Peer responded with an error.";
             try {
               errorBody = await peerResponse.text();
@@ -985,8 +990,12 @@ app.get("/api/servers/:id/scan", async (req, res) => {
             logger.warn(
               `[GET /api/servers/${serverId}/scan] Peer server at ${server.url} responded with status ${peerResponse.status}. Body: ${errorBody}`
             );
+            const def = `Peer server scan failed with status ${peerResponse.status}`;
+            const localized = translateForReq(req, 'peer.scan_failed', def, { status: peerResponse.status });
             return res.status(peerResponse.status).json({
-              error: `Peer server scan failed with status ${peerResponse.status}`,
+              error: def,
+              error_code: 'peer.scan_failed',
+              error_localized: localized,
               details: errorBody,
               serverId: serverId,
               peerUrl: server.url,
@@ -1003,9 +1012,13 @@ app.get("/api/servers/:id/scan", async (req, res) => {
             logger.error(
               `[GET /api/servers/${serverId}/scan] Timeout after 15s communicating with peer ${server.label} at ${server.url}`
             );
+            const def = 'Request timeout - peer server took too long to respond';
+            const localized = translateForReq(req, 'peer.request_timeout', def);
             return res.status(408).json({
-              error: "Request timeout - peer server took too long to respond",
-              details: "Connection timed out after 15 seconds",
+              error: def,
+              error_code: 'peer.request_timeout',
+              error_localized: localized,
+              details: 'Connection timed out after 15 seconds',
               serverId: serverId,
               peerUrl: server.url,
             });
@@ -1016,8 +1029,12 @@ app.get("/api/servers/:id/scan", async (req, res) => {
         logger.error(
           `[GET /api/servers/${serverId}/scan] Failed to fetch scan data from peer ${server.label} at ${server.url}: ${fetchError.message}`
         );
+        const def = 'Failed to communicate with peer server';
+        const localized = translateForReq(req, 'peer.comm_failed', def);
         return res.status(502).json({
-          error: "Failed to communicate with peer server",
+          error: def,
+          error_code: 'peer.comm_failed',
+          error_localized: localized,
           details: fetchError.message,
           serverId: serverId,
           peerUrl: server.url,
@@ -1027,18 +1044,23 @@ app.get("/api/servers/:id/scan", async (req, res) => {
       logger.warn(
         `[GET /api/servers/${serverId}/scan] Cannot scan server: Not 'local' and not a valid 'peer' with a URL.`
       );
+      const def = 'Server scanning not possible for this server type or configuration';
+      const localized = translateForReq(req, 'server.scan_not_supported', def);
       return res.status(501).json({
-        error:
-          "Server scanning not possible for this server type or configuration",
+        error: def,
+        error_code: 'server.scan_not_supported',
+        error_localized: localized,
         server_id: serverId,
       });
     }
   } catch (error) {
     logger.error(`Error in GET /api/servers/${serverId}/scan: ${error.message}`);
     logger.debug("Stack trace:", error.stack || "");
+    const def = 'Failed to scan server';
+    const localized = translateForReq(req, 'server.scan_failed', def);
     res
       .status(500)
-      .json({ error: "Failed to scan server", details: error.message });
+      .json({ error: def, error_code: 'server.scan_failed', error_localized: localized, details: error.message });
   } finally {
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }
@@ -1057,7 +1079,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
   try {
     const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(serverId);
     if (!server) {
-      return res.status(404).json({ error: "Server not found" });
+      return sendError(res, req, 404, 'server.not_found', 'Server not found', { serverId });
     }
 
     if (serverId === "local") {
@@ -1106,30 +1128,45 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
         }
 
         const body = await peerResponse.text().catch(() => "");
+        const def = 'Peer port generation failed';
+        const localized = translateForReq(req, 'peer.port_gen_failed', def);
         return res.status(peerResponse.status).json({
-          error: "Peer port generation failed",
+          error: def,
+          error_code: 'peer.port_gen_failed',
+          error_localized: localized,
           details: body || `Status ${peerResponse.status}`,
         });
       } catch (err) {
         clearTimeout(timeoutId);
         const errMsg = err.name === "AbortError" ? "Peer request timed out" : err.message;
         logger.error(`[generate-port] Failed to reach peer ${server.label} (${server.url}): ${errMsg}`);
+        const def2 = 'Failed to reach peer for port generation';
+        const localized2 = translateForReq(req, 'peer.port_reach_failed', def2);
         return res.status(502).json({
-          error: "Failed to reach peer for port generation",
+          error: def2,
+          error_code: 'peer.port_reach_failed',
+          error_localized: localized2,
           details: errMsg,
         });
       }
     }
-
+    const def3 = 'Port generation not supported for this server type';
+    const localized3 = translateForReq(req, 'server.port_gen_not_supported', def3);
     return res.status(501).json({
-      error: "Port generation not supported for this server type",
+      error: def3,
+      error_code: 'server.port_gen_not_supported',
+      error_localized: localized3,
       server_id: serverId,
     });
   } catch (error) {
     logger.error(`Error in POST /api/servers/${serverId}/generate-port: ${error.message}`);
     logger.debug("Stack trace:", error.stack || "");
+    const def4 = 'Failed to generate port';
+    const localized4 = translateForReq(req, 'server.port_gen_failed', def4);
     return res.status(500).json({
-      error: "Failed to generate port",
+      error: def4,
+      error_code: 'server.port_gen_failed',
+      error_localized: localized4,
       details: error.message,
     });
   } finally {
@@ -1140,13 +1177,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
 function validateServerInput(req, res, next) {
   const { label, url, type, platform_type } = req.body;
   if (!label || typeof label !== "string" || label.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'label' is required and must be a non-empty string",
-        field: "label",
-      });
+    return sendError(res, req, 400, 'validation.label_required', 'Validation failed', { details: "Field 'label' is required and must be a non-empty string", field: 'label' });
   }
   if (
     type === "peer" &&
@@ -1157,25 +1188,14 @@ function validateServerInput(req, res, next) {
     try {
       new URL(url.trim());
     } catch {
-      return res
-        .status(400)
-        .json({
-          error: "Validation failed",
-          details:
-            "Field 'url' must be a valid URL format if provided for a peer",
-          field: "url",
-        });
+      return sendError(res, req, 400, 'validation.url_invalid', 'Validation failed', { details: "Field 'url' must be a valid URL format if provided for a peer", field: 'url' });
     }
   } else if (
     type === "peer" &&
     (!url || url.trim().length === 0) &&
     !req.body.unreachable
   ) {
-    return res.status(400).json({
-      error: "Validation failed",
-      details: "Peer servers must include a valid URL unless marked unreachable",
-      field: "url",
-    });
+    return sendError(res, req, 400, 'validation.peer_url_required', 'Validation failed', { details: 'Peer servers must include a valid URL unless marked unreachable', field: 'url' });
   }
 
   req.body.type = type || "peer";
@@ -1188,75 +1208,32 @@ function validateServerInput(req, res, next) {
 function validateNoteInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, container_id, internal } = req.body;
   if (!server_id || typeof server_id !== "string") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'server_id' is required and must be a string",
-        field: "server_id",
-      });
+    return sendError(res, req, 400, 'validation.server_id_required', 'Validation failed', { details: "Field 'server_id' is required and must be a string", field: 'server_id' });
   }
   if (!host_ip || typeof host_ip !== "string") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'host_ip' is required and must be a string",
-        field: "host_ip",
-      });
+    return sendError(res, req, 400, 'validation.host_ip_required', 'Validation failed', { details: "Field 'host_ip' is required and must be a string", field: 'host_ip' });
   }
   if (
     host_port === undefined ||
     host_port === null ||
     !Number.isInteger(Number(host_port))
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details:
-          "Field 'host_port' is required and must be a valid port number",
-        field: "host_port",
-      });
+    return sendError(res, req, 400, 'validation.host_port_required', 'Validation failed', { details: "Field 'host_port' is required and must be a valid port number", field: 'host_port' });
   }
   if (!protocol || typeof protocol !== "string" || (protocol !== "tcp" && protocol !== "udp")) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'protocol' is required and must be either 'tcp' or 'udp'",
-        field: "protocol",
-      });
+    return sendError(res, req, 400, 'validation.protocol_required', 'Validation failed', { details: "Field 'protocol' is required and must be either 'tcp' or 'udp'", field: 'protocol' });
   }
   if (container_id !== undefined && container_id !== null && (typeof container_id !== "string" || container_id.trim() === "")) {
-    return res
-      .status(400)
-      .json({
-        error: "Invalid input for note entry",
-        details: "container_id must be a non-empty string when provided",
-        field: "container_id",
-      });
+    return sendError(res, req, 400, 'validation.container_id_invalid', 'Validation failed', { details: "container_id must be a non-empty string when provided", field: 'container_id' });
   }
   if (internal !== undefined && internal !== null && typeof internal !== "boolean") {
-    return res
-      .status(400)
-      .json({
-        error: "Invalid input for note entry",
-        details: "internal must be a boolean when provided",
-        field: "internal",
-      });
+    return sendError(res, req, 400, 'validation.internal_invalid', 'Validation failed', { details: "internal must be a boolean when provided", field: 'internal' });
   }
   const serverExists = db
     .prepare("SELECT id FROM servers WHERE id = ?")
     .get(server_id);
   if (!serverExists) {
-    return res
-      .status(404)
-      .json({
-        error: "Validation failed",
-        details: `Server with id '${server_id}' not found`,
-        field: "server_id",
-      });
+    return sendError(res, req, 404, 'validation.server_not_found', 'Validation failed', { details: `Server with id '${server_id}' not found`, field: 'server_id' });
   }
   next();
 }
@@ -1272,14 +1249,7 @@ function validateServerIdParam(req, res, next) {
     typeof serverId !== "string" ||
     serverId.trim().length === 0
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details:
-          "Server ID parameter is required and must be a non-empty string",
-        field: "id",
-      });
+    return sendError(res, req, 400, 'validation.id_param_required', 'Validation failed', { details: "Server ID parameter is required and must be a non-empty string", field: 'id' });
   }
   next();
 }
@@ -1292,73 +1262,31 @@ function validateCustomServiceNameInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, custom_name, container_id, internal } = req.body;
 
   if (!server_id || typeof server_id !== "string" || server_id.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "server_id is required and must be a non-empty string",
-        field: "server_id",
-      });
+    return sendError(res, req, 400, 'validation.server_id_required', 'Validation failed', { details: "server_id is required and must be a non-empty string", field: 'server_id' });
   }
 
   if (!host_ip || typeof host_ip !== "string" || host_ip.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_ip is required and must be a non-empty string",
-        field: "host_ip",
-      });
+    return sendError(res, req, 400, 'validation.host_ip_required', 'Validation failed', { details: "host_ip is required and must be a non-empty string", field: 'host_ip' });
   }
 
   if (host_port == null || !Number.isInteger(host_port) || host_port <= 0 || host_port > 65535) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_port is required and must be a valid port number (1-65535)",
-        field: "host_port",
-      });
+    return sendError(res, req, 400, 'validation.host_port_invalid', 'Validation failed', { details: "host_port is required and must be a valid port number (1-65535)", field: 'host_port' });
   }
 
   if (!protocol || typeof protocol !== "string" || (protocol !== "tcp" && protocol !== "udp")) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'protocol' is required and must be either 'tcp' or 'udp'",
-        field: "protocol",
-      });
+    return sendError(res, req, 400, 'validation.protocol_required', 'Validation failed', { details: "Field 'protocol' is required and must be either 'tcp' or 'udp'", field: 'protocol' });
   }
 
   if (custom_name != null && (typeof custom_name !== "string" || custom_name.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "custom_name must be a non-empty string when provided",
-        field: "custom_name",
-      });
+    return sendError(res, req, 400, 'validation.custom_name_invalid', 'Validation failed', { details: "custom_name must be a non-empty string when provided", field: 'custom_name' });
   }
 
   if (container_id != null && (typeof container_id !== "string" || container_id.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "container_id must be a non-empty string when provided",
-        field: "container_id",
-      });
+    return sendError(res, req, 400, 'validation.container_id_invalid', 'Validation failed', { details: "container_id must be a non-empty string when provided", field: 'container_id' });
   }
 
   if (internal !== undefined && internal !== null && typeof internal !== "boolean") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "internal must be a boolean when provided",
-        field: "internal",
-      });
+    return sendError(res, req, 400, 'validation.internal_invalid', 'Validation failed', { details: "internal must be a boolean when provided", field: 'internal' });
   }
 
   next();
@@ -1372,73 +1300,31 @@ function validateIgnoreInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, ignored, container_id, internal } = req.body;
 
   if (!server_id || typeof server_id !== "string" || server_id.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "server_id is required and must be a non-empty string",
-        field: "server_id",
-      });
+    return sendError(res, req, 400, 'validation.server_id_required', 'Validation failed', { details: "server_id is required and must be a non-empty string", field: 'server_id' });
   }
 
   if (!host_ip || typeof host_ip !== "string" || host_ip.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_ip is required and must be a non-empty string",
-        field: "host_ip",
-      });
+    return sendError(res, req, 400, 'validation.host_ip_required', 'Validation failed', { details: "host_ip is required and must be a non-empty string", field: 'host_ip' });
   }
 
   if (host_port == null || !Number.isInteger(host_port) || host_port <= 0 || host_port > 65535) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_port is required and must be a valid port number (1-65535)",
-        field: "host_port",
-      });
+    return sendError(res, req, 400, 'validation.host_port_invalid', 'Validation failed', { details: "host_port is required and must be a valid port number (1-65535)", field: 'host_port' });
   }
 
   if (!protocol || typeof protocol !== "string" || (protocol !== "tcp" && protocol !== "udp")) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'protocol' is required and must be either 'tcp' or 'udp'",
-        field: "protocol",
-      });
+    return sendError(res, req, 400, 'validation.protocol_required', 'Validation failed', { details: "Field 'protocol' is required and must be either 'tcp' or 'udp'", field: 'protocol' });
   }
 
   if (typeof ignored !== "boolean") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "ignored is required and must be a boolean",
-        field: "ignored",
-      });
+    return sendError(res, req, 400, 'validation.ignored_invalid', 'Validation failed', { details: "ignored is required and must be a boolean", field: 'ignored' });
   }
 
   if (container_id != null && (typeof container_id !== "string" || container_id.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "container_id must be a non-empty string when provided",
-        field: "container_id",
-      });
+    return sendError(res, req, 400, 'validation.container_id_invalid', 'Validation failed', { details: "container_id must be a non-empty string when provided", field: 'container_id' });
   }
 
   if (internal !== undefined && internal !== null && typeof internal !== "boolean") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "internal must be a boolean when provided",
-        field: "internal",
-      });
+    return sendError(res, req, 400, 'validation.internal_invalid', 'Validation failed', { details: "internal must be a boolean when provided", field: 'internal' });
   }
 
   next();
@@ -1452,63 +1338,27 @@ function validateCustomServiceNameDeleteInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, container_id, internal } = req.body;
 
   if (!server_id || typeof server_id !== "string" || server_id.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "server_id is required and must be a non-empty string",
-        field: "server_id",
-      });
+    return sendError(res, req, 400, 'validation.server_id_required', 'Validation failed', { details: "server_id is required and must be a non-empty string", field: 'server_id' });
   }
 
   if (!host_ip || typeof host_ip !== "string" || host_ip.trim().length === 0) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_ip is required and must be a non-empty string",
-        field: "host_ip",
-      });
+    return sendError(res, req, 400, 'validation.host_ip_required', 'Validation failed', { details: "host_ip is required and must be a non-empty string", field: 'host_ip' });
   }
 
   if (host_port == null || !Number.isInteger(host_port) || host_port <= 0 || host_port > 65535) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "host_port is required and must be a valid port number (1-65535)",
-        field: "host_port",
-      });
+    return sendError(res, req, 400, 'validation.host_port_invalid', 'Validation failed', { details: "host_port is required and must be a valid port number (1-65535)", field: 'host_port' });
   }
 
   if (!protocol || typeof protocol !== "string" || (protocol !== "tcp" && protocol !== "udp")) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'protocol' is required and must be either 'tcp' or 'udp'",
-        field: "protocol",
-      });
+    return sendError(res, req, 400, 'validation.protocol_required', 'Validation failed', { details: "Field 'protocol' is required and must be either 'tcp' or 'udp'", field: 'protocol' });
   }
 
   if (container_id != null && (typeof container_id !== "string" || container_id.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "container_id must be a non-empty string when provided",
-        field: "container_id",
-      });
+    return sendError(res, req, 400, 'validation.container_id_invalid', 'Validation failed', { details: "container_id must be a non-empty string when provided", field: 'container_id' });
   }
 
   if (internal !== undefined && internal !== null && typeof internal !== "boolean") {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "internal must be a boolean when provided",
-        field: "internal",
-      });
+    return sendError(res, req, 400, 'validation.internal_invalid', 'Validation failed', { details: "internal must be a boolean when provided", field: 'internal' });
   }
 
   next();
@@ -1526,9 +1376,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
   } catch (error) {
     logger.error("Failed to get servers:", error.message);
     logger.debug("Stack trace:", error.stack || "");
-    res
-      .status(500)
-      .json({ error: "Failed to retrieve servers", details: error.message });
+    return sendError(res, req, 500, 'server.retrieve_failed', 'Failed to retrieve servers', { details: error.message });
   }
 });
 
@@ -1537,17 +1385,11 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
     req.body;
 
   if (!id) {
-    return res.status(400).json({ error: "Field 'id' is required" });
+    return sendError(res, req, 400, 'validation.id_required', "Field 'id' is required", { field: 'id' });
   }
 
   if (type === "peer" && !unreachable && (!url || url.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'url' is required for reachable peer servers",
-        field: "url",
-      });
+    return sendError(res, req, 400, 'validation.peer_url_required', 'Validation failed', { details: "Field 'url' is required for reachable peer servers", field: 'url' });
   }
 
   const dbUnreachable = unreachable ? 1 : 0;
@@ -1567,7 +1409,7 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
         id
       );
       logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
-      res.status(200).json({ message: "Server updated successfully", id });
+      res.status(200).json({ message: "Server updated successfully", message_code: 'server.updated', message_localized: translateForReq(req, 'server.updated', 'Server updated successfully'), id });
     } else {
       db.prepare(
         "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -1581,15 +1423,17 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
         platform_type
       );
       logger.info(`Server added successfully. ID: ${id}, Label: "${label}"`);
-      res.status(201).json({ message: "Server added successfully", id });
+      res.status(201).json({ message: "Server added successfully", message_code: 'server.added', message_localized: translateForReq(req, 'server.added', 'Server added successfully'), id });
     }
   } catch (error) {
     logger.error(`Database error in POST /api/servers (ID: ${id}): ${error.message}`);
     logger.debug("Stack trace:", error.stack || "");
     if (error.message.includes("UNIQUE constraint failed")) {
+      const def = `Server with ID '${id}' already exists.`;
+      const localized = translateForReq(req, 'server.exists', def, { id });
       return res
         .status(409)
-        .json({ error: `Server with ID '${id}' already exists.` });
+        .json({ error: def, error_code: 'server.exists', error_localized: localized });
     }
     if (
       error.message.toLowerCase().includes("can only bind") ||
@@ -1598,16 +1442,22 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
       logger.error(
         `Possible data binding/type issue for server ID ${id}. Payload received: ${JSON.stringify(req.body)}`
       );
+      const def2 = 'Failed to save server due to data type issue.';
+      const localized2 = translateForReq(req, 'server.save_type_error', def2);
       return res
         .status(500)
         .json({
-          error: "Failed to save server due to data type issue.",
+          error: def2,
+          error_code: 'server.save_type_error',
+          error_localized: localized2,
           details: error.message,
         });
     }
+    const def3 = 'Failed to save server';
+    const localized3 = translateForReq(req, 'server.save_failed', def3);
     res
       .status(500)
-      .json({ error: "Failed to save server", details: error.message });
+      .json({ error: def3, error_code: 'server.save_failed', error_localized: localized3, details: error.message });
   }
 });
 
@@ -1625,16 +1475,20 @@ app.delete("/api/servers/:id", requireAuth, validateServerIdParam, (req, res) =>
       .get(serverId);
     if (!server) {
       logger.warn(`[DELETE /api/servers/${serverId}] Attempt to delete non-existent server.`);
+      const def = 'Server not found';
+      const localized = translateForReq(req, 'server.not_found', def);
       return res
         .status(404)
-        .json({ error: "Server not found", server_id: serverId });
+        .json({ error: def, error_code: 'server.not_found', error_localized: localized, server_id: serverId });
     }
 
     if (serverId === "local") {
       logger.warn(`[DELETE /api/servers/${serverId}] Attempt to delete 'local' server.`);
+      const def2 = 'Cannot delete local server';
+      const localized2 = translateForReq(req, 'server.cannot_delete_local', def2);
       return res
         .status(400)
-        .json({ error: "Cannot delete local server", server_id: serverId });
+        .json({ error: def2, error_code: 'server.cannot_delete_local', error_localized: localized2, server_id: serverId });
     }
 
     const deleteTransaction = db.transaction(() => {
@@ -1651,25 +1505,35 @@ app.delete("/api/servers/:id", requireAuth, validateServerIdParam, (req, res) =>
     res.json({
       success: true,
       message: `Server '${server.label}' (ID: ${serverId}) deleted successfully`,
+      message_code: 'server.deleted',
+      message_localized: translateForReq(req, 'server.deleted', `Server '${server.label}' (ID: ${serverId}) deleted successfully`, { label: server.label, id: serverId }),
     });
   } catch (err) {
     if (err.message.includes("FOREIGN KEY constraint failed")) {
       logger.error(`FOREIGN KEY constraint failed during DELETE /api/servers/${serverId}: ${err.message}`);
       logger.debug("Stack trace:", err.stack || "");
+      const def3 = 'Conflict deleting server';
+      const localized3 = translateForReq(req, 'server.delete_conflict', def3);
       return res.status(409).json({
-        error: "Conflict deleting server",
+        error: def3,
+        error_code: 'server.delete_conflict',
+        error_localized: localized3,
         details:
-          "Cannot delete server due to existing references. Ensure all child items or dependencies are handled.",
+          'Cannot delete server due to existing references. Ensure all child items or dependencies are handled.',
         rawError: err.message,
       });
     }
     logger.error(`Database error in DELETE /api/servers/${serverId}: ${err.message}`);
     logger.debug("Stack trace:", err.stack || "");
+    const def4 = 'Database operation failed';
+    const localized4 = translateForReq(req, 'db.operation_failed', def4);
     res
       .status(500)
       .json({
-        error: "Database operation failed",
-        details: "Unable to delete server",
+        error: def4,
+        error_code: 'db.operation_failed',
+        error_localized: localized4,
+        details: 'Unable to delete server',
         rawError: err.message,
       });
   } finally {
@@ -1711,7 +1575,7 @@ app.post("/api/notes", requireAuth, validateNoteInput, (req, res) => {
       ).run(server_id, host_ip, host_port, protocol, container_id || null, internalFlag, noteTrimmed);
       logger.info(`Note created for ${server_id} ${host_ip}:${host_port}/${protocol}${container_id ? ` (container: ${container_id})` : ''} (internal: ${internalFlag})`);
     }
-    res.status(200).json({ success: true, message: "Note saved successfully" });
+    res.status(200).json({ success: true, message: "Note saved successfully", message_code: 'note.saved', message_localized: translateForReq(req, 'note.saved', 'Note saved successfully') });
   } catch (err) {
     logger.error(`Database error in POST /api/notes: ${err.message}`);
     logger.debug("Stack trace:", err.stack || "");
@@ -1719,6 +1583,8 @@ app.post("/api/notes", requireAuth, validateNoteInput, (req, res) => {
       .status(500)
       .json({
         error: "Database operation failed",
+        error_code: 'db.operation_failed',
+        error_localized: translateForReq(req, 'db.operation_failed', 'Database operation failed'),
         details: "Unable to save note",
       });
   } finally {
@@ -1735,9 +1601,7 @@ app.get("/api/notes", requireAuth, (req, res) => {
   logger.debug(`GET /api/notes for server_id: ${server_id}`);
 
   if (!server_id) {
-    return res
-      .status(400)
-      .json({ error: "server_id query parameter is required" });
+    return sendError(res, req, 400, 'validation.server_id_query_required', 'server_id query parameter is required');
   }
 
   try {
@@ -1818,9 +1682,7 @@ app.get("/api/ignores", requireAuth, (req, res) => {
   logger.debug(`GET /api/ignores for server_id: ${server_id}`);
 
   if (!server_id) {
-    return res
-      .status(400)
-      .json({ error: "server_id query parameter is required" });
+    return sendError(res, req, 400, 'validation.server_id_query_required', 'server_id query parameter is required');
   }
 
   try {
@@ -2022,17 +1884,12 @@ app.delete("/api/custom-service-names", requireAuth, validateCustomServiceNameDe
       
       res.status(200).json({ success: true, message: "Custom service name deleted successfully" });
     } else {
-      res.status(404).json({ error: "Custom service name not found" });
+      return sendError(res, req, 404, 'custom_service_name.not_found', 'Custom service name not found');
     }
   } catch (err) {
     logger.error(`Database error in DELETE /api/custom-service-names: ${err.message}`);
     logger.debug("Stack trace:", err.stack || "");
-    res
-      .status(500)
-      .json({
-        error: "Database operation failed",
-        details: "Unable to delete custom service name",
-      });
+    return sendError(res, req, 500, 'db.operation_failed', 'Database operation failed', { details: 'Unable to delete custom service name' });
   } finally {
     if (currentDebug) logger.setDebugEnabled(process.env.DEBUG === 'true');
   }
@@ -2158,12 +2015,7 @@ app.post("/api/custom-service-names/batch", requireAuth, (req, res) => {
   } catch (err) {
     logger.error(`Database error in POST /api/custom-service-names/batch: ${err.message}`);
     logger.debug("Stack trace:", err.stack || "");
-    res
-      .status(500)
-      .json({
-        error: "Database operation failed",
-        details: "Unable to process batch custom service name operations",
-      });
+    return sendError(res, req, 500, 'db.operation_failed', 'Database operation failed', { details: 'Unable to process batch custom service name operations' });
   } finally {
     if (currentDebug) logger.setDebugEnabled(process.env.DEBUG === 'true');
   }
@@ -2178,7 +2030,7 @@ app.post("/api/notes/batch", requireAuth, (req, res) => {
   logger.debug(`POST /api/notes/batch for ${server_id}. Operations: ${operations?.length || 0}`);
 
   if (!server_id || !Array.isArray(operations)) {
-    return res.status(400).json({ error: "server_id and operations array are required" });
+    return sendError(res, req, 400, 'validation.server_id_and_operations_required', "server_id and operations array are required");
   }
 
   try {
@@ -2241,10 +2093,7 @@ app.post("/api/notes/batch", requireAuth, (req, res) => {
   } catch (err) {
     logger.error(`Database error in POST /api/notes/batch: ${err.message}`);
     logger.debug("Stack trace:", err.stack || "");
-    res.status(500).json({
-      error: "Database operation failed",
-      details: "Unable to process batch note operations",
-    });
+    return sendError(res, req, 500, 'db.operation_failed', 'Database operation failed', { details: 'Unable to process batch note operations' });
   } finally {
     if (currentDebug) logger.setDebugEnabled(process.env.DEBUG === 'true');
   }
@@ -2258,13 +2107,11 @@ app.get("/api/ping", async (req, res) => {
   if (currentDebug) logger.setDebugEnabled(true);
   
   if (!host_ip || !host_port) {
-    return res
-      .status(400)
-      .json({ error: "host_ip and host_port are required" });
+    return sendError(res, req, 400, 'validation.host_ip_port_required', "host_ip and host_port are required");
   }
   const portNum = parseInt(host_port, 10);
   if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
-    return res.status(400).json({ error: "Invalid host_port" });
+    return sendError(res, req, 400, 'validation.invalid_host_port', 'Invalid host_port');
   }
   
   const serviceInfo = detectServiceType(host_port, owner);
@@ -2274,7 +2121,7 @@ app.get("/api/ping", async (req, res) => {
       try {
         const row = db.prepare('SELECT url FROM servers WHERE id = ?').get(serverId);
         if (!row || !row.url) {
-          return res.status(400).json({ error: 'server url not found for remote ping' });
+          return sendError(res, req, 400, 'validation.server_url_not_found', 'server url not found for remote ping');
         }
         const base = row.url.replace(/\/$/, '');
         const params = new URLSearchParams();

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle } from 'lucide-react';
+import { t } from '@/lib/i18n';
 
 export function ChangePasswordModal({ open, onClose, requirePasswordChange = false }) {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -49,7 +50,7 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Password change failed');
+        setError(data.error || t('Password change failed'));
         setLoading(false);
         return;
       }
@@ -65,13 +66,13 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
     <Dialog open={open} onOpenChange={requirePasswordChange ? undefined : onClose}>
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => requirePasswordChange && e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>
-            {requirePasswordChange ? 'Set New Password' : 'Change Password'}
-          </DialogTitle>
+              <DialogTitle>
+                {requirePasswordChange ? t('Set New Password') : t('Change Password')}
+              </DialogTitle>
           <DialogDescription>
-            {requirePasswordChange
-              ? 'You must set a new password to continue'
-              : 'Update your account password'}
+                {requirePasswordChange
+                  ? t('You must set a new password to continue')
+                  : t('Update your account password')}
           </DialogDescription>
         </DialogHeader>
 
@@ -79,7 +80,7 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
           <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900">
             <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-amber-800 dark:text-amber-200">
-              Recovery mode was used. Please set a new secure password.
+              {t('Recovery mode was used. Please set a new secure password.')}
             </p>
           </div>
         )}
@@ -87,13 +88,13 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
         <form onSubmit={handleSubmit} className="space-y-4">
           {!requirePasswordChange && (
             <div className="space-y-2">
-              <Label htmlFor="currentPassword">Current Password</Label>
+              <Label htmlFor="currentPassword">{t('Current Password')}</Label>
               <Input
                 id="currentPassword"
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
+                placeholder={t('Enter current password')}
                 required
                 autoComplete="current-password"
                 disabled={loading}
@@ -102,13 +103,13 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="newPassword">New Password</Label>
+            <Label htmlFor="newPassword">{t('New Password')}</Label>
             <Input
               id="newPassword"
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 8 characters"
+                placeholder={t('At least 8 characters')}
               required
               autoComplete="new-password"
               disabled={loading}
@@ -116,7 +117,7 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
             {newPassword && (
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {newPassword.length >= 8 ? (
-                  <span className="text-green-600 dark:text-green-400">✓ Valid password</span>
+                  <span className="text-green-600 dark:text-green-400">✓ {t('Valid password')}</span>
                 ) : (
                   <span>At least 8 characters required</span>
                 )}
@@ -125,13 +126,13 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm New Password</Label>
+            <Label htmlFor="confirmPassword">{t('Confirm New Password')}</Label>
             <Input
               id="confirmPassword"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter new password"
+                placeholder={t('Re-enter new password')}
               required
               autoComplete="new-password"
               disabled={loading}
@@ -139,9 +140,9 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
             {confirmPassword && (
               <p className="text-xs">
                 {newPassword === confirmPassword ? (
-                  <span className="text-green-600 dark:text-green-400">✓ Passwords match</span>
+                  <span className="text-green-600 dark:text-green-400">✓ {t('Passwords match')}</span>
                 ) : (
-                  <span className="text-red-600 dark:text-red-400">✗ Passwords do not match</span>
+                  <span className="text-red-600 dark:text-red-400">✗ {t('Passwords do not match')}</span>
                 )}
               </p>
             )}
@@ -156,7 +157,7 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
           <div className="flex gap-3 justify-end">
             {!requirePasswordChange && (
               <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={loading}>
-                Cancel
+                {t('Cancel')}
               </Button>
             )}
             <Button
@@ -164,7 +165,7 @@ export function ChangePasswordModal({ open, onClose, requirePasswordChange = fal
               disabled={loading || newPassword.length < 8 || newPassword !== confirmPassword}
               className="bg-indigo-600 hover:bg-indigo-700 text-white"
             >
-              {loading ? 'Changing...' : 'Change Password'}
+              {loading ? t('Changing...') : t('Change Password')}
             </Button>
           </div>
         </form>
