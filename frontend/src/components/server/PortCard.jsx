@@ -50,6 +50,7 @@ function PortCardComponent({
   onRename,
   serverId,
   serverUrl,
+  hostOverride,
   forceOpenDetails,
   notifyOpenDetails,
   notifyCloseDetails,
@@ -67,7 +68,7 @@ function PortCardComponent({
   let hostForUi;
   if (port.host_ip === "0.0.0.0" || port.host_ip === "127.0.0.1") {
     if (serverId === "local") {
-      hostForUi = window.location.hostname;
+      hostForUi = hostOverride || window.location.hostname;
     } else if (serverUrl) {
       try {
         hostForUi = new URL(serverUrl).hostname;

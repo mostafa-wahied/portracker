@@ -61,6 +61,7 @@ export default function App() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hostOverride, setHostOverride] = useState(null);
   
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [modalSrvId, setModalSrvId] = useState("");
@@ -744,6 +745,13 @@ export default function App() {
     }
     fetchAll();
   }, [fetchAll, auth.loading, auth.authEnabled, auth.authenticated]);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.hostOverride) setHostOverride(data.hostOverride); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -1761,7 +1769,7 @@ export default function App() {
                p.host_ip === "127.0.0.1" ||
                p.host_ip === "[::]" ||
                p.host_ip === "[::1]")) {
-            hostForCopy = window.location.hostname;
+            hostForCopy = hostOverride || window.location.hostname;
           }
           else if (
             server.id !== "local" &&
@@ -1809,6 +1817,7 @@ export default function App() {
           }
         }}
         serverUrl={server.url}
+        hostOverride={hostOverride}
         platformName={server.platformName}
         systemInfo={server.systemInfo}
         vms={server.vms}
@@ -1925,6 +1934,7 @@ export default function App() {
               onAdd={addServer}
               onDelete={deleteServer}
               loading={loading}
+              hostOverride={hostOverride}
             />
           }
         >

@@ -61,6 +61,13 @@ services:
       # If not set, a random secret is generated (sessions won't persist across restarts)
       # - SESSION_SECRET=your-random-secret-here-change-this
       
+      # REVERSE PROXY SUPPORT (Optional)
+      # When running behind a reverse proxy, port links will use the proxy hostname
+      # Set HOST_OVERRIDE to your actual server hostname so port links work correctly
+      # Example: Your server is server.local, but you access Portracker via proxy.domain.com
+      # Set HOST_OVERRIDE=server.local so port links point to server.local:PORT instead
+      # - HOST_OVERRIDE=your-server-hostname
+      
       # PERFORMANCE SETTINGS (Optional)
       # Cache duration - increase for better performance, decrease for fresher data
       # - CACHE_TIMEOUT_MS=60000
