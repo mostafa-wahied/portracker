@@ -10,7 +10,7 @@ All notable changes to portracker will be documented in this file.
 
 ### Fixed
 
-- **System Port Detection**: Restored system port detection (SSH, SMB, etc.) when running in containerized environments. A regression in commit 0370728 incorrectly skipped /proc parsing when containerized, even though proc-parser correctly handles this via /proc/1/net/tcp with pid:host.
+- **System Port Detection**: Restored system port detection (SSH, SMB, etc.) when running in containerized environments.
 
 ### UI
 
