@@ -8,6 +8,10 @@ All notable changes to portracker will be documented in this file.
 
 - **Reverse Proxy Support**: New `HOST_OVERRIDE` environment variable allows specifying the hostname used in port links when running behind a reverse proxy (fixes #51)
 
+### Fixed
+
+- **System Port Detection**: Restored system port detection (SSH, SMB, etc.) when running in containerized environments. A regression in commit 0370728 incorrectly skipped /proc parsing when containerized, even though proc-parser correctly handles this via /proc/1/net/tcp with pid:host.
+
 ### UI
 
 - **Favicon**: Dark mode support - favicon now adapts to system theme (black on light, white on dark)

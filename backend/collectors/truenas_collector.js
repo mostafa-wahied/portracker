@@ -641,9 +641,10 @@ class TrueNASCollector extends BaseCollector {
     const isContainerized = this._detectContainerizedEnvironment();
     this.logInfo(`Container environment detected: ${isContainerized}`);
     
-    if (this.procParser && !isContainerized) {
+    if (this.procParser) {
       try {
         this.logInfo('Attempting primary method: Enhanced /proc filesystem parsing');
+        this.logInfo('Note: With pid:host, proc-parser uses /proc/1/net/tcp to access host network namespace');
         const procWorks = await this.procParser.testProcAccess();
         
         if (procWorks) {
@@ -673,8 +674,6 @@ class TrueNASCollector extends BaseCollector {
       } catch (procErr) {
         this.logWarn('Failed to get ports via enhanced /proc parsing:', procErr.message);
       }
-    } else if (isContainerized) {
-      this.logInfo('Containerized environment detected, skipping /proc method and using network commands');
     }
     
     try {
@@ -682,8 +681,9 @@ class TrueNASCollector extends BaseCollector {
       let ssOutput = '';
       let ssMethod = 'container';
       
-      if (!isContainerized) {
+      if (isContainerized) {
         try {
+          this.logInfo('Containerized: trying nsenter to access host network namespace');
           const { stdout: nsenterOutput } = await execAsync('nsenter -t 1 -n ss -tulpn 2>/dev/null');
           if (nsenterOutput && nsenterOutput.trim().length > 100) {
             ssOutput = nsenterOutput;
@@ -691,14 +691,18 @@ class TrueNASCollector extends BaseCollector {
             this.logInfo('Successfully accessed host network namespace via nsenter');
           }
         } catch (nsenterErr) {
-          this.logInfo(`nsenter method failed: ${nsenterErr.message}, falling back to container ss`);
+          this.logWarn(`nsenter method failed: ${nsenterErr.message}, falling back to container ss`);
+          const msg = String(nsenterErr?.message || '').toLowerCase();
+          if (msg.includes('permission denied') || msg.includes('operation not permitted')) {
+            this.logWarn('Hint: nsenter requires pid: "host" and cap_add: [SYS_ADMIN] in docker-compose.yml');
+          }
         }
       }
       
       if (!ssOutput) {
         const { stdout } = await execAsync('ss -tulpn 2>/dev/null');
         ssOutput = stdout;
-        ssMethod = 'container';
+        ssMethod = isContainerized ? 'container-fallback' : 'local';
       }
       
       const ports = this._parseSSOutput(ssOutput, ssMethod);
