@@ -61,6 +61,7 @@ const ServerCard = React.memo(function ServerCard({
   onSelect,
   onEdit,
   onDelete,
+  hostOverride,
   children,
 }) {
   const name = server.server || "Unknown Server";
@@ -76,7 +77,7 @@ const ServerCard = React.memo(function ServerCard({
 
   const getHostDisplay = () => {
     if (!server.url) {
-      return window.location.host || "localhost";
+      return hostOverride || window.location.host || "localhost";
     }
     
     try {
@@ -217,6 +218,7 @@ export function Sidebar({
   onAdd,
   onDelete,
   loading,
+  hostOverride,
 }) {
   const [mode, setMode] = useState("list");
   const [form, setForm] = useState({
@@ -500,6 +502,7 @@ export function Sidebar({
         onSelect={onSelect}
         onEdit={setMode}
         onDelete={setServerToDelete}
+        hostOverride={hostOverride}
       >
         {children.length > 0 && level < maxIndentLevel && (
           <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700/50 space-y-3">

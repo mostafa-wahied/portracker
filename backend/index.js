@@ -35,6 +35,7 @@ const RESP_TTL_PORTS = parseInt(process.env.ENDPOINT_CACHE_PORTS_TTL_MS || '3000
 const PORT_SUGGEST_MIN = parseInt(process.env.GENERATE_PORT_MIN || '30000', 10);
 const PORT_SUGGEST_MAX = parseInt(process.env.GENERATE_PORT_MAX || '60999', 10);
 const PORT_SUGGEST_BIND_HOST = process.env.GENERATE_PORT_BIND_HOST || '0.0.0.0';
+const HOST_OVERRIDE = process.env.HOST_OVERRIDE || '';
 const PORT_SUGGEST_MAX_RANDOM_ATTEMPTS = 60;
 
 if (isAuthEnabled()) {
@@ -2448,6 +2449,12 @@ app.get("/api/health", (req, res) => {
       database: "disconnected_or_error",
     });
   }
+});
+
+app.get("/api/config", (req, res) => {
+  res.json({
+    hostOverride: HOST_OVERRIDE || null
+  });
 });
 
 app.get('/api/changelog', (req, res) => {

@@ -67,6 +67,7 @@ function ServerSectionComponent({
   onRename,
   onCopy,
   serverUrl,
+  hostOverride,
   platformName,
   systemInfo,
   vms,
@@ -257,7 +258,7 @@ function ServerSectionComponent({
 
   const getHostDisplay = () => {
     if (!serverUrl) {
-      return window.location.host || "localhost";
+      return hostOverride || window.location.host || "localhost";
     }
     
     try {
@@ -777,6 +778,7 @@ function ServerSectionComponent({
                     onRename={onRename}
                     serverId={id}
                     serverUrl={serverUrl}
+                    hostOverride={hostOverride}
                     forceOpenDetails={deepLinkContainerId && port.container_id === deepLinkContainerId}
                     notifyOpenDetails={(cid) => onOpenContainerDetails && onOpenContainerDetails(cid)}
                     notifyCloseDetails={() => onCloseContainerDetails && onCloseContainerDetails()}
@@ -848,6 +850,7 @@ function ServerSectionComponent({
                     onRename={onRename}
                     serverId={id}
                     serverUrl={serverUrl}
+                    hostOverride={hostOverride}
                     forceOpenDetails={deepLinkContainerId && port.container_id === deepLinkContainerId}
                     notifyOpenDetails={(cid) => onOpenContainerDetails && onOpenContainerDetails(cid)}
                     notifyCloseDetails={() => onCloseContainerDetails && onCloseContainerDetails()}
@@ -864,6 +867,7 @@ function ServerSectionComponent({
                 ports={portsToDisplay}
                 serverId={id}
                 serverUrl={serverUrl}
+                hostOverride={hostOverride}
                 searchTerm={searchTerm}
                 actionFeedback={actionFeedback}
                 onCopy={onCopy}

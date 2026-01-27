@@ -11,6 +11,7 @@ export function PortTable({
   ports,
   serverId,
   serverUrl,
+  hostOverride,
   searchTerm,
   actionFeedback,
   onCopy,
@@ -153,6 +154,7 @@ export function PortTable({
               port={port}
               serverId={serverId}
               serverUrl={serverUrl}
+              hostOverride={hostOverride}
               searchTerm={searchTerm}
               actionFeedback={actionFeedback}
               onCopy={onCopy}

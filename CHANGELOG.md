@@ -4,6 +4,10 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Reverse Proxy Support**: New `HOST_OVERRIDE` environment variable allows specifying the hostname used in port links when running behind a reverse proxy (fixes #51)
+
 ### UI
 
 - **Favicon**: Dark mode support - favicon now adapts to system theme (black on light, white on dark)
