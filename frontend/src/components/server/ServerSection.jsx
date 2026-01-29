@@ -18,10 +18,14 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Layers,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { PortCard } from "./PortCard";
 import { PortGridItem } from "./PortGridItem";
 import { PortTable } from "./PortTable";
+import { ServiceCard } from "./ServiceCard";
 import { HiddenPortsDrawer } from "./HiddenPortsDrawer";
 import { SystemInfoCard } from "./SystemInfoCard";
 import Logger from "../../lib/logger";
@@ -74,6 +78,10 @@ function ServerSectionComponent({
   enhancedFeaturesEnabled,
   portLayout,
   onPortLayoutChange,
+  groupingMode = "ports",
+  onGroupingModeChange,
+  showIcons = true,
+  onShowIconsChange,
   isExpanded,
   onToggleExpanded,
   openAccordionItems,
@@ -226,6 +234,46 @@ function ServerSectionComponent({
     }
     return sortablePorts;
   }, [visiblePorts, sortConfig]);
+
+  const groupedServices = useMemo(() => {
+    if (groupingMode !== "services") return [];
+    
+    const serviceMap = new Map();
+    
+    sortedPorts.forEach((port) => {
+      let serviceKey;
+      let serviceName;
+      
+      if (port.source === "docker") {
+        if (port.compose_project) {
+          serviceKey = `docker:${port.compose_project}`;
+          serviceName = port.compose_project;
+        } else {
+          serviceKey = `docker:${port.container_id || port.owner}`;
+          serviceName = port.customServiceName || port.owner || "Unknown Container";
+        }
+      } else {
+        serviceKey = `system:${port.owner || 'unknown'}`;
+        serviceName = port.owner || "Unknown Process";
+      }
+      
+      if (!serviceMap.has(serviceKey)) {
+        serviceMap.set(serviceKey, {
+          key: serviceKey,
+          name: serviceName,
+          isDocker: port.source === "docker",
+          ports: [],
+        });
+      }
+      
+      serviceMap.get(serviceKey).ports.push(port);
+    });
+    
+    const services = Array.from(serviceMap.values());
+    services.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return services;
+  }, [sortedPorts, groupingMode]);
 
   useEffect(() => {
     try {
@@ -424,7 +472,60 @@ function ServerSectionComponent({
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              Ports
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 mr-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => onGroupingModeChange("ports")}
+                        className={`p-1.5 rounded transition-colors ${
+                          groupingMode === "ports"
+                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
+                            : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        <List className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>View by Ports</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => onGroupingModeChange("services")}
+                        className={`p-1.5 rounded transition-colors ${
+                          groupingMode === "services"
+                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
+                            : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        <Layers className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>View by Services</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => onShowIconsChange(!showIcons)}
+                      className={`p-1.5 rounded transition-colors ml-1 ${
+                        showIcons
+                          ? "text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100"
+                          : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      {showIcons ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{showIcons ? "Hide Icons" : "Show Icons"}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              {groupingMode === "ports" ? "Ports" : "Services"}
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -718,6 +819,142 @@ function ServerSectionComponent({
 
         {ok && visiblePorts.length > 0 && (
           <div className={selectionMode ? "pb-20" : ""}>
+            {groupingMode === "services" && portLayout === "list" && (
+              <div className="space-y-3 p-4">
+                {groupedServices.map((service) => (
+                  <ServiceCard
+                    key={service.key}
+                    serviceName={service.name}
+                    ports={service.ports}
+                    serverId={id}
+                    serverUrl={serverUrl}
+                    hostOverride={hostOverride}
+                    searchTerm={searchTerm}
+                    actionFeedback={actionFeedback}
+                    onCopy={onCopy}
+                    onNote={onNote}
+                    onToggleIgnore={onToggleIgnore}
+                    onRename={onRename}
+                    onOpenContainerDetails={onOpenContainerDetails}
+                    onCloseContainerDetails={onCloseContainerDetails}
+                    selectionMode={selectionMode}
+                    selectedPorts={selectedPorts}
+                    onToggleSelection={onToggleSelection}
+                    generatePortKey={generatePortKey}
+                    isDocker={service.isDocker}
+                    deepLinkContainerId={deepLinkContainerId}
+                    showIcons={showIcons}
+                  />
+                ))}
+              </div>
+            )}
+            {groupingMode === "services" && portLayout === "grid" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
+                {groupedServices.map((service) => (
+                  <ServiceCard
+                    key={service.key}
+                    serviceName={service.name}
+                    ports={service.ports}
+                    serverId={id}
+                    serverUrl={serverUrl}
+                    hostOverride={hostOverride}
+                    searchTerm={searchTerm}
+                    actionFeedback={actionFeedback}
+                    onCopy={onCopy}
+                    onNote={onNote}
+                    onToggleIgnore={onToggleIgnore}
+                    onRename={onRename}
+                    onOpenContainerDetails={onOpenContainerDetails}
+                    onCloseContainerDetails={onCloseContainerDetails}
+                    selectionMode={selectionMode}
+                    selectedPorts={selectedPorts}
+                    onToggleSelection={onToggleSelection}
+                    generatePortKey={generatePortKey}
+                    isDocker={service.isDocker}
+                    compact={true}
+                    deepLinkContainerId={deepLinkContainerId}
+                    showIcons={showIcons}
+                  />
+                ))}
+              </div>
+            )}
+            {groupingMode === "services" && portLayout === "table" && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                      {selectionMode && (
+                        <th
+                          scope="col"
+                          className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                        >
+                        </th>
+                      )}
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                      >
+                        Service
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                      >
+                        Ports
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                      >
+                        Source
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                      >
+                        Created
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                      >
+                        Count
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {groupedServices.map((service) => (
+                      <ServiceCard
+                        key={service.key}
+                        serviceName={service.name}
+                        ports={service.ports}
+                        serverId={id}
+                        serverUrl={serverUrl}
+                        hostOverride={hostOverride}
+                        searchTerm={searchTerm}
+                        actionFeedback={actionFeedback}
+                        onCopy={onCopy}
+                        onNote={onNote}
+                        onToggleIgnore={onToggleIgnore}
+                        onRename={onRename}
+                        onOpenContainerDetails={onOpenContainerDetails}
+                        onCloseContainerDetails={onCloseContainerDetails}
+                        selectionMode={selectionMode}
+                        selectedPorts={selectedPorts}
+                        onToggleSelection={onToggleSelection}
+                        generatePortKey={generatePortKey}
+                        isDocker={service.isDocker}
+                        tableMode={true}
+                        deepLinkContainerId={deepLinkContainerId}
+                        showIcons={showIcons}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {groupingMode !== "services" && (
+            <>
             {portLayout === "list" && (
               <>
                 {/**
@@ -785,6 +1022,7 @@ function ServerSectionComponent({
                     selectionMode={selectionMode}
                     isSelected={selectedPorts?.has(generatePortKey(id, port))}
                     onToggleSelection={onToggleSelection}
+                    showIcons={showIcons}
                   />)
                 )}
                 </ul>
@@ -857,6 +1095,7 @@ function ServerSectionComponent({
                     selectionMode={selectionMode}
                     isSelected={selectedPorts?.has(generatePortKey(id, port))}
                     onToggleSelection={onToggleSelection}
+                    showIcons={showIcons}
                   />
                 ))}
                 </div>
@@ -894,7 +1133,7 @@ function ServerSectionComponent({
               />
             )}
 
-            {!isExpanded && sortedPorts.length > 8 && portLayout !== "grid" && (
+            {!isExpanded && sortedPorts.length > 8 && portLayout !== "grid" && groupingMode !== "services" && (
               <div className="p-4 text-center border-t border-slate-100 dark:border-slate-800">
                 <button
                   onClick={onToggleExpanded}
@@ -903,6 +1142,8 @@ function ServerSectionComponent({
                   + {sortedPorts.length - 8} more ports
                 </button>
               </div>
+            )}
+            </>
             )}
           </div>
         )}

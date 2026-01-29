@@ -149,6 +149,8 @@ class BaseCollector {
       container_id: entry.container_id || null,
       vm_id: entry.vm_id || null,
       app_id: entry.app_id || null,
+      compose_project: entry.compose_project || null,
+      compose_service: entry.compose_service || null,
       created: entry.created || null,
       internal: entry.internal || false,
     };

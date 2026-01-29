@@ -250,6 +250,24 @@ export default function App() {
     }
   });
 
+  const [groupingMode, setGroupingMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem("groupingMode");
+      return saved === "services" ? "services" : "ports";
+    } catch {
+      return "ports";
+    }
+  });
+
+  const [showIcons, setShowIcons] = useState(() => {
+    try {
+      const saved = localStorage.getItem("showIcons");
+      return saved !== "false";
+    } catch {
+      return true;
+    }
+  });
+
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [deepLinkContainer, setDeepLinkContainer] = useState(null);
   const [deepLinkServer, setDeepLinkServer] = useState(null);
@@ -317,6 +335,22 @@ export default function App() {
       logger.warn("Failed to save port layout setting:", error);
     }
   }, [portLayout]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("groupingMode", groupingMode);
+    } catch (error) {
+      logger.warn("Failed to save grouping mode setting:", error);
+    }
+  }, [groupingMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("showIcons", showIcons.toString());
+    } catch (error) {
+      logger.warn("Failed to save show icons setting:", error);
+    }
+  }, [showIcons]);
 
   useEffect(() => {
     if (selectedServer) {
@@ -449,6 +483,8 @@ export default function App() {
           ignored: !!port.ignored,
           created: port.created || null,
           internal: port.internal || false,
+          compose_project: port.compose_project || null,
+          compose_service: port.compose_service || null,
         }));
 
       const uniquePorts = [];
@@ -1826,6 +1862,10 @@ export default function App() {
         onInfoCardLayoutChange={setInfoCardLayout}
         portLayout={portLayout}
         onPortLayoutChange={setPortLayout}
+        groupingMode={groupingMode}
+        onGroupingModeChange={setGroupingMode}
+        showIcons={showIcons}
+        onShowIconsChange={setShowIcons}
         isExpanded={!!expandedServers[server.id]}
         onToggleExpanded={() => toggleServerExpanded(server.id)}
         openAccordionItems={openAccordions[server.id] ?? ["system-info", "vms"]}

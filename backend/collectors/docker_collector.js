@@ -218,6 +218,7 @@ class DockerCollector extends BaseCollector {
                     containerName: container.name,
                     containerId: container.id,
                     target: `${container.id.substring(0, 12)}:internal(host-net)`,
+                    composeProject: container.composeProject || null,
                   };
                   port.created = containerCreationTimeMap.get(container.id) || null;
                   break;
@@ -240,6 +241,7 @@ class DockerCollector extends BaseCollector {
                 target: dockerInfo.target,
                 container_id: dockerInfo.containerId,
                 app_id: dockerInfo.containerName,
+                compose_project: dockerInfo.composeProject || null,
               });
 
               if (!dockerPortsMap.has(key)) {
@@ -282,6 +284,8 @@ class DockerCollector extends BaseCollector {
       for (const container of containers) {
         const containerName = container.Names;
         const containerId = container.ID;
+        const composeProject = container.Labels?.['com.docker.compose.project'] || null;
+        const composeService = container.Labels?.['com.docker.compose.service'] || null;
         
         if (!container.Ports || container.Ports.length === 0) {
           continue;
@@ -312,6 +316,8 @@ class DockerCollector extends BaseCollector {
                 target: `${containerId}:${targetPort}`,
                 container_id: containerId,
                 app_id: containerName,
+                compose_project: composeProject,
+                compose_service: composeService,
                 pids: [],
               })
             );
@@ -344,6 +350,8 @@ class DockerCollector extends BaseCollector {
         const containerId = container.ID;
         const containerName = container.Names;
         const image = container.Image;
+        const composeProject = container.Labels?.['com.docker.compose.project'] || null;
+        const composeService = container.Labels?.['com.docker.compose.service'] || null;
         try {
           const [inspection, pids] = await Promise.all([
             this.dockerApi.inspectContainer(containerId),
@@ -368,6 +376,8 @@ class DockerCollector extends BaseCollector {
                   target: `${containerId.substring(0, 12)}:${portNum}(internal)`,
                   container_id: containerId,
                   app_id: containerName,
+                  compose_project: composeProject,
+                  compose_service: composeService,
                   internal: true
                 };
                 internalPorts.push(internalPort);
@@ -382,7 +392,9 @@ class DockerCollector extends BaseCollector {
             networkMode: networkMode,
             exposedPorts: exposedPorts,
             pids: pids,
-            internalPorts: internalPorts
+            internalPorts: internalPorts,
+            composeProject: composeProject,
+            composeService: composeService
           };
         } catch (inspectErr) {
           this.logWarn(
@@ -445,6 +457,7 @@ class DockerCollector extends BaseCollector {
                 containerName: container.Names,
                 containerId: container.ID,
                 target: `${container.ID}:${port.host_port}`,
+                composeProject: container.Labels?.['com.docker.compose.project'] || null,
               };
             }
           }
@@ -502,11 +515,13 @@ class DockerCollector extends BaseCollector {
           try {
             const inspection = await this.dockerApi.inspectContainer(fullContainerId);
             const containerName = inspection.Name.replace(/^\//, '');
+            const composeProject = inspection.Config?.Labels?.['com.docker.compose.project'] || null;
 
             return {
               containerName: containerName,
               containerId: fullContainerId,
               target: `${fullContainerId.substring(0, 12)}:internal`,
+              composeProject: composeProject,
             };
           } catch (err) {
             this.logWarn(`Could not inspect container ${fullContainerId}:`, err.message);
@@ -536,6 +551,7 @@ class DockerCollector extends BaseCollector {
         const containerName = container.Names;
         const containerId = container.ID;
         const image = container.Image;
+        const composeProject = container.Labels?.['com.docker.compose.project'] || null;
 
         const nameLower = containerName.toLowerCase();
         const imageLower = image.toLowerCase();
@@ -550,6 +566,7 @@ class DockerCollector extends BaseCollector {
             containerName: containerName,
             containerId: containerId,
             target: `${containerId.substring(0, 12)}:${port}`,
+            composeProject: composeProject,
           };
         }
 
@@ -562,6 +579,7 @@ class DockerCollector extends BaseCollector {
             containerName: containerName,
             containerId: containerId,
             target: `${containerId.substring(0, 12)}:${port}`,
+            composeProject: composeProject,
           };
         }
       }
