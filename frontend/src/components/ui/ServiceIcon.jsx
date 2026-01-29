@@ -2,10 +2,19 @@ import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { Box, Server, Cpu } from 'lucide-react';
 import { getIconUrls } from '@/lib/service-icons';
 
+// Simple in-memory cache: remembers which URL index worked for each service+theme combo
+const urlIndexCache = new Map();
+
+function getCacheKey(name, isDark) {
+  return `${name?.toLowerCase() || ''}:${isDark ? 'dark' : 'light'}`;
+}
+
 function ServiceIconComponent({ name, source = 'docker', className = '', size = 24 }) {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [needsInvert, setNeedsInvert] = useState(false);
-  const [urlIndex, setUrlIndex] = useState(0);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const cacheKey = getCacheKey(name, isDark);
+  const [urlIndex, setUrlIndex] = useState(() => urlIndexCache.get(cacheKey) ?? 0);
   const imgRef = useRef(null);
   
   useEffect(() => {
@@ -22,8 +31,10 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
   const isThemeVariant = currentUrl?.isThemeVariant;
   
   useEffect(() => {
-    setUrlIndex(0);
+    const newCacheKey = getCacheKey(name, isDark);
+    setUrlIndex(urlIndexCache.get(newCacheKey) ?? 0);
     setNeedsInvert(false);
+    setIsLoaded(false);
   }, [isDark, name]);
   
   const checkBrightnessAndDecide = useCallback(() => {
@@ -31,6 +42,8 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
     
     if (isThemeVariant) {
       setNeedsInvert(false);
+      setIsLoaded(true);
+      urlIndexCache.set(cacheKey, urlIndex);
       return;
     }
     
@@ -59,6 +72,7 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
           return;
         }
         setNeedsInvert(true);
+        setIsLoaded(true);
       } else if (!isDark && avgBrightness > 200) {
         const nextVariantIdx = urls.findIndex((u, i) => i > urlIndex && u.isThemeVariant);
         if (nextVariantIdx !== -1) {
@@ -66,22 +80,27 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
           return;
         }
         setNeedsInvert(true);
+        setIsLoaded(true);
       } else {
         setNeedsInvert(false);
+        setIsLoaded(true);
+        urlIndexCache.set(cacheKey, urlIndex);
       }
     } catch {
       setNeedsInvert(false);
+      setIsLoaded(true);
     }
-  }, [isDark, isThemeVariant, urlIndex, urls]);
+  }, [cacheKey, isDark, isThemeVariant, urlIndex, urls]);
   
   const FallbackIcon = source === 'docker' ? Box : source === 'system' ? Cpu : Server;
-  const containerClasses = `inline-flex items-center justify-center ${className}`;
+  const containerClasses = `inline-flex items-center justify-center relative ${className}`;
   const iconSize = size * 0.75;
 
   const handleError = () => {
     if (urlIndex + 1 < urls.length) {
       setUrlIndex(urlIndex + 1);
       setNeedsInvert(false);
+      setIsLoaded(false);
     } else {
       setUrlIndex(-1);
     }
@@ -97,6 +116,9 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
 
   return (
     <div className={containerClasses} style={{ width: size, height: size }}>
+      {!isLoaded && (
+        <FallbackIcon className="text-slate-400 dark:text-slate-500 absolute" style={{ width: iconSize, height: iconSize }} />
+      )}
       <img
         ref={imgRef}
         src={iconUrl}
@@ -104,7 +126,10 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
         width={size}
         height={size}
         className="rounded object-contain"
-        style={needsInvert ? { filter: 'invert(1) hue-rotate(180deg)' } : undefined}
+        style={{
+          opacity: isLoaded ? 1 : 0,
+          ...(needsInvert ? { filter: 'invert(1) hue-rotate(180deg)' } : {})
+        }}
         crossOrigin="anonymous"
         onError={handleError}
         onLoad={checkBrightnessAndDecide}

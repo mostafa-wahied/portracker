@@ -27,6 +27,7 @@ export function PortTable({
   selectedPorts,
   onToggleSelection,
   onSelectAllPorts,
+  showIcons = false,
 }) {
   const getSortIcon = (column) => {
     if (sortConfig.key !== column) {
@@ -167,6 +168,7 @@ export function PortTable({
               selectionMode={selectionMode}
               isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
               onToggleSelection={onToggleSelection}
+              showIcons={showIcons}
             />
           ))}
         </tbody>

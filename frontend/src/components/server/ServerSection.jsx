@@ -1130,6 +1130,7 @@ function ServerSectionComponent({
                 selectedPorts={selectedPorts}
                 onToggleSelection={onToggleSelection}
                 onSelectAllPorts={onSelectAllPorts}
+                showIcons={showIcons}
               />
             )}
 

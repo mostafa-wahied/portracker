@@ -225,6 +225,7 @@ export function ServiceCardTableRow({
                               generatePortKey(serverId, port)
                             )}
                             onToggleSelection={onToggleSelection}
+                            showIcons={showIcons}
                           />
                         );
                       });

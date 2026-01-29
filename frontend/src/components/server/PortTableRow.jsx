@@ -10,6 +10,7 @@ import { PortStatusIndicator } from "./PortStatusIndicator";
 import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
 import { InternalPortDetails } from "./InternalPortDetails";
+import ServiceIcon from "@/components/ui/ServiceIcon";
 import {
   formatCreatedDate,
   formatCreatedTooltip,
@@ -57,6 +58,7 @@ function PortTableRowComponent({
   selectionMode = false,
   isSelected = false,
   onToggleSelection,
+  showIcons = false,
 }) {
   const [protocol, setProtocol] = useState("http");
   const [showDetails, setShowDetails] = useState(false);
@@ -197,8 +199,9 @@ function PortTableRowComponent({
                     <button
                       type="button"
                       onClick={() => setShowDetails(true)}
-                      className="inline-flex items-center w-fit whitespace-nowrap cursor-pointer rounded-md px-1.5 py-0.5 transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+                      className="inline-flex items-center gap-1.5 w-fit whitespace-nowrap cursor-pointer rounded-md px-1.5 py-0.5 transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                     >
+                      {showIcons && <ServiceIcon name={getDisplayServiceName(port)} size={16} />}
                       {shouldHighlight
                         ? renderHighlightedText(highlightText(getDisplayServiceName(port), searchTerm))
                         : getDisplayServiceName(port)}
@@ -221,7 +224,8 @@ function PortTableRowComponent({
             </div>
           ) : (
             <div className="flex items-center space-x-1">
-              <span className="truncate inline-flex items-center">
+              <span className="truncate inline-flex items-center gap-1.5">
+                {showIcons && <ServiceIcon name={getDisplayServiceName(port)} size={16} />}
                 {shouldHighlight
                   ? renderHighlightedText(highlightText(getDisplayServiceName(port), searchTerm))
                   : getDisplayServiceName(port)}

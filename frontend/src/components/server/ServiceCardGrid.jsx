@@ -266,6 +266,7 @@ export function ServiceCardGrid({
                           selectionMode={selectionMode}
                           isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
                           onToggleSelection={onToggleSelection}
+                          showIcons={showIcons}
                         />
                       ))}
                     </ul>
