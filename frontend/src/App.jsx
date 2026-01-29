@@ -253,9 +253,9 @@ export default function App() {
   const [groupingMode, setGroupingMode] = useState(() => {
     try {
       const saved = localStorage.getItem("groupingMode");
-      return saved === "services" ? "services" : "ports";
+      return saved === "ports" ? "ports" : "services";
     } catch {
-      return "ports";
+      return "services";
     }
   });
 

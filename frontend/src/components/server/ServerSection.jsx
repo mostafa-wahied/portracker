@@ -158,20 +158,6 @@ function ServerSectionComponent({
     return { internal, published, total: list.length };
   }, [data]);
 
-  const portMood = useMemo(() => {
-    const count = visiblePorts.length;
-    if (count === 0) {
-      return "It's empty in here.";
-    }
-    if (count < 10) {
-      return `Feels lonely with ${count} service${count === 1 ? "" : "s"}.`;
-    }
-    if (count > 99) {
-      return `Hoarder alert: Wow.. ${count} services.`;
-    }
-    return null;
-  }, [visiblePorts.length]);
-
   useEffect(() => {
     const validKeys = ["default", "host_port", "owner", "created"];
     let { key, direction } = sortConfig;
@@ -274,6 +260,33 @@ function ServerSectionComponent({
     
     return services;
   }, [sortedPorts, groupingMode]);
+
+  const portMood = useMemo(() => {
+    if (groupingMode === "services") {
+      const count = groupedServices.length;
+      if (count === 0) {
+        return "It's empty in here.";
+      }
+      if (count < 5) {
+        return `Feels lonely with ${count} service${count === 1 ? "" : "s"}.`;
+      }
+      if (count > 30) {
+        return `Hoarder alert: Wow.. ${count} services.`;
+      }
+      return null;
+    }
+    const count = visiblePorts.length;
+    if (count === 0) {
+      return "It's empty in here.";
+    }
+    if (count < 10) {
+      return `Feels lonely with ${count} port${count === 1 ? "" : "s"}.`;
+    }
+    if (count > 99) {
+      return `Hoarder alert: Wow.. ${count} ports.`;
+    }
+    return null;
+  }, [visiblePorts.length, groupingMode, groupedServices.length]);
 
   useEffect(() => {
     try {
@@ -468,28 +481,13 @@ function ServerSectionComponent({
                   <TooltipContent side="bottom">
                     {portMood
                       ? portMood
-                      : `Published: ${counts.published}, Internal: ${counts.internal}${showInternal ? " (showing internal)" : " (hiding internal)"}`}
+                      : groupingMode === "services"
+                        ? `${groupedServices.length} services (${visiblePorts.length} ports)`
+                        : `Published: ${counts.published}, Internal: ${counts.internal}${showInternal ? " (showing internal)" : " (hiding internal)"}`}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
               <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 mr-2">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => onGroupingModeChange("ports")}
-                        className={`p-1.5 rounded transition-colors ${
-                          groupingMode === "ports"
-                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
-                            : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
-                        }`}
-                      >
-                        <List className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>View by Ports</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -505,6 +503,23 @@ function ServerSectionComponent({
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>View by Services</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => onGroupingModeChange("ports")}
+                        className={`p-1.5 rounded transition-colors ${
+                          groupingMode === "ports"
+                            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
+                            : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        <List className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>View by Ports</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -530,11 +545,13 @@ function ServerSectionComponent({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400 cursor-default">
-                      ({visiblePorts.length})
+                      ({groupingMode === "services" ? groupedServices.length : visiblePorts.length})
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {`Published: ${counts.published}, Internal: ${counts.internal}${showInternal ? " (showing internal)" : " (hiding internal)"}`}
+                    {groupingMode === "services"
+                      ? `${groupedServices.length} services (${visiblePorts.length} ports total)`
+                      : `Published: ${counts.published}, Internal: ${counts.internal}${showInternal ? " (showing internal)" : " (hiding internal)"}`}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -1151,7 +1168,7 @@ function ServerSectionComponent({
 
         {ok && visiblePorts.length === 0 && (
           <div className="p-6 text-center text-slate-500 dark:text-slate-400">
-            No ports detected or all ports are hidden.
+            {groupingMode === "services" ? "No services detected or all ports are hidden." : "No ports detected or all ports are hidden."}
           </div>
         )}
 

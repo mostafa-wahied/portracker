@@ -1964,7 +1964,6 @@ class TrueNASCollector extends BaseCollector {
       }
     });
     
-    const totalCollected = (results.apps?.length || 0) + (results.vms?.length || 0) + (results.containers?.length || 0);
     const successCount = apiCalls.length - results.failures.length;
     
     if (results.failures.length === 0) {

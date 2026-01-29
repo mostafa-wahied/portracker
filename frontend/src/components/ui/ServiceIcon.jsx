@@ -2,7 +2,6 @@ import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { Box, Server, Cpu } from 'lucide-react';
 import { getIconUrls } from '@/lib/service-icons';
 
-// Simple in-memory cache: remembers which URL index worked for each service+theme combo
 const urlIndexCache = new Map();
 
 function getCacheKey(name, isDark) {

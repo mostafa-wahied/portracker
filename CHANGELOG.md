@@ -12,6 +12,14 @@ All notable changes to portracker will be documented in this file.
 
 - **System Port Detection**: Restored system port detection (SSH, SMB, etc.) when running in containerized environments.
 
+### Dashboard
+
+- **Service-Centric View**: View your ports organized by service name with expandable cards showing all ports per service (now the default view)
+- **Service Icons**: Visual icons automatically loaded for services and ports from community icon libraries with service name extraction and matching
+  - **[sub]** Toggle to show/hide icons with preference saved locally
+  - **[sub]** Automatic theme-aware icon variants for dark and light modes
+  - **[sub]** Icons available in all view layouts (list, grid, and table)
+
 ### UI
 
 - **Favicon**: Dark mode support - favicon now adapts to system theme (black on light, white on dark)
