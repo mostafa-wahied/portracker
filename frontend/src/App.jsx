@@ -22,6 +22,7 @@ import { BatchOperationsBar } from "./components/server/BatchOperationsBar";
 import { BatchRenameModal } from "./components/server/BatchRenameModal";
 import { BatchHideModal } from "./components/server/BatchHideModal";
 import { BatchNotesModal } from "./components/server/BatchNotesModal";
+import { SettingsModal } from "./components/settings/SettingsModal";
 import { LoginPage } from "./components/auth/LoginPage";
 import { ChangePasswordPage } from "./components/auth/ChangePasswordPage";
 import { BarChart3 } from "lucide-react";
@@ -75,6 +76,7 @@ export default function App() {
   const [batchRenameModalOpen, setBatchRenameModalOpen] = useState(false);
   const [batchHideModalOpen, setBatchHideModalOpen] = useState(false);
   const [batchNotesModalOpen, setBatchNotesModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
   const [renameLoading, setRenameLoading] = useState(false);
   const [hackerMode, setHackerMode] = useState(() => {
@@ -173,6 +175,26 @@ export default function App() {
     }
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
+
+  const [themePreference, setThemePreference] = useState(() => {
+    const stored = localStorage.theme;
+    if (stored === "dark" || stored === "light") return stored;
+    return "system";
+  });
+
+  const handleThemeChange = useCallback((newTheme) => {
+    setThemePreference(newTheme);
+    if (newTheme === "system") {
+      localStorage.removeItem("theme");
+      setIsDarkMode(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    } else if (newTheme === "dark") {
+      localStorage.theme = "dark";
+      setIsDarkMode(true);
+    } else {
+      localStorage.theme = "light";
+      setIsDarkMode(false);
+    }
+  }, []);
 
   const [servers, setServers] = useState([]);
   const [selectedServer, setSelectedServer] = useState(
@@ -1962,6 +1984,7 @@ export default function App() {
           hackerMode={hackerMode}
           onDisableHackerMode={disableHackerMode}
           autoRefreshMessages={autoRefreshMessages}
+          onOpenSettings={() => setSettingsModalOpen(true)}
         />
         <DashboardLayout
           isSidebarOpen={isSidebarOpen}
@@ -2093,6 +2116,15 @@ export default function App() {
         selectedPorts={selectedPorts}
         onSave={handleBatchNotesSave}
         loading={batchLoading}
+      />
+
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        theme={themePreference}
+        onThemeChange={handleThemeChange}
+        showIcons={showIcons}
+        onShowIconsChange={setShowIcons}
       />
 
       <BatchOperationsBar

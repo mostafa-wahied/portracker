@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer } from "lucide-react";
+import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/Logo";
@@ -42,6 +42,7 @@ export function AppHeader({
   hackerMode = false,
   onDisableHackerMode,
   autoRefreshMessages = [],
+  onOpenSettings,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -345,34 +346,47 @@ export function AppHeader({
             </Button>
           )}
 
-          {auth.authEnabled && auth.authenticated && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
-                    >
-                      <User className="h-5 w-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Account</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-48">
-                <div className="px-2 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {auth.username}
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={auth.logout} className="text-red-600 dark:text-red-400">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                  >
+                    <User className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{auth.authEnabled && auth.authenticated ? "Account" : "Menu"}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-48">
+              {auth.authEnabled && auth.authenticated && (
+                <>
+                  <div className="px-2 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {auth.username}
+                  </div>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {onOpenSettings && (
+                <DropdownMenuItem onClick={onOpenSettings}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              )}
+              {auth.authEnabled && auth.authenticated && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={auth.logout} className="text-red-600 dark:text-red-400">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
