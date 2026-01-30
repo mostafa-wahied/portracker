@@ -22,7 +22,7 @@ const net = require('net');
 const db = require('./db');
 const https = require("https");
 const os = require("os");
-const { requireAuth, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
+const { requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
 const recoveryManager = require('./lib/recovery-manager');
@@ -615,7 +615,7 @@ const PORT = process.env.PORT || 3000;
 /**
  * Get all ports from the local system using the collector framework.
  */
-app.get("/api/ports", async (req, res) => {
+app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true";
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
   const cacheKey = 'endpoint:ports:local';
@@ -682,7 +682,7 @@ app.get("/api/ports", async (req, res) => {
 /**
  * New peer-based endpoint to replace remote API connectivity.
  */
-app.get("/api/all-ports", async (req, res) => {
+app.get("/api/all-ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true" || process.env.DEBUG === 'true';
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
   
@@ -893,7 +893,7 @@ async function generateUnusedPortFromPortList(portEntries, { bindCheck = false, 
 /**
  * New endpoint to scan a server with the appropriate collector
  */
-app.get("/api/servers/:id/scan", async (req, res) => {
+app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
   
@@ -974,9 +974,15 @@ app.get("/api/servers/:id/scan", async (req, res) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         
+        const fetchHeaders = {};
+        if (server.api_key) {
+          fetchHeaders['X-API-Key'] = server.api_key;
+        }
+        
         try {
           const peerResponse = await fetch(peerScanUrl, { 
-            signal: controller.signal 
+            signal: controller.signal,
+            headers: fetchHeaders
           });
           clearTimeout(timeoutId);
 
@@ -1076,8 +1082,13 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+      const peerHeaders = {};
+      if (server.api_key) {
+        peerHeaders['X-API-Key'] = server.api_key;
+      }
+
       try {
-        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal });
+        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal, headers: peerHeaders });
         clearTimeout(timeoutId);
 
         if (peerResponse.ok) {
@@ -1089,7 +1100,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
           logger.warn(`[generate-port] Peer ${server.label} missing generate endpoint, falling back to scan.`);
           try {
             const scanUrl = new URL("/api/servers/local/scan", server.url).href;
-            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal });
+            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal, headers: peerHeaders });
 
             if (scanResponse.ok) {
               const scanData = await scanResponse.json();
@@ -2253,7 +2264,7 @@ app.post("/api/notes/batch", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/ping", async (req, res) => {
+app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
   const { host_ip, host_port, target_server_url, owner, internal, container_id, source } = req.query;
   const serverId = req.query.server_id;
   const currentDebug = req.query.debug === "true";
@@ -2490,7 +2501,7 @@ app.get('/api/version', (req, res) => {
   }
 });
 
-app.get("/api/containers/:id/details", async (req, res) => {
+app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => {
   const containerId = req.params.id;
   const currentDebug = req.query.debug === 'true';
   const serverId = req.query.server_id;
