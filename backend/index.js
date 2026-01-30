@@ -24,6 +24,7 @@ const https = require("https");
 const os = require("os");
 const { requireAuth, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
+const settingsRoutes = require('./routes/settings');
 const recoveryManager = require('./lib/recovery-manager');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
@@ -607,6 +608,7 @@ if (isAuthEnabled()) {
 app.use(checkAuthEnabled);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/settings', settingsRoutes);
 
 const PORT = process.env.PORT || 3000;
 
