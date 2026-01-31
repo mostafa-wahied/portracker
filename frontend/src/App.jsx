@@ -77,6 +77,28 @@ export default function App() {
   const [batchHideModalOpen, setBatchHideModalOpen] = useState(false);
   const [batchNotesModalOpen, setBatchNotesModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    try {
+      const saved = localStorage.getItem("refreshInterval");
+      return saved ? parseInt(saved, 10) : 30000;
+    } catch {
+      return 30000;
+    }
+  });
+  const [includeUdp, setIncludeUdp] = useState(() => {
+    try {
+      return localStorage.getItem("includeUdp") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [disableCache, setDisableCache] = useState(() => {
+    try {
+      return localStorage.getItem("disableCache") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [batchLoading, setBatchLoading] = useState(false);
   const [renameLoading, setRenameLoading] = useState(false);
   const [hackerMode, setHackerMode] = useState(() => {
@@ -617,6 +639,11 @@ export default function App() {
     setError(null);
     setPortSuggestions({});
 
+    const scanParams = new URLSearchParams();
+    if (includeUdp) scanParams.set('includeUdp', 'true');
+    if (disableCache) scanParams.set('disableCache', 'true');
+    const scanQueryString = scanParams.toString();
+
     try {
       const serversResponse = await fetch("/api/servers");
       if (!serversResponse.ok) {
@@ -628,9 +655,8 @@ export default function App() {
         currentServers.map(async (server) => {
           if (server.id === "local") {
             try {
-              const scanResponse = await fetch(
-                `/api/servers/${server.id}/scan`
-              );
+              const scanUrl = `/api/servers/${server.id}/scan${scanQueryString ? `?${scanQueryString}` : ''}`;
+              const scanResponse = await fetch(scanUrl);
               if (scanResponse.ok) {
                 const scanData = await scanResponse.json();
                 const transformedPorts = await transformCollectorData(
@@ -688,9 +714,8 @@ export default function App() {
 
           if (server.type === "peer" && server.url) {
             try {
-              const scanResponse = await fetch(
-                `/api/servers/${server.id}/scan`
-              );
+              const scanUrl = `/api/servers/${server.id}/scan${scanQueryString ? `?${scanQueryString}` : ''}`;
+              const scanResponse = await fetch(scanUrl);
               if (scanResponse.ok) {
                 const scanData = await scanResponse.json();
                 const transformedPorts = await transformCollectorData(
@@ -786,7 +811,7 @@ export default function App() {
       setError(error.toString());
       setLoading(false);
     }
-  }, [transformCollectorData]);
+  }, [transformCollectorData, includeUdp, disableCache]);
 
   const handleLogoClick = useCallback(() => {
     fetchAll();
@@ -835,10 +860,10 @@ export default function App() {
     const intervalId = setInterval(() => {
       logger.debug('Auto-refresh triggered');
       fetchAll();
-    }, 30000);
+    }, refreshInterval);
 
     return () => clearInterval(intervalId);
-  }, [autoRefreshEnabled, fetchAll, auth.loading, auth.authEnabled, auth.authenticated]);
+  }, [autoRefreshEnabled, fetchAll, auth.loading, auth.authEnabled, auth.authenticated, refreshInterval]);
 
   useEffect(() => {
     if (!loading && groups.length > 0) {
@@ -1985,6 +2010,7 @@ export default function App() {
           onDisableHackerMode={disableHackerMode}
           autoRefreshMessages={autoRefreshMessages}
           onOpenSettings={() => setSettingsModalOpen(true)}
+          refreshInterval={refreshInterval}
         />
         <DashboardLayout
           isSidebarOpen={isSidebarOpen}
@@ -2125,6 +2151,21 @@ export default function App() {
         onThemeChange={handleThemeChange}
         showIcons={showIcons}
         onShowIconsChange={setShowIcons}
+        refreshInterval={refreshInterval}
+        onRefreshIntervalChange={(val) => {
+          setRefreshInterval(val);
+          localStorage.setItem("refreshInterval", val.toString());
+        }}
+        includeUdp={includeUdp}
+        onIncludeUdpChange={(val) => {
+          setIncludeUdp(val);
+          localStorage.setItem("includeUdp", val.toString());
+        }}
+        disableCache={disableCache}
+        onDisableCacheChange={(val) => {
+          setDisableCache(val);
+          localStorage.setItem("disableCache", val.toString());
+        }}
       />
 
       <BatchOperationsBar

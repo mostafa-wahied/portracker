@@ -897,6 +897,34 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
   
+  const originalIncludeUdp = process.env.INCLUDE_UDP;
+  const originalDisableCache = process.env.DISABLE_CACHE;
+  
+  if (req.query.includeUdp === 'true') {
+    process.env.INCLUDE_UDP = 'true';
+  } else if (req.query.includeUdp === 'false') {
+    process.env.INCLUDE_UDP = 'false';
+  }
+  
+  if (req.query.disableCache === 'true') {
+    process.env.DISABLE_CACHE = 'true';
+  } else if (req.query.disableCache === 'false') {
+    process.env.DISABLE_CACHE = 'false';
+  }
+  
+  const restoreEnv = () => {
+    if (originalIncludeUdp !== undefined) {
+      process.env.INCLUDE_UDP = originalIncludeUdp;
+    } else {
+      delete process.env.INCLUDE_UDP;
+    }
+    if (originalDisableCache !== undefined) {
+      process.env.DISABLE_CACHE = originalDisableCache;
+    } else {
+      delete process.env.DISABLE_CACHE;
+    }
+  };
+  
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(currentDebug);
   
   logger.debug(`GET /api/servers/${serverId}/scan called with debug=${currentDebug}`);
@@ -1049,6 +1077,7 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
       .status(500)
       .json({ error: "Failed to scan server", details: error.message });
   } finally {
+    restoreEnv();
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }
 });

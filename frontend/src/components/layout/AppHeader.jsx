@@ -43,6 +43,7 @@ export function AppHeader({
   onDisableHackerMode,
   autoRefreshMessages = [],
   onOpenSettings,
+  refreshInterval = 30000,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -287,7 +288,9 @@ export function AppHeader({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {autoRefreshEnabled ? "Auto-refresh enabled (30s)" : "Enable auto-refresh"}
+                {autoRefreshEnabled 
+                  ? `Auto-refresh enabled (${refreshInterval >= 60000 ? `${refreshInterval / 60000}min` : `${refreshInterval / 1000}s`})` 
+                  : "Enable auto-refresh"}
               </TooltipContent>
             </Tooltip>
           )}
@@ -392,7 +395,7 @@ export function AppHeader({
 
       <RefreshProgress
         active={autoRefreshEnabled && !loading}
-        duration={30000}
+        duration={refreshInterval}
         messages={autoRefreshMessages || []}
       />
     </header>
