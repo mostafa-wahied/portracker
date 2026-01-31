@@ -1003,8 +1003,8 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         
         const fetchHeaders = {};
-        if (server.api_key) {
-          fetchHeaders['X-API-Key'] = server.api_key;
+        if (server.remote_api_key) {
+          fetchHeaders['X-API-Key'] = server.remote_api_key;
         }
         
         try {
@@ -1112,8 +1112,8 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       const peerHeaders = {};
-      if (server.api_key) {
-        peerHeaders['X-API-Key'] = server.api_key;
+      if (server.remote_api_key) {
+        peerHeaders['X-API-Key'] = server.remote_api_key;
       }
 
       try {
@@ -1561,7 +1561,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
   logger.debug("GET /api/servers");
   try {
     const stmt = db.prepare(
-      "SELECT id, label, url, parentId, type, unreachable, platform_type FROM servers"
+      "SELECT id, label, url, parentId, type, unreachable, platform_type, (remote_api_key IS NOT NULL) as hasApiKey FROM servers"
     );
     const servers = stmt.all();
     logger.debug(`Returning ${servers.length} servers`);
@@ -1576,7 +1576,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
 });
 
 app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
-  const { id, label, url, parentId, type, unreachable, platform_type } =
+  const { id, label, url, parentId, type, unreachable, platform_type, apiKey } =
     req.body;
 
   if (!id) {
@@ -1598,22 +1598,37 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
   try {
     const existing = db.prepare("SELECT id FROM servers WHERE id = ?").get(id);
     if (existing) {
-      db.prepare(
-        "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ? WHERE id = ?"
-      ).run(
-        label,
-        url,
-        parentId || null,
-        type,
-        dbUnreachable,
-        platform_type,
-        id
-      );
+      if (apiKey !== undefined) {
+        db.prepare(
+          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ?, remote_api_key = ? WHERE id = ?"
+        ).run(
+          label,
+          url,
+          parentId || null,
+          type,
+          dbUnreachable,
+          platform_type,
+          apiKey || null,
+          id
+        );
+      } else {
+        db.prepare(
+          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ? WHERE id = ?"
+        ).run(
+          label,
+          url,
+          parentId || null,
+          type,
+          dbUnreachable,
+          platform_type,
+          id
+        );
+      }
       logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
       res.status(200).json({ message: "Server updated successfully", id });
     } else {
       db.prepare(
-        "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type, remote_api_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         id,
         label,
@@ -1621,7 +1636,8 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
         parentId || null,
         type,
         dbUnreachable,
-        platform_type
+        platform_type,
+        apiKey || null
       );
       logger.info(`Server added successfully. ID: ${id}, Label: "${label}"`);
       res.status(201).json({ message: "Server added successfully", id });

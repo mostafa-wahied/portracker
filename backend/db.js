@@ -528,6 +528,11 @@ if (!tableExists) {
       db.prepare("ALTER TABLE servers ADD COLUMN api_key_created_at TEXT").run();
       logger.info('Schema migration: api_key_created_at column added to servers table');
     }
+    if (!serversColumnsForApiKey.some((col) => col.name === "remote_api_key")) {
+      logger.info('Schema migration: Adding "remote_api_key" column to "servers" table');
+      db.prepare("ALTER TABLE servers ADD COLUMN remote_api_key TEXT").run();
+      logger.info('Schema migration: remote_api_key column added to servers table');
+    }
 
   } catch (migrationError) {
     logger.error(

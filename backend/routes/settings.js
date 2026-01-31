@@ -44,7 +44,7 @@ router.get('/defaults', (req, res) => {
   res.json(defaults);
 });
 
-router.post('/servers/:serverId/api-key', requireAuth, (req, res) => {
+router.post('/servers/:serverId/api-key', requireAuth, async (req, res) => {
   try {
     const { serverId } = req.params;
 
@@ -61,7 +61,7 @@ router.post('/servers/:serverId/api-key', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'API keys can only be generated for the local server' });
     }
 
-    const result = apiKeyManager.generateApiKey(serverId);
+    const result = await apiKeyManager.generateApiKey(serverId);
     if (!result) {
       return res.status(500).json({ error: 'Failed to generate API key' });
     }

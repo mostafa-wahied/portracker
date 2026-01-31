@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer, Settings } from "lucide-react";
+import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer, Settings, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/Logo";
@@ -43,6 +43,7 @@ export function AppHeader({
   onDisableHackerMode,
   autoRefreshMessages = [],
   onOpenSettings,
+  onOpenApiKey,
   refreshInterval = 30000,
 }) {
   const auth = useAuth();
@@ -377,6 +378,12 @@ export function AppHeader({
                 <DropdownMenuItem onClick={onOpenSettings}>
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
+                </DropdownMenuItem>
+              )}
+              {auth.authEnabled && auth.authenticated && onOpenApiKey && (
+                <DropdownMenuItem onClick={onOpenApiKey}>
+                  <Key className="mr-2 h-4 w-4" />
+                  API Key
                 </DropdownMenuItem>
               )}
               {auth.authEnabled && auth.authenticated && (

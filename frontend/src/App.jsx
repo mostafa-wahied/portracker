@@ -23,6 +23,7 @@ import { BatchRenameModal } from "./components/server/BatchRenameModal";
 import { BatchHideModal } from "./components/server/BatchHideModal";
 import { BatchNotesModal } from "./components/server/BatchNotesModal";
 import { SettingsModal } from "./components/settings/SettingsModal";
+import { ApiKeyModal } from "./components/settings/ApiKeyModal";
 import { LoginPage } from "./components/auth/LoginPage";
 import { ChangePasswordPage } from "./components/auth/ChangePasswordPage";
 import { BarChart3 } from "lucide-react";
@@ -77,6 +78,7 @@ export default function App() {
   const [batchHideModalOpen, setBatchHideModalOpen] = useState(false);
   const [batchNotesModalOpen, setBatchNotesModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(() => {
     try {
       const saved = localStorage.getItem("refreshInterval");
@@ -1530,18 +1532,23 @@ export default function App() {
         setGroups(updatedGroups);
 
         try {
+          const serverPayload = {
+            id: serverData.id,
+            label: serverData.label,
+            url: serverData.url,
+            parentId: serverData.parentId || null,
+            type: serverData.type || "peer",
+            unreachable: serverData.unreachable || false,
+            platform_type: serverData.platform_type || "unknown",
+          };
+          if (serverData.apiKey) {
+            serverPayload.apiKey = serverData.apiKey;
+          }
+          
           const response = await fetch("/api/servers", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: serverData.id,
-              label: serverData.label,
-              url: serverData.url,
-              parentId: serverData.parentId || null,
-              type: serverData.type || "peer",
-              unreachable: serverData.unreachable || false,
-              platform_type: serverData.platform_type || "unknown",
-            }),
+            body: JSON.stringify(serverPayload),
           });
 
           if (!response.ok) {
@@ -1581,6 +1588,7 @@ export default function App() {
               type: serverData.type || "peer",
               unreachable: serverData.unreachable || false,
               platform_type: serverData.platform_type || "unknown",
+              apiKey: serverData.apiKey || null,  // Always include for new servers
             }),
           });
 
@@ -2010,6 +2018,7 @@ export default function App() {
           onDisableHackerMode={disableHackerMode}
           autoRefreshMessages={autoRefreshMessages}
           onOpenSettings={() => setSettingsModalOpen(true)}
+          onOpenApiKey={() => setApiKeyModalOpen(true)}
           refreshInterval={refreshInterval}
         />
         <DashboardLayout
@@ -2166,6 +2175,11 @@ export default function App() {
           setDisableCache(val);
           localStorage.setItem("disableCache", val.toString());
         }}
+      />
+
+      <ApiKeyModal
+        isOpen={apiKeyModalOpen}
+        onClose={() => setApiKeyModalOpen(false)}
       />
 
       <BatchOperationsBar

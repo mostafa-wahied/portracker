@@ -226,6 +226,8 @@ export function Sidebar({
     url: "",
     parentId: "",
     type: "peer",
+    apiKey: "",
+    hasExistingKey: false,
   });
   const [error, setError] = useState("");
   const [urlValid, setUrlValid] = useState(false);
@@ -245,6 +247,8 @@ export function Sidebar({
           url: srv.url || "",
           parentId: srv.parentId || "",
           type: srv.type || "peer",
+          apiKey: "",
+          hasExistingKey: srv.hasApiKey || false,
         });
         setAllowUnreachable(srv.unreachable || false);
       }
@@ -254,6 +258,8 @@ export function Sidebar({
         url: "",
         parentId: "",
         type: "peer",
+        apiKey: "",
+        hasExistingKey: false,
       });
       setAllowUnreachable(false);
     }
@@ -378,6 +384,7 @@ export function Sidebar({
         type: form.type,
         unreachable: allowUnreachable,
         parentId: form.parentId || null,
+        apiKey: form.apiKey?.trim() || null,
       };
       await onAdd(serverData, mode !== "add");
       setValidationStatus({
@@ -596,6 +603,25 @@ export function Sidebar({
               </div>
               <ValidationStatus />
             </div>
+            {form.url && (
+              <div>
+                <Label htmlFor="apiKey">API Key (Optional)</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                  placeholder={form.hasExistingKey ? "••••••••••••••••" : "Enter API key if server has auth enabled"}
+                  className="mt-1.5"
+                  disabled={submitting}
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {form.hasExistingKey && !form.apiKey
+                    ? "API key is saved. Enter a new key to replace it."
+                    : "Required if the remote server has authentication enabled"}
+                </p>
+              </div>
+            )}
             {availableParents.length > 0 && (
               <div>
                 <Label htmlFor="parent">Parent Server (Optional)</Label>

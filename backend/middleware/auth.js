@@ -58,11 +58,21 @@ function requireAuthOrApiKey(req, res, next) {
 
   const apiKey = req.headers['x-api-key'];
   if (apiKey) {
-    const result = validateAnyApiKey(apiKey);
-    if (result.valid) {
-      req.apiKeyServerId = result.serverId;
-      return next();
-    }
+    validateAnyApiKey(apiKey).then(result => {
+      if (result.valid) {
+        req.apiKeyServerId = result.serverId;
+        return next();
+      }
+      logger.debug('Invalid API key provided for:', req.path);
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        authEnabled: true 
+      });
+    }).catch(err => {
+      logger.error('API key validation error:', err.message);
+      return res.status(500).json({ error: 'Authentication error' });
+    });
+    return;
   }
 
   logger.debug('Unauthorized access attempt to protected endpoint:', req.path);

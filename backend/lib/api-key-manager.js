@@ -1,11 +1,13 @@
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { Logger } = require('./logger');
 
 const logger = new Logger('ApiKeyManager', { debug: process.env.DEBUG === 'true' });
 const API_KEY_LENGTH = 32;
+const BCRYPT_ROUNDS = 10;
 
-function generateApiKey(serverId) {
+async function generateApiKey(serverId) {
   if (!serverId) {
     logger.warn('generateApiKey called without serverId');
     return null;
@@ -19,15 +21,16 @@ function generateApiKey(serverId) {
 
   const apiKey = crypto.randomBytes(API_KEY_LENGTH).toString('hex');
   const createdAt = new Date().toISOString();
+  const hashedKey = await bcrypt.hash(apiKey, BCRYPT_ROUNDS);
 
   db.prepare('UPDATE servers SET api_key = ?, api_key_created_at = ? WHERE id = ?')
-    .run(apiKey, createdAt, serverId);
+    .run(hashedKey, createdAt, serverId);
 
   logger.info(`API key generated for server: ${serverId}`);
   return { apiKey, createdAt };
 }
 
-function validateApiKey(serverId, providedKey) {
+async function validateApiKey(serverId, providedKey) {
   if (!serverId || !providedKey) {
     return false;
   }
@@ -37,17 +40,10 @@ function validateApiKey(serverId, providedKey) {
     return false;
   }
 
-  const storedKeyBuffer = Buffer.from(server.api_key, 'utf8');
-  const providedKeyBuffer = Buffer.from(providedKey, 'utf8');
-
-  if (storedKeyBuffer.length !== providedKeyBuffer.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(storedKeyBuffer, providedKeyBuffer);
+  return bcrypt.compare(providedKey, server.api_key);
 }
 
-function validateAnyApiKey(providedKey) {
+async function validateAnyApiKey(providedKey) {
   if (!providedKey) {
     return { valid: false, serverId: null };
   }
@@ -55,14 +51,8 @@ function validateAnyApiKey(providedKey) {
   const servers = db.prepare('SELECT id, api_key FROM servers WHERE api_key IS NOT NULL').all();
 
   for (const server of servers) {
-    const storedKeyBuffer = Buffer.from(server.api_key, 'utf8');
-    const providedKeyBuffer = Buffer.from(providedKey, 'utf8');
-
-    if (storedKeyBuffer.length !== providedKeyBuffer.length) {
-      continue;
-    }
-
-    if (crypto.timingSafeEqual(storedKeyBuffer, providedKeyBuffer)) {
+    const isValid = await bcrypt.compare(providedKey, server.api_key);
+    if (isValid) {
       return { valid: true, serverId: server.id };
     }
   }
