@@ -4,6 +4,27 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **API Key Authentication**: Secure peer-to-peer communication between Portracker instances
+  - **[sub]** Generate unique API keys for external access from Settings menu
+  - **[sub]** Keys shown once on generation, stored with bcrypt hashing
+  - **[sub]** Add API keys when connecting to remote servers with authentication enabled
+  - **[sub]** Backward compatible: API key only required when remote server has `ENABLE_AUTH=true`
+
+- **Endpoint Protection**: All data endpoints now protected when authentication is enabled
+  - **[sub]** `/api/ports`, `/api/all-ports`, `/api/servers/:id/scan` require auth or valid API key
+  - **[sub]** Peer instances use X-API-Key header for authenticated requests
+
+### Settings
+
+- **Settings Modal**: Centralized configuration accessible from header dropdown
+  - **[sub]** Theme preference (System/Light/Dark)
+  - **[sub]** Service icons visibility toggle
+  - **[sub]** Auto-refresh interval selector (15s/30s/1m/2m)
+  - **[sub]** Advanced options: UDP ports toggle, cache control
+  - **[sub]** About section with version info and links
+
 ### Added
 
 - **Reverse Proxy Support**: New `HOST_OVERRIDE` environment variable allows specifying the hostname used in port links when running behind a reverse proxy (fixes #51)
