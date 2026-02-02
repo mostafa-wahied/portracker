@@ -22,6 +22,8 @@ import { BatchOperationsBar } from "./components/server/BatchOperationsBar";
 import { BatchRenameModal } from "./components/server/BatchRenameModal";
 import { BatchHideModal } from "./components/server/BatchHideModal";
 import { BatchNotesModal } from "./components/server/BatchNotesModal";
+import { SettingsModal } from "./components/settings/SettingsModal";
+import { ApiKeyModal } from "./components/settings/ApiKeyModal";
 import { LoginPage } from "./components/auth/LoginPage";
 import { ChangePasswordPage } from "./components/auth/ChangePasswordPage";
 import { BarChart3 } from "lucide-react";
@@ -29,6 +31,7 @@ import Logger from "./lib/logger";
 import { useWhatsNew } from "./lib/hooks/useWhatsNew";
 import { saveCustomServiceName, deleteCustomServiceName, getCustomServiceNames, batchCustomServiceNames } from "./lib/api/customServiceNames";
 import { batchNotes, saveNote } from "./lib/api/notes";
+import { getAutoxposeStatus, connectAutoxpose, disconnectAutoxpose, setAutoxposeDisplayMode, setAutoxposeUrlStyle, getAutoxposeServices, getAutoxposeDomain } from "./lib/api/autoxpose";
 import { generatePortKey } from "./lib/utils/portUtils";
 import { formatUptime } from "@/lib/utils";
 import { useAuth } from "./contexts/AuthContext";
@@ -75,6 +78,30 @@ export default function App() {
   const [batchRenameModalOpen, setBatchRenameModalOpen] = useState(false);
   const [batchHideModalOpen, setBatchHideModalOpen] = useState(false);
   const [batchNotesModalOpen, setBatchNotesModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    try {
+      const saved = localStorage.getItem("refreshInterval");
+      return saved ? parseInt(saved, 10) : 30000;
+    } catch {
+      return 30000;
+    }
+  });
+  const [includeUdp, setIncludeUdp] = useState(() => {
+    try {
+      return localStorage.getItem("includeUdp") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [disableCache, setDisableCache] = useState(() => {
+    try {
+      return localStorage.getItem("disableCache") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [batchLoading, setBatchLoading] = useState(false);
   const [renameLoading, setRenameLoading] = useState(false);
   const [hackerMode, setHackerMode] = useState(() => {
@@ -173,6 +200,26 @@ export default function App() {
     }
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
+
+  const [themePreference, setThemePreference] = useState(() => {
+    const stored = localStorage.theme;
+    if (stored === "dark" || stored === "light") return stored;
+    return "system";
+  });
+
+  const handleThemeChange = useCallback((newTheme) => {
+    setThemePreference(newTheme);
+    if (newTheme === "system") {
+      localStorage.removeItem("theme");
+      setIsDarkMode(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    } else if (newTheme === "dark") {
+      localStorage.theme = "dark";
+      setIsDarkMode(true);
+    } else {
+      localStorage.theme = "light";
+      setIsDarkMode(false);
+    }
+  }, []);
 
   const [servers, setServers] = useState([]);
   const [selectedServer, setSelectedServer] = useState(
@@ -285,6 +332,106 @@ export default function App() {
     }
   });
   const [portSuggestions, setPortSuggestions] = useState({});
+
+  const [autoxposeStatus, setAutoxposeStatus] = useState({
+    enabled: false,
+    configured: false,
+    connected: false,
+    url: null
+  });
+  const [autoxposeDisplayMode, setAutoxposeDisplayModeState] = useState("url");
+  const [autoxposeUrlStyle, setAutoxposeUrlStyleState] = useState("compact");
+  const [autoxposePorts, setAutoxposePorts] = useState(null);
+
+  useEffect(() => {
+    getAutoxposeStatus()
+      .then((status) => {
+        setAutoxposeStatus(status);
+        if (status.displayMode) {
+          setAutoxposeDisplayModeState(status.displayMode);
+        }
+        if (status.urlStyle) {
+          setAutoxposeUrlStyleState(status.urlStyle);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!autoxposeStatus.connected) {
+      setAutoxposePorts(null);
+      return;
+    }
+    
+    const fetchServices = async () => {
+      try {
+        const [servicesData, domainData] = await Promise.all([
+          getAutoxposeServices(),
+          getAutoxposeDomain(),
+        ]);
+        
+        const services = servicesData?.services || [];
+        const domain = domainData?.domain;
+        
+        if (!domain || !services.length) {
+          setAutoxposePorts(new Map());
+          return;
+        }
+        
+        const portsMap = new Map();
+        services.forEach((svc) => {
+          if (svc.port && svc.enabled && svc.exposedSubdomain) {
+            const containerIdKey = svc.sourceId ? `${svc.sourceId.substring(0, 12)}:${svc.port}` : null;
+            const hostname = `${svc.exposedSubdomain}.${domain}`;
+            const url = `https://${hostname}`;
+            
+            let sslStatus = "none";
+            if (svc.sslPending) {
+              sslStatus = "pending";
+            } else if (svc.sslError) {
+              sslStatus = "error";
+            } else if (svc.exposedSubdomain) {
+              sslStatus = "active";
+            }
+            
+            const data = { url, hostname, sslStatus };
+            if (containerIdKey) {
+              portsMap.set(containerIdKey, data);
+            }
+          }
+        });
+        setAutoxposePorts(portsMap);
+      } catch (err) {
+        logger.warn("Failed to fetch autoxpose services:", err);
+        setAutoxposePorts(null);
+      }
+    };
+    
+    fetchServices();
+  }, [autoxposeStatus.connected]);
+
+  const handleAutoxposeConnect = useCallback(async (url) => {
+    const result = await connectAutoxpose(url);
+    if (result.success) {
+      setAutoxposeStatus((prev) => ({ ...prev, connected: true, url }));
+    }
+    return result;
+  }, []);
+
+  const handleAutoxposeDisconnect = useCallback(async () => {
+    await disconnectAutoxpose();
+    setAutoxposeStatus((prev) => ({ ...prev, connected: false, url: null }));
+  }, []);
+
+  const handleAutoxposeDisplayModeChange = useCallback(async (mode) => {
+    await setAutoxposeDisplayMode(mode);
+    setAutoxposeDisplayModeState(mode);
+  }, []);
+
+  const handleAutoxposeUrlStyleChange = useCallback(async (style) => {
+    await setAutoxposeUrlStyle(style);
+    setAutoxposeUrlStyleState(style);
+  }, []);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -485,6 +632,7 @@ export default function App() {
           internal: port.internal || false,
           compose_project: port.compose_project || null,
           compose_service: port.compose_service || null,
+          autoxpose: port.autoxpose || null,
         }));
 
       const uniquePorts = [];
@@ -595,6 +743,11 @@ export default function App() {
     setError(null);
     setPortSuggestions({});
 
+    const scanParams = new URLSearchParams();
+    if (includeUdp) scanParams.set('includeUdp', 'true');
+    if (disableCache) scanParams.set('disableCache', 'true');
+    const scanQueryString = scanParams.toString();
+
     try {
       const serversResponse = await fetch("/api/servers");
       if (!serversResponse.ok) {
@@ -606,9 +759,8 @@ export default function App() {
         currentServers.map(async (server) => {
           if (server.id === "local") {
             try {
-              const scanResponse = await fetch(
-                `/api/servers/${server.id}/scan`
-              );
+              const scanUrl = `/api/servers/${server.id}/scan${scanQueryString ? `?${scanQueryString}` : ''}`;
+              const scanResponse = await fetch(scanUrl);
               if (scanResponse.ok) {
                 const scanData = await scanResponse.json();
                 const transformedPorts = await transformCollectorData(
@@ -666,9 +818,8 @@ export default function App() {
 
           if (server.type === "peer" && server.url) {
             try {
-              const scanResponse = await fetch(
-                `/api/servers/${server.id}/scan`
-              );
+              const scanUrl = `/api/servers/${server.id}/scan${scanQueryString ? `?${scanQueryString}` : ''}`;
+              const scanResponse = await fetch(scanUrl);
               if (scanResponse.ok) {
                 const scanData = await scanResponse.json();
                 const transformedPorts = await transformCollectorData(
@@ -764,7 +915,7 @@ export default function App() {
       setError(error.toString());
       setLoading(false);
     }
-  }, [transformCollectorData]);
+  }, [transformCollectorData, includeUdp, disableCache]);
 
   const handleLogoClick = useCallback(() => {
     fetchAll();
@@ -813,10 +964,10 @@ export default function App() {
     const intervalId = setInterval(() => {
       logger.debug('Auto-refresh triggered');
       fetchAll();
-    }, 30000);
+    }, refreshInterval);
 
     return () => clearInterval(intervalId);
-  }, [autoRefreshEnabled, fetchAll, auth.loading, auth.authEnabled, auth.authenticated]);
+  }, [autoRefreshEnabled, fetchAll, auth.loading, auth.authEnabled, auth.authenticated, refreshInterval]);
 
   useEffect(() => {
     if (!loading && groups.length > 0) {
@@ -1483,18 +1634,23 @@ export default function App() {
         setGroups(updatedGroups);
 
         try {
+          const serverPayload = {
+            id: serverData.id,
+            label: serverData.label,
+            url: serverData.url,
+            parentId: serverData.parentId || null,
+            type: serverData.type || "peer",
+            unreachable: serverData.unreachable || false,
+            platform_type: serverData.platform_type || "unknown",
+          };
+          if (serverData.apiKey) {
+            serverPayload.apiKey = serverData.apiKey;
+          }
+          
           const response = await fetch("/api/servers", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: serverData.id,
-              label: serverData.label,
-              url: serverData.url,
-              parentId: serverData.parentId || null,
-              type: serverData.type || "peer",
-              unreachable: serverData.unreachable || false,
-              platform_type: serverData.platform_type || "unknown",
-            }),
+            body: JSON.stringify(serverPayload),
           });
 
           if (!response.ok) {
@@ -1534,6 +1690,7 @@ export default function App() {
               type: serverData.type || "peer",
               unreachable: serverData.unreachable || false,
               platform_type: serverData.platform_type || "unknown",
+              apiKey: serverData.apiKey || null,  // Always include for new servers
             }),
           });
 
@@ -1880,6 +2037,9 @@ export default function App() {
         onSelectAllPorts={(ports) => selectAllPortsForServer(server.id, ports)}
         portSuggestion={portSuggestions[server.id]}
         onGeneratePort={generatePortForServer}
+        autoxposeDisplayMode={autoxposeDisplayMode}
+        autoxposeUrlStyle={autoxposeUrlStyle}
+        autoxposePorts={autoxposePorts}
       />
     );
   }
@@ -1962,6 +2122,10 @@ export default function App() {
           hackerMode={hackerMode}
           onDisableHackerMode={disableHackerMode}
           autoRefreshMessages={autoRefreshMessages}
+          onOpenSettings={() => setSettingsModalOpen(true)}
+          onOpenApiKey={() => setApiKeyModalOpen(true)}
+          refreshInterval={refreshInterval}
+          autoxposeStatus={autoxposeStatus}
         />
         <DashboardLayout
           isSidebarOpen={isSidebarOpen}
@@ -2093,6 +2257,42 @@ export default function App() {
         selectedPorts={selectedPorts}
         onSave={handleBatchNotesSave}
         loading={batchLoading}
+      />
+
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        theme={themePreference}
+        onThemeChange={handleThemeChange}
+        showIcons={showIcons}
+        onShowIconsChange={setShowIcons}
+        refreshInterval={refreshInterval}
+        onRefreshIntervalChange={(val) => {
+          setRefreshInterval(val);
+          localStorage.setItem("refreshInterval", val.toString());
+        }}
+        includeUdp={includeUdp}
+        onIncludeUdpChange={(val) => {
+          setIncludeUdp(val);
+          localStorage.setItem("includeUdp", val.toString());
+        }}
+        disableCache={disableCache}
+        onDisableCacheChange={(val) => {
+          setDisableCache(val);
+          localStorage.setItem("disableCache", val.toString());
+        }}
+        autoxposeStatus={autoxposeStatus}
+        autoxposeDisplayMode={autoxposeDisplayMode}
+        autoxposeUrlStyle={autoxposeUrlStyle}
+        onAutoxposeConnect={handleAutoxposeConnect}
+        onAutoxposeDisconnect={handleAutoxposeDisconnect}
+        onAutoxposeDisplayModeChange={handleAutoxposeDisplayModeChange}
+        onAutoxposeUrlStyleChange={handleAutoxposeUrlStyleChange}
+      />
+
+      <ApiKeyModal
+        isOpen={apiKeyModalOpen}
+        onClose={() => setApiKeyModalOpen(false)}
       />
 
       <BatchOperationsBar

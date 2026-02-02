@@ -11,6 +11,7 @@ import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
 import { InternalPortDetails } from "./InternalPortDetails";
 import ServiceIcon from "@/components/ui/ServiceIcon";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 import {
   formatCreatedDate,
   formatCreatedTooltip,
@@ -59,6 +60,9 @@ function PortCardComponent({
   isSelected = false,
   onToggleSelection,
   showIcons = false,
+  autoxposeData,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
 }) {
   const [protocol, setProtocol] = useState("http");
   const [showDetails, setShowDetails] = useState(false);
@@ -216,7 +220,7 @@ function PortCardComponent({
                     : getDisplayServiceName(port)}
                 </span>
               )}
-              <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+              <div className="opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <ActionButton
                   type="rename"
                   itemKey={itemKey}
@@ -284,15 +288,33 @@ function PortCardComponent({
         </div>
       </div>
 
-      <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-active:opacity-100 [@media(hover:none)]:group-active:opacity-100 [@media(hover:none)]:opacity-0 transition-opacity">
-        <PortActions
-          port={port}
-          itemKey={itemKey}
-          actionFeedback={actionFeedback}
-          onCopy={() => onCopy(port, protocol)}
-          onEdit={() => onEdit(serverId, port)}
-          onHide={() => onToggleIgnore(serverId, port)}
-        />
+      <div className="flex items-center gap-2">
+        <div className="opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 group-active:opacity-100 [@media(hover:none)]:group-active:opacity-100 [@media(hover:none)]:opacity-40 transition-opacity">
+          <PortActions
+            port={port}
+            itemKey={itemKey}
+            actionFeedback={actionFeedback}
+            onCopy={() => onCopy(port, protocol)}
+            onEdit={() => onEdit(serverId, port)}
+            onHide={() => onToggleIgnore(serverId, port)}
+          />
+        </div>
+        {autoxposeData && (
+          autoxposeDisplayMode === "url" ? (
+            <ExternalUrlChip
+              url={autoxposeData.url}
+              hostname={autoxposeData.hostname}
+              sslStatus={autoxposeData.sslStatus}
+              compact={autoxposeUrlStyle === "compact"}
+            />
+          ) : (
+            <GlobeIconBadge
+              url={autoxposeData.url}
+              hostname={autoxposeData.hostname}
+              sslStatus={autoxposeData.sslStatus}
+            />
+          )
+        )}
       </div>
   <InternalPortDetails
     open={forceOpenDetails || showDetails}

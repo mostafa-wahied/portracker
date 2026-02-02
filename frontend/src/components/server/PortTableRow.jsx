@@ -11,6 +11,7 @@ import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
 import { InternalPortDetails } from "./InternalPortDetails";
 import ServiceIcon from "@/components/ui/ServiceIcon";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 import {
   formatCreatedDate,
   formatCreatedTooltip,
@@ -59,6 +60,9 @@ function PortTableRowComponent({
   isSelected = false,
   onToggleSelection,
   showIcons = false,
+  autoxposeData,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
 }) {
   const [protocol, setProtocol] = useState("http");
   const [showDetails, setShowDetails] = useState(false);
@@ -94,7 +98,7 @@ function PortTableRowComponent({
       }`}
     >
       {selectionMode && (
-        <td className="px-4 py-3 text-center">
+        <td className="px-2 py-2 text-center">
           <input
             type="checkbox"
             checked={isSelected}
@@ -104,7 +108,7 @@ function PortTableRowComponent({
         </td>
       )}
       
-      <td className="px-4 py-3 text-center">
+      <td className="px-2 py-2 text-center">
         <div className="flex justify-center">
           <PortStatusIndicator
             serverId={serverId}
@@ -116,9 +120,9 @@ function PortTableRowComponent({
       </td>
 
       
-      <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100">
+      <td className="px-3 py-2 text-sm font-medium text-slate-900 dark:text-slate-100">
         <div className="flex flex-col space-y-1">
-          <div className="flex items-center">
+          <div className="flex items-center gap-1.5">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -173,7 +177,21 @@ function PortTableRowComponent({
                 )}
               </Tooltip>
             </TooltipProvider>
-            
+            {autoxposeData && autoxposeDisplayMode === "badge" && (
+              <GlobeIconBadge
+                url={autoxposeData.url}
+                hostname={autoxposeData.hostname}
+                sslStatus={autoxposeData.sslStatus}
+              />
+            )}
+            {autoxposeData && autoxposeDisplayMode === "url" && (
+              <ExternalUrlChip
+                url={autoxposeData.url}
+                hostname={autoxposeData.hostname}
+                sslStatus={autoxposeData.sslStatus}
+                compact={autoxposeUrlStyle === "compact"}
+              />
+            )}
           </div>
 
           
@@ -189,7 +207,7 @@ function PortTableRowComponent({
       </td>
 
       
-      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+      <td className="px-3 py-2 text-sm text-slate-600 dark:text-slate-300">
         <div className="flex flex-col space-y-1">
           {canShowDetails ? (
             <div className="flex items-center space-x-1">
@@ -210,7 +228,7 @@ function PortTableRowComponent({
                   <TooltipContent>Open container details</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+              <div className="opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <ActionButton
                   type="rename"
                   itemKey={itemKey}
@@ -230,7 +248,7 @@ function PortTableRowComponent({
                   ? renderHighlightedText(highlightText(getDisplayServiceName(port), searchTerm))
                   : getDisplayServiceName(port)}
               </span>
-              <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+              <div className="opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                 <ActionButton
                   type="rename"
                   itemKey={itemKey}
@@ -260,10 +278,9 @@ function PortTableRowComponent({
         </div>
       </td>
 
-      
-      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+      <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
         <span
-          className={`inline-block px-2 py-0.5 rounded font-medium ${
+          className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
             port.source === "docker"
               ? "bg-blue-100 text-blue-800 dark:bg-blue-800/30 dark:text-blue-200"
               : "bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-200"
@@ -274,14 +291,7 @@ function PortTableRowComponent({
       </td>
 
       
-      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 font-mono">
-        {shouldHighlight
-          ? renderHighlightedText(highlightText(hostForUi, searchTerm))
-          : hostForUi}
-      </td>
-
-      
-      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+      <td className="px-2 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
         {port.created ? (
           <TooltipProvider>
             <Tooltip>
@@ -299,8 +309,8 @@ function PortTableRowComponent({
       </td>
 
       
-      <td className="px-4 py-3 text-right">
-        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-active:opacity-100 [@media(hover:none)]:group-active:opacity-100 [@media(hover:none)]:opacity-0 transition-opacity">
+      <td className="px-2 py-2 text-right whitespace-nowrap">
+        <div className="opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 group-active:opacity-100 [@media(hover:none)]:group-active:opacity-100 [@media(hover:none)]:opacity-40 transition-opacity">
           <PortActions
             port={port}
             itemKey={itemKey}

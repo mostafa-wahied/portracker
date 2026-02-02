@@ -6,10 +6,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PortCard } from "./PortCard";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
+import { AggregatedHealthDot } from "./AggregatedHealthDot";
 
 export function ServiceCardGrid({
   serviceName,
@@ -31,6 +33,9 @@ export function ServiceCardGrid({
   isDocker,
   deepLinkContainerId,
   showIcons = true,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
+  autoxposePorts,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -95,6 +100,7 @@ export function ServiceCardGrid({
         <div className={`flex items-start justify-between mb-3 ${selectionMode ? "ml-6" : ""}`}>
           <div className="flex items-center space-x-2 min-w-0 flex-1">
             {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} className="flex-shrink-0" />}
+            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
             <div className="min-w-0 flex-1">
               <h4 className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">
                 {serviceName}
@@ -118,20 +124,34 @@ export function ServiceCardGrid({
         </div>
 
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {publishedPorts.slice(0, 4).map((port) => (
-            <ClickablePortBadge
-              key={port.host_port}
-              port={port}
-              serverId={serverId}
-              serverUrl={serverUrl}
-              hostOverride={hostOverride}
-            />
+          {publishedPorts.map((port) => (
+            <React.Fragment key={port.host_port}>
+              <ClickablePortBadge
+                port={port}
+                serverId={serverId}
+                serverUrl={serverUrl}
+                hostOverride={hostOverride}
+              />
+              {(() => {
+                const autoxposeData = getAutoxposeData(autoxposePorts, port);
+                if (!autoxposeData) return null;
+                return autoxposeDisplayMode === "url" ? (
+                  <ExternalUrlChip
+                    url={autoxposeData.url}
+                    hostname={autoxposeData.hostname}
+                    sslStatus={autoxposeData.sslStatus}
+                    compact={autoxposeUrlStyle === "compact"}
+                  />
+                ) : (
+                  <GlobeIconBadge
+                    url={autoxposeData.url}
+                    hostname={autoxposeData.hostname}
+                    sslStatus={autoxposeData.sslStatus}
+                  />
+                );
+              })()}
+            </React.Fragment>
           ))}
-          {publishedPorts.length > 4 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 text-xs">
-              +{publishedPorts.length - 4}
-            </span>
-          )}
         </div>
 
         <div className="flex items-center justify-between text-xs mt-auto">
@@ -267,6 +287,9 @@ export function ServiceCardGrid({
                           isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
                           onToggleSelection={onToggleSelection}
                           showIcons={showIcons}
+                          autoxposeData={getAutoxposeData(autoxposePorts, port)}
+                          autoxposeDisplayMode={autoxposeDisplayMode}
+                          autoxposeUrlStyle={autoxposeUrlStyle}
                         />
                       ))}
                     </ul>

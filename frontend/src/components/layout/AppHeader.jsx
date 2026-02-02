@@ -10,13 +10,14 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer } from "lucide-react";
+import { RefreshCw, Loader2, Search, X, Sun, Moon, Menu, SlidersHorizontal, Sparkles, LogOut, User, Timer, Settings, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
 import { RefreshProgress } from "@/components/ui/RefreshProgress";
 import { useLongPress } from "@/lib/hooks/useLongPress";
+import { AutoxposeLogoBadge } from "@/components/autoxpose/AutoxposeLogoBadge";
 
 export function AppHeader({
   loading,
@@ -42,6 +43,10 @@ export function AppHeader({
   hackerMode = false,
   onDisableHackerMode,
   autoRefreshMessages = [],
+  onOpenSettings,
+  onOpenApiKey,
+  refreshInterval = 30000,
+  autoxposeStatus = null,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -141,11 +146,14 @@ export function AppHeader({
             {...logoLongPressHandlers}
             className="flex items-center gap-3 text-xl font-bold text-slate-800 dark:text-slate-200 group cursor-pointer"
           >
-            <Logo
-              className={`h-10 w-10 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-300 ease-in-out group-hover:rotate-[30deg] ${
-                loading ? "animate-spin" : ""
-              }`}
-            />
+            <div className="relative">
+              <Logo
+                className={`h-10 w-10 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-300 ease-in-out group-hover:rotate-[30deg] ${
+                  loading ? "animate-spin" : ""
+                }`}
+              />
+              <AutoxposeLogoBadge connected={autoxposeStatus?.connected} />
+            </div>
             <span className="tracking-tighter">portracker</span>
           </button>
         </div>
@@ -286,7 +294,9 @@ export function AppHeader({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {autoRefreshEnabled ? "Auto-refresh enabled (30s)" : "Enable auto-refresh"}
+                {autoRefreshEnabled 
+                  ? `Auto-refresh enabled (${refreshInterval >= 60000 ? `${refreshInterval / 60000}min` : `${refreshInterval / 1000}s`})` 
+                  : "Enable auto-refresh"}
               </TooltipContent>
             </Tooltip>
           )}
@@ -345,40 +355,59 @@ export function AppHeader({
             </Button>
           )}
 
-          {auth.authEnabled && auth.authenticated && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
-                    >
-                      <User className="h-5 w-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Account</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-48">
-                <div className="px-2 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {auth.username}
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={auth.logout} className="text-red-600 dark:text-red-400">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                  >
+                    <User className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{auth.authEnabled && auth.authenticated ? "Account" : "Menu"}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-48">
+              {auth.authEnabled && auth.authenticated && (
+                <>
+                  <div className="px-2 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {auth.username}
+                  </div>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {onOpenSettings && (
+                <DropdownMenuItem onClick={onOpenSettings}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              )}
+              {auth.authEnabled && auth.authenticated && onOpenApiKey && (
+                <DropdownMenuItem onClick={onOpenApiKey}>
+                  <Key className="mr-2 h-4 w-4" />
+                  API Key
+                </DropdownMenuItem>
+              )}
+              {auth.authEnabled && auth.authenticated && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={auth.logout} className="text-red-600 dark:text-red-400">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       <RefreshProgress
         active={autoRefreshEnabled && !loading}
-        duration={30000}
+        duration={refreshInterval}
         messages={autoRefreshMessages || []}
       />
     </header>

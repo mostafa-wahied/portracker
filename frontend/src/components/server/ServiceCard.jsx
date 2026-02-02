@@ -25,6 +25,9 @@ export function ServiceCard({
   tableMode = false,
   deepLinkContainerId,
   showIcons = true,
+  autoxposeDisplayMode,
+  autoxposeUrlStyle,
+  autoxposePorts,
 }) {
   const commonProps = {
     serviceName,
@@ -46,6 +49,9 @@ export function ServiceCard({
     isDocker,
     deepLinkContainerId,
     showIcons,
+    autoxposeDisplayMode,
+    autoxposeUrlStyle,
+    autoxposePorts,
   };
 
   if (tableMode) {

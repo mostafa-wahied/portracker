@@ -1,16 +1,18 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { PortTableRow } from "./PortTableRow";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
+import { InlinePortRow } from "./ExpandedPortViews";
+import { AggregatedHealthDot } from "./AggregatedHealthDot";
 
 export function ServiceCardTableRow({
   serviceName,
@@ -18,20 +20,19 @@ export function ServiceCardTableRow({
   serverId,
   serverUrl,
   hostOverride,
-  searchTerm,
   actionFeedback,
   onCopy,
   onNote,
   onToggleIgnore,
   onRename,
-  onOpenContainerDetails,
-  onCloseContainerDetails,
   selectionMode,
   selectedPorts,
   onToggleSelection,
   isDocker,
-  deepLinkContainerId,
   showIcons = true,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
+  autoxposePorts,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -68,7 +69,12 @@ export function ServiceCardTableRow({
     <>
       <tr
         onClick={() => setIsExpanded(!isExpanded)}
-        className="group border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+        aria-expanded={isExpanded}
+        className={`group cursor-pointer transition-all ${
+          isExpanded 
+            ? "bg-gradient-to-r from-teal-50/50 via-cyan-50/30 to-transparent dark:from-teal-950/30 dark:via-cyan-950/20 dark:to-transparent border-b border-teal-100/50 dark:border-teal-900/30 border-l-2 border-l-teal-400 dark:border-l-teal-500"
+            : "border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+        }`}
       >
         {selectionMode && (
           <td className="px-4 py-3 text-center">
@@ -86,33 +92,50 @@ export function ServiceCardTableRow({
         )}
         <td className="px-4 py-3">
           <div className="flex items-center space-x-3">
-            {isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
-            )}
+            <ChevronRight 
+              className={`h-4 w-4 flex-shrink-0 transition-all duration-200 ${
+                isExpanded 
+                  ? "rotate-90 text-teal-500 dark:text-teal-400" 
+                  : "text-slate-400"
+              }`} 
+            />
             {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={20} className="flex-shrink-0" />}
+            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
             <span className="font-medium text-sm text-slate-900 dark:text-slate-100">
               {serviceName}
             </span>
           </div>
         </td>
         <td className="px-4 py-3">
-          <div className="flex items-center space-x-1 flex-wrap">
-            {publishedPorts.slice(0, 5).map((port) => (
-              <ClickablePortBadge
-                key={port.host_port}
-                port={port}
-                serverId={serverId}
-                serverUrl={serverUrl}
-                hostOverride={hostOverride}
-              />
+          <div className="flex items-center space-x-1 flex-wrap gap-1">
+            {publishedPorts.map((port) => (
+              <React.Fragment key={port.host_port}>
+                <ClickablePortBadge
+                  port={port}
+                  serverId={serverId}
+                  serverUrl={serverUrl}
+                  hostOverride={hostOverride}
+                />
+                {!isExpanded && (() => {
+                  const autoxposeData = getAutoxposeData(autoxposePorts, port);
+                  if (!autoxposeData) return null;
+                  return autoxposeDisplayMode === "url" ? (
+                    <ExternalUrlChip
+                      url={autoxposeData.url}
+                      hostname={autoxposeData.hostname}
+                      sslStatus={autoxposeData.sslStatus}
+                      compact={autoxposeUrlStyle === "compact"}
+                    />
+                  ) : (
+                    <GlobeIconBadge
+                      url={autoxposeData.url}
+                      hostname={autoxposeData.hostname}
+                      sslStatus={autoxposeData.sslStatus}
+                    />
+                  );
+                })()}
+              </React.Fragment>
             ))}
-            {publishedPorts.length > 5 && (
-              <span className="text-xs text-slate-400">
-                +{publishedPorts.length - 5}
-              </span>
-            )}
           </div>
         </td>
         <td className="px-4 py-3">
@@ -142,101 +165,42 @@ export function ServiceCardTableRow({
             "N/A"
           )}
         </td>
-        <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">
-          {ports.length}
+        <td className="px-4 py-3 text-center">
+          <span className={`inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-xs font-medium ${
+            isExpanded
+              ? "bg-teal-100 text-teal-700 dark:bg-teal-800/40 dark:text-teal-300"
+              : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+          }`}>
+            {ports.length}
+          </span>
         </td>
       </tr>
-      {isExpanded && (
-        <tr className="bg-slate-50 dark:bg-slate-900/30">
-          <td colSpan={selectionMode ? 7 : 6} className="p-0">
-            <div className="border-t border-slate-200 dark:border-slate-700">
-              <table className="min-w-full">
-                <thead className="bg-slate-100/50 dark:bg-slate-800/30">
-                  <tr>
-                    {selectionMode && (
-                      <th scope="col" className="px-4 py-2 text-center text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider"></th>
-                    )}
-                    <th scope="col" className="px-4 py-2 text-center text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Status</th>
-                    <th scope="col" className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Port</th>
-                    <th scope="col" className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Container</th>
-                    <th scope="col" className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Source</th>
-                    <th scope="col" className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Host</th>
-                    <th scope="col" className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Created</th>
-                    <th scope="col" className="px-4 py-2 text-right text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {(() => {
-                    const containerGroups = new Map();
-                    ports.forEach((port) => {
-                      const containerKey = port.container_id || port.owner || 'unknown';
-                      const containerName = port.compose_service || port.owner || 'Unknown';
-                      if (!containerGroups.has(containerKey)) {
-                        containerGroups.set(containerKey, {
-                          name: containerName,
-                          containerId: port.container_id,
-                          ports: [],
-                        });
-                      }
-                      containerGroups.get(containerKey).ports.push(port);
-                    });
 
-                    const rows = [];
-                    Array.from(containerGroups.values()).forEach((container) => {
-                      if (containerGroups.size > 1) {
-                        rows.push(
-                          <tr key={`header-${container.containerId || container.name}`} className="bg-slate-50 dark:bg-slate-800/40">
-                            <td colSpan={selectionMode ? 8 : 7} className="px-4 py-1.5 border-l-2 border-slate-300 dark:border-slate-600">
-                              <div className="flex items-center space-x-2">
-                                {showIcons && <ServiceIcon name={container.name} source="docker" size={14} />}
-                                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                                  {container.name}
-                                </span>
-                                <span className="text-xs text-slate-400 dark:text-slate-500">
-                                  ({container.ports.length} port{container.ports.length !== 1 ? 's' : ''})
-                                </span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-                      container.ports.forEach((port) => {
-                        rows.push(
-                          <PortTableRow
-                            key={generatePortKey(serverId, port)}
-                            port={port}
-                            serverId={serverId}
-                            serverUrl={serverUrl}
-                            hostOverride={hostOverride}
-                            searchTerm={searchTerm}
-                            actionFeedback={actionFeedback}
-                            onCopy={onCopy}
-                            onNote={onNote}
-                            onToggleIgnore={onToggleIgnore}
-                            onRename={onRename}
-                            forceOpenDetails={
-                              deepLinkContainerId &&
-                              port.container_id === deepLinkContainerId
-                            }
-                            notifyOpenDetails={onOpenContainerDetails}
-                            notifyCloseDetails={onCloseContainerDetails}
-                            selectionMode={selectionMode}
-                            isSelected={selectedPorts?.has(
-                              generatePortKey(serverId, port)
-                            )}
-                            onToggleSelection={onToggleSelection}
-                            showIcons={showIcons}
-                          />
-                        );
-                      });
-                    });
-                    return rows;
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
+      {isExpanded && (
+        <>
+          {ports.map((port, idx) => (
+            <InlinePortRow
+              key={generatePortKey(serverId, port)}
+              port={port}
+              serverId={serverId}
+              serverUrl={serverUrl}
+              hostOverride={hostOverride}
+              selectionMode={selectionMode}
+              isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
+              onToggleSelection={onToggleSelection}
+              onCopy={onCopy}
+              onNote={onNote}
+              onToggleIgnore={onToggleIgnore}
+              onRename={onRename}
+              actionFeedback={actionFeedback}
+              showIcons={showIcons}
+              autoxposeData={getAutoxposeData(autoxposePorts, port)}
+              autoxposeDisplayMode={autoxposeDisplayMode}
+              autoxposeUrlStyle={autoxposeUrlStyle}
+              isLastInGroup={idx === ports.length - 1}
+            />
+          ))}
+        </>
       )}
     </>
   );

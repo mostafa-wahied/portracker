@@ -6,6 +6,7 @@
  */
 
 const { Logger } = require('../lib/logger');
+const { validateAnyApiKey } = require('../lib/api-key-manager');
 
 const logger = new Logger('AuthMiddleware', { debug: process.env.DEBUG === 'true' });
 
@@ -46,6 +47,41 @@ function requireAuth(req, res, next) {
   });
 }
 
+function requireAuthOrApiKey(req, res, next) {
+  if (!isAuthEnabled()) {
+    return next();
+  }
+
+  if (req.session && req.session.userId) {
+    return next();
+  }
+
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey) {
+    validateAnyApiKey(apiKey).then(result => {
+      if (result.valid) {
+        req.apiKeyServerId = result.serverId;
+        return next();
+      }
+      logger.debug('Invalid API key provided for:', req.path);
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        authEnabled: true 
+      });
+    }).catch(err => {
+      logger.error('API key validation error:', err.message);
+      return res.status(500).json({ error: 'Authentication error' });
+    });
+    return;
+  }
+
+  logger.debug('Unauthorized access attempt to protected endpoint:', req.path);
+  return res.status(401).json({ 
+    error: 'Authentication required',
+    authEnabled: true 
+  });
+}
+
 /**
  * Middleware to optionally check authentication
  * Passes through regardless, but sets req.isAuthenticated flag
@@ -74,6 +110,7 @@ function isLoggedIn(req) {
 module.exports = {
   checkAuthEnabled,
   requireAuth,
+  requireAuthOrApiKey,
   optionalAuth,
   isLoggedIn,
   isAuthEnabled

@@ -34,6 +34,8 @@ if (!tableExists) {
       platform_config TEXT,
       platform_type TEXT DEFAULT 'auto',
       unreachable INTEGER DEFAULT 0,
+      api_key TEXT,
+      api_key_created_at TEXT,
       FOREIGN KEY (parentId) REFERENCES servers(id)
     );
     
@@ -513,6 +515,23 @@ if (!tableExists) {
         );
       `);
       logger.info('Schema migration: users table created successfully');
+    }
+
+    const serversColumnsForApiKey = db.prepare("PRAGMA table_info(servers)").all();
+    if (!serversColumnsForApiKey.some((col) => col.name === "api_key")) {
+      logger.info('Schema migration: Adding "api_key" column to "servers" table');
+      db.prepare("ALTER TABLE servers ADD COLUMN api_key TEXT").run();
+      logger.info('Schema migration: api_key column added to servers table');
+    }
+    if (!serversColumnsForApiKey.some((col) => col.name === "api_key_created_at")) {
+      logger.info('Schema migration: Adding "api_key_created_at" column to "servers" table');
+      db.prepare("ALTER TABLE servers ADD COLUMN api_key_created_at TEXT").run();
+      logger.info('Schema migration: api_key_created_at column added to servers table');
+    }
+    if (!serversColumnsForApiKey.some((col) => col.name === "remote_api_key")) {
+      logger.info('Schema migration: Adding "remote_api_key" column to "servers" table');
+      db.prepare("ALTER TABLE servers ADD COLUMN remote_api_key TEXT").run();
+      logger.info('Schema migration: remote_api_key column added to servers table');
     }
 
   } catch (migrationError) {

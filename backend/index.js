@@ -22,8 +22,10 @@ const net = require('net');
 const db = require('./db');
 const https = require("https");
 const os = require("os");
-const { requireAuth, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
+const { requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
+const settingsRoutes = require('./routes/settings');
+const autoxposeRoutes = require('./routes/autoxpose');
 const recoveryManager = require('./lib/recovery-manager');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
@@ -441,10 +443,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     if (statusCode === 403) {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Listening (Forbidden)`,
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (Forbidden)`,
         description: serviceInfo.description,
-        protocol: workingResponse.protocol
+        protocol: workingResponse.protocol,
+        hasWebUI: false
       };
     }
     
@@ -470,10 +473,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
       } else {
         return {
           status: 'listening',
-          color: 'yellow',
-          title: `${serviceInfo.name} - Listening (no web UI)`,
+          color: 'green',
+          title: `${serviceInfo.name} - Service responding (no web UI)`,
           description: serviceInfo.description,
-          protocol: workingResponse.protocol
+          protocol: workingResponse.protocol,
+          hasWebUI: false
         };
       }
     }
@@ -515,10 +519,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     if (statusCode === 403) {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Listening (Forbidden)`,
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (Forbidden)`,
         description: serviceInfo.description,
-        protocol: workingResponse.protocol
+        protocol: workingResponse.protocol,
+        hasWebUI: false
       };
     }
     
@@ -533,18 +538,20 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     } else {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Service listening (not HTTP)`,
-        description: serviceInfo.description
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (not HTTP)`,
+        description: serviceInfo.description,
+        hasWebUI: false
       };
     }
   }
   
   return {
     status: 'listening',
-    color: 'yellow',
-    title: `${serviceInfo.name} - Service listening`,
-    description: serviceInfo.description
+    color: 'green',
+    title: `${serviceInfo.name} - Service responding`,
+    description: serviceInfo.description,
+    hasWebUI: false
   };
 }
 
@@ -607,13 +614,15 @@ if (isAuthEnabled()) {
 app.use(checkAuthEnabled);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/autoxpose', autoxposeRoutes);
 
 const PORT = process.env.PORT || 3000;
 
 /**
  * Get all ports from the local system using the collector framework.
  */
-app.get("/api/ports", async (req, res) => {
+app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true";
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
   const cacheKey = 'endpoint:ports:local';
@@ -680,7 +689,7 @@ app.get("/api/ports", async (req, res) => {
 /**
  * New peer-based endpoint to replace remote API connectivity.
  */
-app.get("/api/all-ports", async (req, res) => {
+app.get("/api/all-ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true" || process.env.DEBUG === 'true';
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
   
@@ -891,9 +900,37 @@ async function generateUnusedPortFromPortList(portEntries, { bindCheck = false, 
 /**
  * New endpoint to scan a server with the appropriate collector
  */
-app.get("/api/servers/:id/scan", async (req, res) => {
+app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
+  
+  const originalIncludeUdp = process.env.INCLUDE_UDP;
+  const originalDisableCache = process.env.DISABLE_CACHE;
+  
+  if (req.query.includeUdp === 'true') {
+    process.env.INCLUDE_UDP = 'true';
+  } else if (req.query.includeUdp === 'false') {
+    process.env.INCLUDE_UDP = 'false';
+  }
+  
+  if (req.query.disableCache === 'true') {
+    process.env.DISABLE_CACHE = 'true';
+  } else if (req.query.disableCache === 'false') {
+    process.env.DISABLE_CACHE = 'false';
+  }
+  
+  const restoreEnv = () => {
+    if (originalIncludeUdp !== undefined) {
+      process.env.INCLUDE_UDP = originalIncludeUdp;
+    } else {
+      delete process.env.INCLUDE_UDP;
+    }
+    if (originalDisableCache !== undefined) {
+      process.env.DISABLE_CACHE = originalDisableCache;
+    } else {
+      delete process.env.DISABLE_CACHE;
+    }
+  };
   
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(currentDebug);
   
@@ -942,7 +979,9 @@ app.get("/api/servers/:id/scan", async (req, res) => {
             ignored: !!ignoreEntry,
           };
         });
-        collectData.ports = enrichedPorts;
+        
+        const autoxposeClient = require('./lib/autoxpose-client');
+        collectData.ports = await autoxposeClient.enrichPorts(enrichedPorts);
       }
 
       if (
@@ -972,9 +1011,15 @@ app.get("/api/servers/:id/scan", async (req, res) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         
+        const fetchHeaders = {};
+        if (server.remote_api_key) {
+          fetchHeaders['X-API-Key'] = server.remote_api_key;
+        }
+        
         try {
           const peerResponse = await fetch(peerScanUrl, { 
-            signal: controller.signal 
+            signal: controller.signal,
+            headers: fetchHeaders
           });
           clearTimeout(timeoutId);
 
@@ -1041,6 +1086,7 @@ app.get("/api/servers/:id/scan", async (req, res) => {
       .status(500)
       .json({ error: "Failed to scan server", details: error.message });
   } finally {
+    restoreEnv();
     if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(BASE_DEBUG);
   }
 });
@@ -1074,8 +1120,13 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+      const peerHeaders = {};
+      if (server.remote_api_key) {
+        peerHeaders['X-API-Key'] = server.remote_api_key;
+      }
+
       try {
-        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal });
+        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal, headers: peerHeaders });
         clearTimeout(timeoutId);
 
         if (peerResponse.ok) {
@@ -1087,7 +1138,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
           logger.warn(`[generate-port] Peer ${server.label} missing generate endpoint, falling back to scan.`);
           try {
             const scanUrl = new URL("/api/servers/local/scan", server.url).href;
-            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal });
+            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal, headers: peerHeaders });
 
             if (scanResponse.ok) {
               const scanData = await scanResponse.json();
@@ -1519,7 +1570,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
   logger.debug("GET /api/servers");
   try {
     const stmt = db.prepare(
-      "SELECT id, label, url, parentId, type, unreachable, platform_type FROM servers"
+      "SELECT id, label, url, parentId, type, unreachable, platform_type, (remote_api_key IS NOT NULL) as hasApiKey FROM servers"
     );
     const servers = stmt.all();
     logger.debug(`Returning ${servers.length} servers`);
@@ -1534,7 +1585,7 @@ app.get("/api/servers", requireAuth, (req, res) => {
 });
 
 app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
-  const { id, label, url, parentId, type, unreachable, platform_type } =
+  const { id, label, url, parentId, type, unreachable, platform_type, apiKey } =
     req.body;
 
   if (!id) {
@@ -1556,22 +1607,37 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
   try {
     const existing = db.prepare("SELECT id FROM servers WHERE id = ?").get(id);
     if (existing) {
-      db.prepare(
-        "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ? WHERE id = ?"
-      ).run(
-        label,
-        url,
-        parentId || null,
-        type,
-        dbUnreachable,
-        platform_type,
-        id
-      );
+      if (apiKey !== undefined) {
+        db.prepare(
+          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ?, remote_api_key = ? WHERE id = ?"
+        ).run(
+          label,
+          url,
+          parentId || null,
+          type,
+          dbUnreachable,
+          platform_type,
+          apiKey || null,
+          id
+        );
+      } else {
+        db.prepare(
+          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ? WHERE id = ?"
+        ).run(
+          label,
+          url,
+          parentId || null,
+          type,
+          dbUnreachable,
+          platform_type,
+          id
+        );
+      }
       logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
       res.status(200).json({ message: "Server updated successfully", id });
     } else {
       db.prepare(
-        "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type, remote_api_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       ).run(
         id,
         label,
@@ -1579,7 +1645,8 @@ app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
         parentId || null,
         type,
         dbUnreachable,
-        platform_type
+        platform_type,
+        apiKey || null
       );
       logger.info(`Server added successfully. ID: ${id}, Label: "${label}"`);
       res.status(201).json({ message: "Server added successfully", id });
@@ -2251,7 +2318,7 @@ app.post("/api/notes/batch", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/ping", async (req, res) => {
+app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
   const { host_ip, host_port, target_server_url, owner, internal, container_id, source } = req.query;
   const serverId = req.query.server_id;
   const currentDebug = req.query.debug === "true";
@@ -2310,19 +2377,26 @@ app.get("/api/ping", async (req, res) => {
     let status = 'unknown';
     let title = 'Container status unknown';
 
+    let hasWebUI = true;
     if (state === 'running') {
       if (h === 'healthy') {
         color = 'green';
         status = 'reachable';
         title = 'Container healthy';
-      } else if (h === 'starting' || h === 'none' || h === 'unhealthy' || h === 'unknown') {
-        color = h === 'unhealthy' ? 'yellow' : 'yellow';
-        status = 'unknown';
-        title = h === 'unhealthy' ? 'Container unhealthy' : 'Container running';
-      } else {
+      } else if (h === 'unhealthy') {
         color = 'yellow';
-        status = 'unknown';
+        status = 'degraded';
+        title = 'Container unhealthy';
+      } else if (h === 'starting' || h === 'none' || h === 'unknown') {
+        color = 'green';
+        status = 'reachable';
         title = 'Container running';
+        hasWebUI = false;
+      } else {
+        color = 'green';
+        status = 'reachable';
+        title = 'Container running';
+        hasWebUI = false;
       }
     } else if (state === 'exited' || state === 'dead' || state === 'created') {
       color = 'red';
@@ -2331,14 +2405,15 @@ app.get("/api/ping", async (req, res) => {
     }
 
     return res.json({
-      reachable: color === 'green',
+      reachable: color === 'green' || color === 'yellow',
       status,
       color,
       title,
       protocol: null,
       serviceType: 'service',
       serviceName: serviceInfo.name,
-      description: 'Internal port status based on container health'
+      description: 'Internal port status based on container health',
+      hasWebUI
     });
   }
   
@@ -2418,7 +2493,8 @@ app.get("/api/ping", async (req, res) => {
     protocol: result.protocol || null,
     serviceType: serviceInfo.type,
     serviceName: serviceInfo.name,
-    description: result.description
+    description: result.description,
+    hasWebUI: result.hasWebUI !== false
   });
   
 
@@ -2488,7 +2564,7 @@ app.get('/api/version', (req, res) => {
   }
 });
 
-app.get("/api/containers/:id/details", async (req, res) => {
+app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => {
   const containerId = req.params.id;
   const currentDebug = req.query.debug === 'true';
   const serverId = req.query.server_id;
@@ -2642,6 +2718,9 @@ logger.info(`Attempting to serve static files from: ${staticPath}`);
 app.use(express.static(staticPath, { fallthrough: true, index: false }));
 
 app.get("*", (req, res, _next) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
   const indexPath = path.join(__dirname, "public", "index.html");
   logger.debug(`Serving frontend for path: ${req.path}`);
   res.sendFile(indexPath, (err) => {
@@ -2675,6 +2754,11 @@ logger.info(`About to call app.listen on port ${PORT}`);
 if (isAuthEnabled() && recoveryManager.isRecoveryModeEnabled()) {
   recoveryManager.generateKey();
 }
+
+const autoxposeClient = require('./lib/autoxpose-client');
+autoxposeClient.initialize().catch(err => {
+  logger.warn('Failed to initialize autoxpose client:', err.message);
+});
 
 try {
   app.listen(PORT, "0.0.0.0", () => {
