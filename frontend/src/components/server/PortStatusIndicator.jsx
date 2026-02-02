@@ -64,7 +64,8 @@ export function PortStatusIndicator({
         reachable: false, 
         status: 'unreachable',
         color: 'red',
-        title: 'Connection failed'
+        title: 'Connection failed',
+        hasWebUI: true
       }))
       .finally(() => {
         clearTimeout(timeoutId);
@@ -82,6 +83,7 @@ export function PortStatusIndicator({
       return {
         color: "bg-blue-400 animate-pulse",
         title: "Checking service status...",
+        hasWebUI: true,
       };
     }
     
@@ -89,6 +91,7 @@ export function PortStatusIndicator({
       return {
         color: "bg-gray-400",
         title: "Status unknown",
+        hasWebUI: true,
       };
     }
     
@@ -102,19 +105,29 @@ export function PortStatusIndicator({
     return {
       color: colorMap[statusData.color] || "bg-gray-400",
       title: statusData.title || "Status unknown",
+      hasWebUI: statusData.hasWebUI !== false,
     };
   };
 
   const dotState = getDotState();
+  const showNoWebUIIndicator = !checking && statusData?.color === 'green' && !dotState.hasWebUI;
 
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger>
-          <div className={`w-2.5 h-2.5 rounded-full ${dotState.color}`} />
+          <div className="relative">
+            <div className={`w-2.5 h-2.5 rounded-full ${dotState.color}`} />
+            {showNoWebUIIndicator && (
+              <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-slate-400" />
+            )}
+          </div>
         </TooltipTrigger>
         <TooltipContent>
           <p className="font-medium">{dotState.title}</p>
+          {showNoWebUIIndicator && (
+            <p className="text-xs text-slate-400">No web UI available</p>
+          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

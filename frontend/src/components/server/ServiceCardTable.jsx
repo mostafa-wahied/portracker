@@ -12,6 +12,7 @@ import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
 import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 import { InlinePortRow } from "./ExpandedPortViews";
+import { AggregatedHealthDot } from "./AggregatedHealthDot";
 
 export function ServiceCardTableRow({
   serviceName,
@@ -99,6 +100,7 @@ export function ServiceCardTableRow({
               }`} 
             />
             {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={20} className="flex-shrink-0" />}
+            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
             <span className="font-medium text-sm text-slate-900 dark:text-slate-100">
               {serviceName}
             </span>

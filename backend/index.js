@@ -443,10 +443,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     if (statusCode === 403) {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Listening (Forbidden)`,
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (Forbidden)`,
         description: serviceInfo.description,
-        protocol: workingResponse.protocol
+        protocol: workingResponse.protocol,
+        hasWebUI: false
       };
     }
     
@@ -472,10 +473,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
       } else {
         return {
           status: 'listening',
-          color: 'yellow',
-          title: `${serviceInfo.name} - Listening (no web UI)`,
+          color: 'green',
+          title: `${serviceInfo.name} - Service responding (no web UI)`,
           description: serviceInfo.description,
-          protocol: workingResponse.protocol
+          protocol: workingResponse.protocol,
+          hasWebUI: false
         };
       }
     }
@@ -517,10 +519,11 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     if (statusCode === 403) {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Listening (Forbidden)`,
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (Forbidden)`,
         description: serviceInfo.description,
-        protocol: workingResponse.protocol
+        protocol: workingResponse.protocol,
+        hasWebUI: false
       };
     }
     
@@ -535,18 +538,20 @@ function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
     } else {
       return {
         status: 'listening',
-        color: 'yellow',
-        title: `${serviceInfo.name} - Service listening (not HTTP)`,
-        description: serviceInfo.description
+        color: 'green',
+        title: `${serviceInfo.name} - Service responding (not HTTP)`,
+        description: serviceInfo.description,
+        hasWebUI: false
       };
     }
   }
   
   return {
     status: 'listening',
-    color: 'yellow',
-    title: `${serviceInfo.name} - Service listening`,
-    description: serviceInfo.description
+    color: 'green',
+    title: `${serviceInfo.name} - Service responding`,
+    description: serviceInfo.description,
+    hasWebUI: false
   };
 }
 
@@ -2372,19 +2377,26 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
     let status = 'unknown';
     let title = 'Container status unknown';
 
+    let hasWebUI = true;
     if (state === 'running') {
       if (h === 'healthy') {
         color = 'green';
         status = 'reachable';
         title = 'Container healthy';
-      } else if (h === 'starting' || h === 'none' || h === 'unhealthy' || h === 'unknown') {
-        color = h === 'unhealthy' ? 'yellow' : 'yellow';
-        status = 'unknown';
-        title = h === 'unhealthy' ? 'Container unhealthy' : 'Container running';
-      } else {
+      } else if (h === 'unhealthy') {
         color = 'yellow';
-        status = 'unknown';
+        status = 'degraded';
+        title = 'Container unhealthy';
+      } else if (h === 'starting' || h === 'none' || h === 'unknown') {
+        color = 'green';
+        status = 'reachable';
         title = 'Container running';
+        hasWebUI = false;
+      } else {
+        color = 'green';
+        status = 'reachable';
+        title = 'Container running';
+        hasWebUI = false;
       }
     } else if (state === 'exited' || state === 'dead' || state === 'created') {
       color = 'red';
@@ -2393,14 +2405,15 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
     }
 
     return res.json({
-      reachable: color === 'green',
+      reachable: color === 'green' || color === 'yellow',
       status,
       color,
       title,
       protocol: null,
       serviceType: 'service',
       serviceName: serviceInfo.name,
-      description: 'Internal port status based on container health'
+      description: 'Internal port status based on container health',
+      hasWebUI
     });
   }
   
@@ -2480,7 +2493,8 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
     protocol: result.protocol || null,
     serviceType: serviceInfo.type,
     serviceName: serviceInfo.name,
-    description: result.description
+    description: result.description,
+    hasWebUI: result.hasWebUI !== false
   });
   
 

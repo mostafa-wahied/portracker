@@ -12,6 +12,7 @@ import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
 import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
+import { AggregatedHealthDot } from "./AggregatedHealthDot";
 
 export function ServiceCardList({
   serviceName,
@@ -98,6 +99,8 @@ export function ServiceCardList({
           </div>
 
           {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} />}
+
+          <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
 
           <div className="flex flex-col">
             <div className="flex items-center space-x-2">

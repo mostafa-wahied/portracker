@@ -11,6 +11,7 @@ import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
 import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
+import { AggregatedHealthDot } from "./AggregatedHealthDot";
 
 export function ServiceCardGrid({
   serviceName,
@@ -99,6 +100,7 @@ export function ServiceCardGrid({
         <div className={`flex items-start justify-between mb-3 ${selectionMode ? "ml-6" : ""}`}>
           <div className="flex items-center space-x-2 min-w-0 flex-1">
             {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} className="flex-shrink-0" />}
+            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
             <div className="min-w-0 flex-1">
               <h4 className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">
                 {serviceName}
