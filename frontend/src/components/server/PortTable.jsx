@@ -69,13 +69,13 @@ export function PortTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full">
+      <table className="w-full table-auto">
         <thead className="bg-slate-50 dark:bg-slate-800/50">
           <tr>
             {selectionMode && (
               <th
                 scope="col"
-                className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                className="w-10 px-2 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
               >
                 <input
                   type="checkbox"
@@ -91,13 +91,13 @@ export function PortTable({
             
             <th
               scope="col"
-              className="px-4 py-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="w-12 px-2 py-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
               Status
             </th>
             <th
               scope="col"
-              className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="px-3 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
               <button
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
@@ -109,7 +109,7 @@ export function PortTable({
             </th>
             <th
               scope="col"
-              className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="px-3 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
             >
               <button
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
@@ -121,19 +121,13 @@ export function PortTable({
             </th>
             <th
               scope="col"
-              className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="w-16 px-2 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap"
             >
               Source
             </th>
             <th
               scope="col"
-              className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
-            >
-              Host
-            </th>
-            <th
-              scope="col"
-              className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="w-20 px-2 py-2 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap"
             >
               <button
                 className="flex items-center hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
@@ -145,7 +139,7 @@ export function PortTable({
             </th>
             <th
               scope="col"
-              className="px-4 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="w-24 px-2 py-2 text-right text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap"
             >
               Actions
             </th>

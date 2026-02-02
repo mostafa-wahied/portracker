@@ -17,6 +17,7 @@ import Logo from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
 import { RefreshProgress } from "@/components/ui/RefreshProgress";
 import { useLongPress } from "@/lib/hooks/useLongPress";
+import { AutoxposeLogoBadge } from "@/components/autoxpose/AutoxposeLogoBadge";
 
 export function AppHeader({
   loading,
@@ -45,6 +46,7 @@ export function AppHeader({
   onOpenSettings,
   onOpenApiKey,
   refreshInterval = 30000,
+  autoxposeStatus = null,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
@@ -144,11 +146,14 @@ export function AppHeader({
             {...logoLongPressHandlers}
             className="flex items-center gap-3 text-xl font-bold text-slate-800 dark:text-slate-200 group cursor-pointer"
           >
-            <Logo
-              className={`h-10 w-10 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-300 ease-in-out group-hover:rotate-[30deg] ${
-                loading ? "animate-spin" : ""
-              }`}
-            />
+            <div className="relative">
+              <Logo
+                className={`h-10 w-10 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-300 ease-in-out group-hover:rotate-[30deg] ${
+                  loading ? "animate-spin" : ""
+                }`}
+              />
+              <AutoxposeLogoBadge connected={autoxposeStatus?.connected} />
+            </div>
             <span className="tracking-tighter">portracker</span>
           </button>
         </div>

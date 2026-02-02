@@ -124,7 +124,7 @@ const ServerCard = React.memo(function ServerCard({
           </p>
         </div>
 
-        <div className="hidden md:flex items-center space-x-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <div className="hidden md:flex items-center space-x-2 opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           <button
             onClick={(e) => {
               e.stopPropagation();

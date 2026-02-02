@@ -2125,6 +2125,7 @@ export default function App() {
           onOpenSettings={() => setSettingsModalOpen(true)}
           onOpenApiKey={() => setApiKeyModalOpen(true)}
           refreshInterval={refreshInterval}
+          autoxposeStatus={autoxposeStatus}
         />
         <DashboardLayout
           isSidebarOpen={isSidebarOpen}
