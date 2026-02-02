@@ -149,19 +149,19 @@ class AutoxposeClient {
     }
   }
 
-  findServiceForPort(containerName, port, services) {
+  findServiceForPort(containerName, port, services, hostIp = null) {
     if (!services || !services.length) {
       return null;
     }
 
     const portNum = parseInt(port, 10);
+    const cleanName = this.cleanContainerName(containerName);
 
     let match = services.find(svc =>
       svc.sourceId === containerName && svc.port === portNum && svc.enabled
     );
 
     if (!match) {
-      const cleanName = this.cleanContainerName(containerName);
       match = services.find(svc =>
         svc.port === portNum &&
         svc.enabled &&
@@ -173,13 +173,36 @@ class AutoxposeClient {
     }
 
     if (!match) {
+      const subdomain = (svc) => (svc.subdomain || svc.exposedSubdomain || '').toLowerCase();
       match = services.find(svc =>
         svc.port === portNum &&
         svc.enabled &&
-        svc.source === 'external'
+        (subdomain(svc).includes(cleanName) || cleanName.includes(subdomain(svc)))
       );
       if (match) {
-        logger.debug(`External match: port ${portNum} (${containerName}) -> ${match.name}`);
+        logger.debug(`Subdomain match: port ${portNum} (${cleanName}) -> ${match.subdomain}`);
+      }
+    }
+
+    if (!match && hostIp) {
+      const externalServicesOnPort = services.filter(s => s.port === portNum && s.enabled && s.source === 'external');
+      const effectiveIp = this.normalizeHostIp(hostIp);
+      match = externalServicesOnPort.find(svc => {
+        const target = (svc.targetHost || '').toLowerCase();
+        const normalizedTarget = this.normalizeHostIp(target);
+        return target && (normalizedTarget === effectiveIp || target === hostIp);
+      });
+      if (match) {
+        logger.debug(`TargetHost match: port ${portNum} (${hostIp} -> ${effectiveIp}) -> ${match.subdomain} (${match.targetHost})`);
+      }
+    }
+
+    if (!match) {
+      const externalServicesOnPort = services.filter(s => s.port === portNum && s.enabled && s.source === 'external');
+      
+      if (externalServicesOnPort.length === 1) {
+        match = externalServicesOnPort[0];
+        logger.debug(`External port match: port ${portNum} (${containerName}) -> ${match.subdomain}`);
       }
     }
 
@@ -193,6 +216,26 @@ class AutoxposeClient {
       .replace(/-\d+$/, '')
       .replace(/_\d+$/, '')
       .toLowerCase();
+  }
+
+  normalizeHostIp(ip) {
+    if (!ip) return 'local';
+    const lower = ip.toLowerCase();
+    if (lower === '0.0.0.0' || lower === '127.0.0.1' || lower === 'localhost') return 'local';
+    if (lower.startsWith('172.16.') || lower.startsWith('172.17.') || lower.startsWith('172.18.')) return 'local';
+    const serverIp = this.getServerIp();
+    if (serverIp && lower === serverIp) return 'local';
+    return lower;
+  }
+
+  getServerIp() {
+    if (!this.baseUrl) return null;
+    try {
+      const url = new URL(this.baseUrl);
+      return url.hostname.toLowerCase();
+    } catch {
+      return null;
+    }
   }
 
   buildExposureData(service, domain) {
@@ -242,10 +285,10 @@ class AutoxposeClient {
 
     let matchCount = 0;
     const result = ports.map(port => {
-      const match = this.findServiceForPort(port.owner, port.host_port, services);
+      const match = this.findServiceForPort(port.owner, port.host_port, services, port.host_ip);
       if (!match) {
         if ([30027, 31030, 30041].includes(parseInt(port.host_port, 10))) {
-          logger.debug(`NO MATCH for port ${port.host_port} owner=${port.owner}`);
+          logger.debug(`NO MATCH for port ${port.host_port} owner=${port.owner} ip=${port.host_ip}`);
         }
         return port;
       }
