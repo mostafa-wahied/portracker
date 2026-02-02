@@ -6,10 +6,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PortCard } from "./PortCard";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 
 export function ServiceCardGrid({
   serviceName,
@@ -31,6 +32,9 @@ export function ServiceCardGrid({
   isDocker,
   deepLinkContainerId,
   showIcons = true,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
+  autoxposePorts,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -118,20 +122,34 @@ export function ServiceCardGrid({
         </div>
 
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {publishedPorts.slice(0, 4).map((port) => (
-            <ClickablePortBadge
-              key={port.host_port}
-              port={port}
-              serverId={serverId}
-              serverUrl={serverUrl}
-              hostOverride={hostOverride}
-            />
+          {publishedPorts.map((port) => (
+            <React.Fragment key={port.host_port}>
+              <ClickablePortBadge
+                port={port}
+                serverId={serverId}
+                serverUrl={serverUrl}
+                hostOverride={hostOverride}
+              />
+              {(() => {
+                const autoxposeData = getAutoxposeData(autoxposePorts, port);
+                if (!autoxposeData) return null;
+                return autoxposeDisplayMode === "url" ? (
+                  <ExternalUrlChip
+                    url={autoxposeData.url}
+                    hostname={autoxposeData.hostname}
+                    sslStatus={autoxposeData.sslStatus}
+                    compact={autoxposeUrlStyle === "compact"}
+                  />
+                ) : (
+                  <GlobeIconBadge
+                    url={autoxposeData.url}
+                    hostname={autoxposeData.hostname}
+                    sslStatus={autoxposeData.sslStatus}
+                  />
+                );
+              })()}
+            </React.Fragment>
           ))}
-          {publishedPorts.length > 4 && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 text-xs">
-              +{publishedPorts.length - 4}
-            </span>
-          )}
         </div>
 
         <div className="flex items-center justify-between text-xs mt-auto">
@@ -267,6 +285,9 @@ export function ServiceCardGrid({
                           isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
                           onToggleSelection={onToggleSelection}
                           showIcons={showIcons}
+                          autoxposeData={getAutoxposeData(autoxposePorts, port)}
+                          autoxposeDisplayMode={autoxposeDisplayMode}
+                          autoxposeUrlStyle={autoxposeUrlStyle}
                         />
                       ))}
                     </ul>

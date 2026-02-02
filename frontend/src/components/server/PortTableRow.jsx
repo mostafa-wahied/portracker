@@ -11,6 +11,7 @@ import { PortActions } from "./PortActions";
 import { ActionButton } from "./ActionButton";
 import { InternalPortDetails } from "./InternalPortDetails";
 import ServiceIcon from "@/components/ui/ServiceIcon";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 import {
   formatCreatedDate,
   formatCreatedTooltip,
@@ -59,6 +60,9 @@ function PortTableRowComponent({
   isSelected = false,
   onToggleSelection,
   showIcons = false,
+  autoxposeData,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
 }) {
   const [protocol, setProtocol] = useState("http");
   const [showDetails, setShowDetails] = useState(false);
@@ -118,7 +122,7 @@ function PortTableRowComponent({
       
       <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100">
         <div className="flex flex-col space-y-1">
-          <div className="flex items-center">
+          <div className="flex items-center gap-1.5">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -173,7 +177,21 @@ function PortTableRowComponent({
                 )}
               </Tooltip>
             </TooltipProvider>
-            
+            {autoxposeData && autoxposeDisplayMode === "badge" && (
+              <GlobeIconBadge
+                url={autoxposeData.url}
+                hostname={autoxposeData.hostname}
+                sslStatus={autoxposeData.sslStatus}
+              />
+            )}
+            {autoxposeData && autoxposeDisplayMode === "url" && (
+              <ExternalUrlChip
+                url={autoxposeData.url}
+                hostname={autoxposeData.hostname}
+                sslStatus={autoxposeData.sslStatus}
+                compact={autoxposeUrlStyle === "compact"}
+              />
+            )}
           </div>
 
           
@@ -260,7 +278,6 @@ function PortTableRowComponent({
         </div>
       </td>
 
-      
       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
         <span
           className={`inline-block px-2 py-0.5 rounded font-medium ${

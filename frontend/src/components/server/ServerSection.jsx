@@ -30,7 +30,7 @@ import { HiddenPortsDrawer } from "./HiddenPortsDrawer";
 import { SystemInfoCard } from "./SystemInfoCard";
 import Logger from "../../lib/logger";
 import { VMsCard } from "./VMsCard";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 import {
   Accordion,
   AccordionContent,
@@ -98,6 +98,9 @@ function ServerSectionComponent({
   onSelectAllPorts,
   portSuggestion,
   onGeneratePort,
+  autoxposeDisplayMode,
+  autoxposeUrlStyle,
+  autoxposePorts,
 }) {
   const logger = useMemo(() => new Logger('ServerSection'), []);
   const { copiedKey, copy } = useClipboard();
@@ -861,6 +864,9 @@ function ServerSectionComponent({
                     isDocker={service.isDocker}
                     deepLinkContainerId={deepLinkContainerId}
                     showIcons={showIcons}
+                    autoxposeDisplayMode={autoxposeDisplayMode}
+                    autoxposeUrlStyle={autoxposeUrlStyle}
+                    autoxposePorts={autoxposePorts}
                   />
                 ))}
               </div>
@@ -891,6 +897,9 @@ function ServerSectionComponent({
                     compact={true}
                     deepLinkContainerId={deepLinkContainerId}
                     showIcons={showIcons}
+                    autoxposeDisplayMode={autoxposeDisplayMode}
+                    autoxposeUrlStyle={autoxposeUrlStyle}
+                    autoxposePorts={autoxposePorts}
                   />
                 ))}
               </div>
@@ -964,6 +973,9 @@ function ServerSectionComponent({
                         tableMode={true}
                         deepLinkContainerId={deepLinkContainerId}
                         showIcons={showIcons}
+                        autoxposeDisplayMode={autoxposeDisplayMode}
+                        autoxposeUrlStyle={autoxposeUrlStyle}
+                        autoxposePorts={autoxposePorts}
                       />
                     ))}
                   </tbody>
@@ -1040,6 +1052,9 @@ function ServerSectionComponent({
                     isSelected={selectedPorts?.has(generatePortKey(id, port))}
                     onToggleSelection={onToggleSelection}
                     showIcons={showIcons}
+                    autoxposeData={getAutoxposeData(autoxposePorts, port)}
+                    autoxposeDisplayMode={autoxposeDisplayMode}
+                    autoxposeUrlStyle={autoxposeUrlStyle}
                   />)
                 )}
                 </ul>
@@ -1113,6 +1128,9 @@ function ServerSectionComponent({
                     isSelected={selectedPorts?.has(generatePortKey(id, port))}
                     onToggleSelection={onToggleSelection}
                     showIcons={showIcons}
+                    autoxposeData={getAutoxposeData(autoxposePorts, port)}
+                    autoxposeDisplayMode={autoxposeDisplayMode}
+                    autoxposeUrlStyle={autoxposeUrlStyle}
                   />
                 ))}
                 </div>
@@ -1148,6 +1166,9 @@ function ServerSectionComponent({
                 onToggleSelection={onToggleSelection}
                 onSelectAllPorts={onSelectAllPorts}
                 showIcons={showIcons}
+                autoxposeDisplayMode={autoxposeDisplayMode}
+                autoxposeUrlStyle={autoxposeUrlStyle}
+                autoxposePorts={autoxposePorts}
               />
             )}
 

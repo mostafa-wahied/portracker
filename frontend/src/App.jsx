@@ -31,6 +31,7 @@ import Logger from "./lib/logger";
 import { useWhatsNew } from "./lib/hooks/useWhatsNew";
 import { saveCustomServiceName, deleteCustomServiceName, getCustomServiceNames, batchCustomServiceNames } from "./lib/api/customServiceNames";
 import { batchNotes, saveNote } from "./lib/api/notes";
+import { getAutoxposeStatus, connectAutoxpose, disconnectAutoxpose, setAutoxposeDisplayMode, setAutoxposeUrlStyle, getAutoxposeServices, getAutoxposeDomain } from "./lib/api/autoxpose";
 import { generatePortKey } from "./lib/utils/portUtils";
 import { formatUptime } from "@/lib/utils";
 import { useAuth } from "./contexts/AuthContext";
@@ -332,6 +333,106 @@ export default function App() {
   });
   const [portSuggestions, setPortSuggestions] = useState({});
 
+  const [autoxposeStatus, setAutoxposeStatus] = useState({
+    enabled: false,
+    configured: false,
+    connected: false,
+    url: null
+  });
+  const [autoxposeDisplayMode, setAutoxposeDisplayModeState] = useState("url");
+  const [autoxposeUrlStyle, setAutoxposeUrlStyleState] = useState("compact");
+  const [autoxposePorts, setAutoxposePorts] = useState(null);
+
+  useEffect(() => {
+    getAutoxposeStatus()
+      .then((status) => {
+        setAutoxposeStatus(status);
+        if (status.displayMode) {
+          setAutoxposeDisplayModeState(status.displayMode);
+        }
+        if (status.urlStyle) {
+          setAutoxposeUrlStyleState(status.urlStyle);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!autoxposeStatus.connected) {
+      setAutoxposePorts(null);
+      return;
+    }
+    
+    const fetchServices = async () => {
+      try {
+        const [servicesData, domainData] = await Promise.all([
+          getAutoxposeServices(),
+          getAutoxposeDomain(),
+        ]);
+        
+        const services = servicesData?.services || [];
+        const domain = domainData?.domain;
+        
+        if (!domain || !services.length) {
+          setAutoxposePorts(new Map());
+          return;
+        }
+        
+        const portsMap = new Map();
+        services.forEach((svc) => {
+          if (svc.port && svc.enabled && svc.exposedSubdomain) {
+            const containerIdKey = svc.sourceId ? `${svc.sourceId.substring(0, 12)}:${svc.port}` : null;
+            const hostname = `${svc.exposedSubdomain}.${domain}`;
+            const url = `https://${hostname}`;
+            
+            let sslStatus = "none";
+            if (svc.sslPending) {
+              sslStatus = "pending";
+            } else if (svc.sslError) {
+              sslStatus = "error";
+            } else if (svc.exposedSubdomain) {
+              sslStatus = "active";
+            }
+            
+            const data = { url, hostname, sslStatus };
+            if (containerIdKey) {
+              portsMap.set(containerIdKey, data);
+            }
+          }
+        });
+        setAutoxposePorts(portsMap);
+      } catch (err) {
+        logger.warn("Failed to fetch autoxpose services:", err);
+        setAutoxposePorts(null);
+      }
+    };
+    
+    fetchServices();
+  }, [autoxposeStatus.connected]);
+
+  const handleAutoxposeConnect = useCallback(async (url) => {
+    const result = await connectAutoxpose(url);
+    if (result.success) {
+      setAutoxposeStatus((prev) => ({ ...prev, connected: true, url }));
+    }
+    return result;
+  }, []);
+
+  const handleAutoxposeDisconnect = useCallback(async () => {
+    await disconnectAutoxpose();
+    setAutoxposeStatus((prev) => ({ ...prev, connected: false, url: null }));
+  }, []);
+
+  const handleAutoxposeDisplayModeChange = useCallback(async (mode) => {
+    await setAutoxposeDisplayMode(mode);
+    setAutoxposeDisplayModeState(mode);
+  }, []);
+
+  const handleAutoxposeUrlStyleChange = useCallback(async (style) => {
+    await setAutoxposeUrlStyle(style);
+    setAutoxposeUrlStyleState(style);
+  }, []);
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add("dark");
@@ -531,6 +632,7 @@ export default function App() {
           internal: port.internal || false,
           compose_project: port.compose_project || null,
           compose_service: port.compose_service || null,
+          autoxpose: port.autoxpose || null,
         }));
 
       const uniquePorts = [];
@@ -1935,6 +2037,9 @@ export default function App() {
         onSelectAllPorts={(ports) => selectAllPortsForServer(server.id, ports)}
         portSuggestion={portSuggestions[server.id]}
         onGeneratePort={generatePortForServer}
+        autoxposeDisplayMode={autoxposeDisplayMode}
+        autoxposeUrlStyle={autoxposeUrlStyle}
+        autoxposePorts={autoxposePorts}
       />
     );
   }
@@ -2175,6 +2280,13 @@ export default function App() {
           setDisableCache(val);
           localStorage.setItem("disableCache", val.toString());
         }}
+        autoxposeStatus={autoxposeStatus}
+        autoxposeDisplayMode={autoxposeDisplayMode}
+        autoxposeUrlStyle={autoxposeUrlStyle}
+        onAutoxposeConnect={handleAutoxposeConnect}
+        onAutoxposeDisconnect={handleAutoxposeDisconnect}
+        onAutoxposeDisplayModeChange={handleAutoxposeDisplayModeChange}
+        onAutoxposeUrlStyleChange={handleAutoxposeUrlStyleChange}
       />
 
       <ApiKeyModal

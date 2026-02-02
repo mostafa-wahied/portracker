@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   Sun,
   Moon,
@@ -19,10 +20,17 @@ import {
   ChevronUp,
   Info,
   FileText,
+  Link2,
+  Tag,
+  CheckCircle,
+  XCircle,
+  Loader2,
 } from "lucide-react";
+import { AutoxposeLogo } from "@/components/autoxpose";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
@@ -48,6 +56,13 @@ export function SettingsModal({
   onIncludeUdpChange,
   disableCache,
   onDisableCacheChange,
+  autoxposeStatus,
+  autoxposeDisplayMode,
+  autoxposeUrlStyle,
+  onAutoxposeConnect,
+  onAutoxposeDisconnect,
+  onAutoxposeDisplayModeChange,
+  onAutoxposeUrlStyleChange,
 }) {
   const [localTheme, setLocalTheme] = useState(theme);
   const [localShowIcons, setLocalShowIcons] = useState(showIcons);
@@ -55,6 +70,10 @@ export function SettingsModal({
   const [localIncludeUdp, setLocalIncludeUdp] = useState(includeUdp || false);
   const [localDisableCache, setLocalDisableCache] = useState(disableCache || false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAutoxpose, setShowAutoxpose] = useState(false);
+  const [autoxposeUrl, setAutoxposeUrl] = useState("");
+  const [autoxposeConnecting, setAutoxposeConnecting] = useState(false);
+  const [autoxposeError, setAutoxposeError] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -63,8 +82,10 @@ export function SettingsModal({
       setLocalRefreshInterval(refreshInterval || 30000);
       setLocalIncludeUdp(includeUdp || false);
       setLocalDisableCache(disableCache || false);
+      setAutoxposeUrl(autoxposeStatus?.url || "");
+      setAutoxposeError(null);
     }
-  }, [isOpen, theme, showIcons, refreshInterval, includeUdp, disableCache]);
+  }, [isOpen, theme, showIcons, refreshInterval, includeUdp, disableCache, autoxposeStatus]);
 
   const handleThemeSelect = (newTheme) => {
     setLocalTheme(newTheme);
@@ -100,6 +121,30 @@ export function SettingsModal({
     }
   };
 
+  const handleAutoxposeConnect = async () => {
+    if (!autoxposeUrl.trim()) {
+      setAutoxposeError("URL is required");
+      return;
+    }
+    setAutoxposeConnecting(true);
+    setAutoxposeError(null);
+    try {
+      const result = await onAutoxposeConnect?.(autoxposeUrl.trim());
+      if (!result?.success) {
+        setAutoxposeError(result?.error || "Connection failed");
+      }
+    } catch (err) {
+      setAutoxposeError(err.message || "Connection failed");
+    } finally {
+      setAutoxposeConnecting(false);
+    }
+  };
+
+  const handleAutoxposeDisconnect = async () => {
+    await onAutoxposeDisconnect?.();
+    setAutoxposeUrl("");
+  };
+
   const themeOptions = [
     { value: "system", icon: Monitor },
     { value: "light", icon: Sun },
@@ -122,21 +167,24 @@ export function SettingsModal({
                   const Icon = option.icon;
                   const isSelected = localTheme === option.value;
                   return (
-                    <Tooltip key={option.value}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={isSelected ? "default" : "ghost"}
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => handleThemeSelect(option.value)}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="capitalize">
-                        {option.value}
-                      </TooltipContent>
-                    </Tooltip>
+                    <TooltipProvider key={option.value} delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant={isSelected ? "default" : "ghost"}
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleThemeSelect(option.value)}
+                            tabIndex={-1}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="capitalize">
+                          {option.value}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   );
                 })}
               </div>
@@ -176,6 +224,148 @@ export function SettingsModal({
                 })}
               </div>
             </div>
+          </div>
+
+          <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
+            <button
+              onClick={() => setShowAutoxpose(!showAutoxpose)}
+              className="flex items-center justify-between w-full text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <AutoxposeLogo size={16} className="text-slate-600 dark:text-slate-300" />
+                <span>autoxpose</span>
+                {autoxposeStatus?.connected && (
+                  <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle className="h-3 w-3" />
+                    connected
+                  </span>
+                )}
+              </div>
+              {showAutoxpose ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
+
+            {showAutoxpose && (
+              <div className="mt-3 space-y-3 pl-1">
+                {!autoxposeStatus?.connected ? (
+                  <>
+                    <div className="space-y-2">
+                      <Input
+                        type="url"
+                        placeholder="http://autoxpose:3000"
+                        value={autoxposeUrl}
+                        onChange={(e) => setAutoxposeUrl(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                      {autoxposeError && (
+                        <p className="text-xs text-red-500 flex items-center gap-1">
+                          <XCircle className="h-3 w-3" />
+                          {autoxposeError}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={handleAutoxposeConnect}
+                      disabled={autoxposeConnecting}
+                    >
+                      {autoxposeConnecting ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        "Connect"
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AutoxposeLogo size={14} className="text-slate-400" />
+                        <span className="text-sm">Display</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant={autoxposeDisplayMode === "url" ? "default" : "ghost"}
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => onAutoxposeDisplayModeChange?.("url")}
+                            >
+                              <Link2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Show URL</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant={autoxposeDisplayMode === "badge" ? "default" : "ghost"}
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => onAutoxposeDisplayModeChange?.("badge")}
+                            >
+                              <Tag className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Show Badge</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                    {autoxposeDisplayMode === "url" && (
+                      <div className="flex items-center justify-between pl-6">
+                        <span className="text-sm text-slate-500">Style</span>
+                        <div className="flex gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant={autoxposeUrlStyle === "compact" ? "default" : "ghost"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => onAutoxposeUrlStyleChange?.("compact")}
+                              >
+                                Compact
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Show subdomain only</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant={autoxposeUrlStyle === "full" ? "default" : "ghost"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => onAutoxposeUrlStyleChange?.("full")}
+                              >
+                                Full
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Show full hostname</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    )}
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-slate-500"
+                        onClick={handleAutoxposeDisconnect}
+                      >
+                        Disconnect
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="border-t border-slate-200 dark:border-slate-800 pt-3">

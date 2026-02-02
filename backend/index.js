@@ -25,6 +25,7 @@ const os = require("os");
 const { requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
+const autoxposeRoutes = require('./routes/autoxpose');
 const recoveryManager = require('./lib/recovery-manager');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
@@ -609,6 +610,7 @@ app.use(checkAuthEnabled);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/autoxpose', autoxposeRoutes);
 
 const PORT = process.env.PORT || 3000;
 
@@ -972,7 +974,9 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
             ignored: !!ignoreEntry,
           };
         });
-        collectData.ports = enrichedPorts;
+        
+        const autoxposeClient = require('./lib/autoxpose-client');
+        collectData.ports = await autoxposeClient.enrichPorts(enrichedPorts);
       }
 
       if (
@@ -2700,6 +2704,9 @@ logger.info(`Attempting to serve static files from: ${staticPath}`);
 app.use(express.static(staticPath, { fallthrough: true, index: false }));
 
 app.get("*", (req, res, _next) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
   const indexPath = path.join(__dirname, "public", "index.html");
   logger.debug(`Serving frontend for path: ${req.path}`);
   res.sendFile(indexPath, (err) => {
@@ -2733,6 +2740,11 @@ logger.info(`About to call app.listen on port ${PORT}`);
 if (isAuthEnabled() && recoveryManager.isRecoveryModeEnabled()) {
   recoveryManager.generateKey();
 }
+
+const autoxposeClient = require('./lib/autoxpose-client');
+autoxposeClient.initialize().catch(err => {
+  logger.warn('Failed to initialize autoxpose client:', err.message);
+});
 
 try {
   app.listen(PORT, "0.0.0.0", () => {

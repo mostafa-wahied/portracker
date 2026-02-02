@@ -1,6 +1,6 @@
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { PortTableRow } from "./PortTableRow";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 
 /**
  * Renders a sortable table displaying a list of ports with associated details and actions.
@@ -28,6 +28,9 @@ export function PortTable({
   onToggleSelection,
   onSelectAllPorts,
   showIcons = false,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
+  autoxposePorts,
 }) {
   const getSortIcon = (column) => {
     if (sortConfig.key !== column) {
@@ -169,6 +172,9 @@ export function PortTable({
               isSelected={selectedPorts?.has(generatePortKey(serverId, port))}
               onToggleSelection={onToggleSelection}
               showIcons={showIcons}
+              autoxposeData={getAutoxposeData(autoxposePorts, port)}
+              autoxposeDisplayMode={autoxposeDisplayMode}
+              autoxposeUrlStyle={autoxposeUrlStyle}
             />
           ))}
         </tbody>

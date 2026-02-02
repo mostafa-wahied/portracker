@@ -242,7 +242,38 @@ services:
 **Important Notes:**
 - Authentication is **disabled by default** for backward compatibility
 - When enabled, the dashboard requires login but API endpoints for peer communication remain accessible
-- API key authentication for peer-to-peer communication is planned for v1.3.0
+- API key authentication for peer-to-peer communication is available in v1.3.0
+
+### Autoxpose Integration (v1.3.0+)
+
+If you run [autoxpose](https://github.com/mostafa-wahied/autoxpose) to manage your public-facing services, portracker can display which ports are publicly exposed alongside their internal addresses.
+
+**Setup:**
+
+1. Open Settings (gear icon in header)
+2. Expand the **autoxpose** section
+3. Enter your autoxpose URL (e.g., `http://autoxpose:3000`)
+4. Click **Connect**
+
+**What You'll See:**
+
+Once connected, exposed services show a public URL chip or globe badge next to the port:
+
+- **URL Mode**: Full clickable chip showing `🌐 photos.example.com 🔒`
+- **Badge Mode**: Compact globe icon with tooltip
+
+**Display Options:**
+
+- **Display Mode**: Toggle between URL chip or compact badge
+- **URL Style**: Show subdomain only (compact) or full hostname
+
+**SSL Status Indicators:**
+
+| Icon | Color | Status |
+|------|-------|--------|
+| 🔒 | Green | SSL secured |
+| ⚠️ | Amber | SSL pending |
+| ❌ | Red | SSL error |
 
 ## Technical Stack
 
@@ -255,7 +286,8 @@ services:
 Future development is focused on improving the application based on community feedback. Key areas include:
 
 - ~~Adding user authentication~~ ✅ **Added in v1.2.0** (optional authentication with setup wizard)
-- Adding API key authentication for peer-to-peer communication (planned for v1.3.0)
+- ~~Adding API key authentication for peer-to-peer communication~~ ✅ **Added in v1.3.0**
+- ~~Autoxpose integration for public URL visibility~~ ✅ **Added in v1.3.0**
 - Expanding the library of platform-specific collectors for other host systems
 - Addressing bugs and incorporating requested changes from the community
 

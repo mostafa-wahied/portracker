@@ -16,12 +16,23 @@ All notable changes to portracker will be documented in this file.
   - **[sub]** `/api/ports`, `/api/all-ports`, `/api/servers/:id/scan` require auth or valid API key
   - **[sub]** Peer instances use X-API-Key header for authenticated requests
 
+### Integrations
+
+- **Autoxpose Integration**: Show public URLs alongside internal ports when connected to autoxpose
+  - **[sub]** Connect to autoxpose instance from Settings to see which services are publicly exposed
+  - **[sub]** Display modes: Show full URL chip or compact globe badge
+  - **[sub]** URL styles: Compact (subdomain only) or Full hostname
+  - **[sub]** SSL status indicators: Secured (green), Pending (amber), Error (red)
+  - **[sub]** Clickable URLs open public endpoint in new tab
+  - **[sub]** Works across all view modes: List, Grid, Table in both Port and Service views
+
 ### Settings
 
 - **Settings Modal**: Centralized configuration accessible from header dropdown
   - **[sub]** Theme preference (System/Light/Dark)
   - **[sub]** Service icons visibility toggle
   - **[sub]** Auto-refresh interval selector (15s/30s/1m/2m)
+  - **[sub]** Autoxpose connection and display preferences
   - **[sub]** Advanced options: UDP ports toggle, cache control
   - **[sub]** About section with version info and links
 

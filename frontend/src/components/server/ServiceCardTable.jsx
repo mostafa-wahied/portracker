@@ -7,10 +7,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PortTableRow } from "./PortTableRow";
-import { generatePortKey } from "../../lib/utils/portUtils";
+import { generatePortKey, getAutoxposeData } from "../../lib/utils/portUtils";
 import { formatCreatedDate, formatCreatedTooltip } from "@/lib/utils";
 import ServiceIcon from "@/components/ui/ServiceIcon";
 import { ClickablePortBadge } from "./service-card-utils";
+import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 
 export function ServiceCardTableRow({
   serviceName,
@@ -32,6 +33,9 @@ export function ServiceCardTableRow({
   isDocker,
   deepLinkContainerId,
   showIcons = true,
+  autoxposeDisplayMode = "url",
+  autoxposeUrlStyle = "compact",
+  autoxposePorts,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -98,21 +102,35 @@ export function ServiceCardTableRow({
           </div>
         </td>
         <td className="px-4 py-3">
-          <div className="flex items-center space-x-1 flex-wrap">
-            {publishedPorts.slice(0, 5).map((port) => (
-              <ClickablePortBadge
-                key={port.host_port}
-                port={port}
-                serverId={serverId}
-                serverUrl={serverUrl}
-                hostOverride={hostOverride}
-              />
+          <div className="flex items-center space-x-1 flex-wrap gap-1">
+            {publishedPorts.map((port) => (
+              <React.Fragment key={port.host_port}>
+                <ClickablePortBadge
+                  port={port}
+                  serverId={serverId}
+                  serverUrl={serverUrl}
+                  hostOverride={hostOverride}
+                />
+                {(() => {
+                  const autoxposeData = getAutoxposeData(autoxposePorts, port);
+                  if (!autoxposeData) return null;
+                  return autoxposeDisplayMode === "url" ? (
+                    <ExternalUrlChip
+                      url={autoxposeData.url}
+                      hostname={autoxposeData.hostname}
+                      sslStatus={autoxposeData.sslStatus}
+                      compact={autoxposeUrlStyle === "compact"}
+                    />
+                  ) : (
+                    <GlobeIconBadge
+                      url={autoxposeData.url}
+                      hostname={autoxposeData.hostname}
+                      sslStatus={autoxposeData.sslStatus}
+                    />
+                  );
+                })()}
+              </React.Fragment>
             ))}
-            {publishedPorts.length > 5 && (
-              <span className="text-xs text-slate-400">
-                +{publishedPorts.length - 5}
-              </span>
-            )}
           </div>
         </td>
         <td className="px-4 py-3">
@@ -226,6 +244,9 @@ export function ServiceCardTableRow({
                             )}
                             onToggleSelection={onToggleSelection}
                             showIcons={showIcons}
+                            autoxposeData={getAutoxposeData(autoxposePorts, port)}
+                            autoxposeDisplayMode={autoxposeDisplayMode}
+                            autoxposeUrlStyle={autoxposeUrlStyle}
                           />
                         );
                       });
