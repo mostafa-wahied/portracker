@@ -2,39 +2,32 @@
 
 All notable changes to portracker will be documented in this file.
 
-## [Unreleased]
+## [1.3.0] - 2026-02-02
+
+**Highlights**
+- Service-Centric View — Ports organized by service with expandable cards (now default)
+- API Key Authentication — Secure peer-to-peer communication between instances
+- Autoxpose Integration — See publicly exposed services directly in your dashboard
+
+---
 
 ### Security
 
 - **API Key Authentication**: Secure peer-to-peer communication between Portracker instances
-  - **[sub]** Generate unique API keys for external access from Settings menu
-  - **[sub]** Keys shown once on generation, stored with bcrypt hashing
-  - **[sub]** Add API keys when connecting to remote servers with authentication enabled
-  - **[sub]** Backward compatible: API key only required when remote server has `ENABLE_AUTH=true`
+  - **[sub]** Generate unique API keys for external access from Settings
+  - **[sub]** Backward compatible - only required when remote server has authentication enabled
 
-- **Endpoint Protection**: All data endpoints now protected when authentication is enabled
-  - **[sub]** `/api/ports`, `/api/all-ports`, `/api/servers/:id/scan` require auth or valid API key
-  - **[sub]** Peer instances use X-API-Key header for authenticated requests
+- **Endpoint Protection**: All data endpoints protected when authentication is enabled
 
 ### Integrations
 
-- **Autoxpose Integration**: Show public URLs alongside internal ports when connected to autoxpose
-  - **[sub]** Connect to autoxpose instance from Settings to see which services are publicly exposed
-  - **[sub]** Display modes: Show full URL chip or compact globe badge
-  - **[sub]** URL styles: Compact (subdomain only) or Full hostname
-  - **[sub]** SSL status indicators: Secured (green), Pending (amber), Error (red)
-  - **[sub]** Clickable URLs open public endpoint in new tab
-  - **[sub]** Works across all view modes: List, Grid, Table in both Port and Service views
+- **Autoxpose Integration**: See which services are publicly exposed by connecting to your autoxpose instance from Settings
+  - **[sub]** Public URLs displayed alongside internal ports with SSL status indicators
+  - **[sub]** Clickable links open your public endpoints directly
 
 ### Settings
 
-- **Settings Modal**: Centralized configuration accessible from header dropdown
-  - **[sub]** Theme preference (System/Light/Dark)
-  - **[sub]** Service icons visibility toggle
-  - **[sub]** Auto-refresh interval selector (15s/30s/1m/2m)
-  - **[sub]** Autoxpose connection and display preferences
-  - **[sub]** Advanced options: UDP ports toggle, cache control
-  - **[sub]** About section with version info and links
+- **Settings Modal**: Centralized configuration accessible from header dropdown for theme, refresh intervals, autoxpose connection, and advanced options
 
 ### Added
 
@@ -47,12 +40,11 @@ All notable changes to portracker will be documented in this file.
 ### Dashboard
 
 - **Service-Centric View**: View your ports organized by service name with expandable cards showing all ports per service (now the default view)
-- **Service Icons**: Visual icons automatically loaded for services and ports from community icon libraries with service name extraction and matching
-  - **[sub]** Toggle to show/hide icons with preference saved locally
-  - **[sub]** Automatic theme-aware icon variants for dark and light modes
-  - **[sub]** Icons available in all view layouts (list, grid, and table)
+- **Service Icons**: Visual icons automatically loaded for known services with theme-aware variants for dark and light modes
 
 ### UI
+
+- **Collapsed Health Status**: Collapsed service cards now show an aggregated health indicator so you can see status at a glance without expanding
 
 - **Favicon**: Dark mode support - favicon now adapts to system theme (black on light, white on dark)
 
