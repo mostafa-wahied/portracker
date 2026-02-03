@@ -36,6 +36,7 @@ if (!tableExists) {
       unreachable INTEGER DEFAULT 0,
       api_key TEXT,
       api_key_created_at TEXT,
+      remote_api_key TEXT,
       FOREIGN KEY (parentId) REFERENCES servers(id)
     );
     

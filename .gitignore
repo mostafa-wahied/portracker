@@ -8,9 +8,7 @@ build/
 misc/
 
 # Ignore specific backend files
-backend/data/*.db
-backend/data/*.json
-backend/data/*.md
+backend/data/*
 
 # Test results and API testing artifacts
 backend/api-tests/
