@@ -233,7 +233,15 @@ export function SettingsModal({
             >
               <div className="flex items-center gap-2">
                 <AutoxposeLogo size={16} className="text-slate-600 dark:text-slate-300" />
-                <span>autoxpose</span>
+                <a 
+                  href="https://github.com/mostafa-wahied/autoxpose"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="hover:underline hover:text-indigo-600 dark:hover:text-indigo-400"
+                >
+                  autoxpose
+                </a>
                 {autoxposeStatus?.connected && (
                   <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                     <CheckCircle className="h-3 w-3" />

@@ -72,13 +72,14 @@ export function AggregatedHealthDot({
           return { 
             portKey: `${port.host_ip}:${port.host_port}`, 
             color: data.color || "gray",
-            hasWebUI: data.hasWebUI !== false
+            hasWebUI: data.hasWebUI !== false,
+            isInternal: port.internal || false
           };
         }
-        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true };
+        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true, isInternal: port.internal || false };
       } catch {
         if (signal.aborted) return null;
-        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true };
+        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true, isInternal: port.internal || false };
       }
     };
 
@@ -89,7 +90,7 @@ export function AggregatedHealthDot({
       const statuses = {};
       results.forEach((result) => {
         if (result) {
-          statuses[result.portKey] = { color: result.color, hasWebUI: result.hasWebUI };
+          statuses[result.portKey] = { color: result.color, hasWebUI: result.hasWebUI, isInternal: result.isInternal };
         }
       });
       setPortStatuses(statuses);
@@ -113,14 +114,15 @@ export function AggregatedHealthDot({
     }
 
     const statuses = Object.values(portStatuses);
-    const colors = statuses.map(s => s.color);
-    const hasRed = colors.includes("red");
-    const hasYellow = colors.includes("yellow");
-    const allGreen = colors.every((c) => c === "green");
+    const externalStatuses = statuses.filter(s => !s.isInternal);
+    const externalColors = externalStatuses.map(s => s.color);
+    const hasRed = externalColors.includes("red");
+    const hasYellow = externalColors.includes("yellow");
+    const allGreen = externalColors.length > 0 && externalColors.every((c) => c === "green");
     const hasNoWebUI = statuses.some(s => !s.hasWebUI);
 
     if (hasRed) {
-      const redCount = colors.filter((c) => c === "red").length;
+      const redCount = externalColors.filter((c) => c === "red").length;
       return {
         color: "bg-red-500",
         title: `${redCount} port${redCount !== 1 ? "s" : ""} unreachable`,
@@ -129,7 +131,7 @@ export function AggregatedHealthDot({
     }
 
     if (hasYellow) {
-      const yellowCount = colors.filter((c) => c === "yellow").length;
+      const yellowCount = externalColors.filter((c) => c === "yellow").length;
       return {
         color: "bg-yellow-500",
         title: `${yellowCount} port${yellowCount !== 1 ? "s" : ""} with issues`,
@@ -140,8 +142,16 @@ export function AggregatedHealthDot({
     if (allGreen) {
       return {
         color: "bg-green-500",
-        title: `All ${colors.length} port${colors.length !== 1 ? "s" : ""} healthy`,
+        title: `All ${externalColors.length} port${externalColors.length !== 1 ? "s" : ""} healthy`,
         hasNoWebUI,
+      };
+    }
+
+    if (externalColors.length === 0 && statuses.length > 0) {
+      return {
+        color: "bg-gray-400",
+        title: "Internal ports only",
+        hasNoWebUI: false,
       };
     }
 

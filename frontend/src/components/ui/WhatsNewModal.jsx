@@ -5,7 +5,33 @@ import { Globe, Database, Sparkles, Shield, Layout, Server, HardDrive, Wrench, P
 import { getFeatureIcon } from '../../lib/feature-icons';
 import { cn } from '@/lib/utils';
 
-const HighlightsSection = ({ highlights }) => {
+const AUTOXPOSE_REPO = 'https://github.com/mostafa-wahied/autoxpose';
+
+const linkifyAutoxpose = (text) => {
+  if (!text.toLowerCase().includes('autoxpose')) return text;
+  
+  const parts = text.split(/(autoxpose)/i);
+  return parts.map((part, i) => 
+    part.toLowerCase() === 'autoxpose' ? (
+      <a 
+        key={i}
+        href={AUTOXPOSE_REPO}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline hover:text-indigo-600 dark:hover:text-indigo-400"
+      >
+        autoxpose
+      </a>
+    ) : part
+  );
+};
+
+const hasAutoxpose = (item) => {
+  return item.title?.toLowerCase().includes('autoxpose') || 
+         item.description?.toLowerCase().includes('autoxpose');
+};
+
+const HighlightsSection = ({ highlights, onOpenSettings, onClose }) => {
   if (!highlights?.length) return null;
   
   return (
@@ -19,9 +45,20 @@ const HighlightsSection = ({ highlights }) => {
           <li key={index} className="flex items-start gap-2">
             <span className="text-indigo-600 dark:text-indigo-400 mt-0.5">•</span>
             <div>
-              <span className="font-semibold text-slate-900 dark:text-slate-100">{item.title}</span>
+              <span className="font-semibold text-slate-900 dark:text-slate-100">{linkifyAutoxpose(item.title)}</span>
               {item.description && (
-                <span className="text-slate-600 dark:text-slate-400"> — {item.description}</span>
+                <span className="text-slate-600 dark:text-slate-400"> - {linkifyAutoxpose(item.description)}</span>
+              )}
+              {hasAutoxpose(item) && (
+                <button
+                  onClick={() => {
+                    onClose?.();
+                    onOpenSettings?.();
+                  }}
+                  className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition-colors cursor-pointer border-none"
+                >
+                  Set up →
+                </button>
               )}
             </div>
           </li>
@@ -105,7 +142,7 @@ const VersionBadge = ({ version }) => (
   </div>
 );
 
-const VersionSection = ({ versionData, index }) => (
+const VersionSection = ({ versionData, index, onOpenSettings, onClose }) => (
   <div 
     className={cn(
       "space-y-4 p-4 rounded-lg border bg-gradient-to-br transition-all duration-500",
@@ -122,7 +159,7 @@ const VersionSection = ({ versionData, index }) => (
       </h2>
     </div>
 
-    <HighlightsSection highlights={versionData.changes.highlights} />
+    <HighlightsSection highlights={versionData.changes.highlights} onOpenSettings={onOpenSettings} onClose={onClose} />
 
     <div className="space-y-4">
       {versionData.changes.security?.length > 0 && (
@@ -200,9 +237,9 @@ const VersionSection = ({ versionData, index }) => (
   </div>
 );
 
-const FlatChangesDisplay = ({ changes }) => (
+const FlatChangesDisplay = ({ changes, onOpenSettings, onClose }) => (
   <>
-    <HighlightsSection highlights={changes.highlights} />
+    <HighlightsSection highlights={changes.highlights} onOpenSettings={onOpenSettings} onClose={onClose} />
 
     {changes.security?.length > 0 && (
       <CategorySection
@@ -278,7 +315,7 @@ const FlatChangesDisplay = ({ changes }) => (
   </>
 );
 
-export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, groupedChanges }) {
+export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, groupedChanges, onOpenSettings }) {
   const hasGroupedData = groupedChanges?.length > 0;
 
   return (
@@ -304,10 +341,10 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
           <div className="space-y-6">
             {hasGroupedData ? (
               groupedChanges.map((versionData, index) => (
-                <VersionSection key={versionData.version} versionData={versionData} index={index} />
+                <VersionSection key={versionData.version} versionData={versionData} index={index} onOpenSettings={onOpenSettings} onClose={onClose} />
               ))
             ) : (
-              <FlatChangesDisplay changes={changes} />
+              <FlatChangesDisplay changes={changes} onOpenSettings={onOpenSettings} onClose={onClose} />
             )}
           </div>
         </div>
