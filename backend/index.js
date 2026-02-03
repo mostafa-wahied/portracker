@@ -1,11 +1,3 @@
-/**
- * PORTS TRACKER - BACKEND SERVER
- *
- * Production-ready backend server for the port tracker application.
- * Provides RESTful API endpoints for server management, port scanning,
- * and system monitoring across multiple deployment platforms.
- */
-
 require('dotenv').config({ path: __dirname + '/.env' });
 
 const express = require('express');

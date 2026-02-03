@@ -315,6 +315,9 @@ function ServerSectionComponent({
   const portsToDisplay =
     isExpanded || portLayout === "grid" ? sortedPorts : sortedPorts.slice(0, 8);
 
+  const servicesToDisplay =
+    isExpanded || portLayout === "grid" ? groupedServices : groupedServices.slice(0, 8);
+
   const hasSystemInfo = systemInfo && Object.keys(systemInfo).length > 0;
   const hasVMs = vms && vms.length > 0;
   const isTrueNAS = platformName?.toLowerCase().includes("truenas");
@@ -813,7 +816,7 @@ function ServerSectionComponent({
                 </Tooltip>
               </TooltipProvider>
 
-              {sortedPorts.length > 8 && portLayout !== "grid" && (
+              {((groupingMode === "services" ? groupedServices.length : sortedPorts.length) > 8) && portLayout !== "grid" && (
                 <button
                   onClick={onToggleExpanded}
                   className="inline-flex items-center px-2 sm:px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
@@ -826,7 +829,7 @@ function ServerSectionComponent({
                   <span className="hidden sm:inline">
                     {isExpanded
                       ? "Show Less"
-                      : `Show All (${sortedPorts.length})`}
+                      : `Show All (${groupingMode === "services" ? groupedServices.length : sortedPorts.length})`}
                   </span>
                   <span className="sm:hidden">
                     {isExpanded ? "Less" : "All"}
@@ -841,7 +844,7 @@ function ServerSectionComponent({
           <div className={selectionMode ? "pb-20" : ""}>
             {groupingMode === "services" && portLayout === "list" && (
               <div className="space-y-3 p-4">
-                {groupedServices.map((service) => (
+                {servicesToDisplay.map((service) => (
                   <ServiceCard
                     key={service.key}
                     serviceName={service.name}
@@ -873,7 +876,7 @@ function ServerSectionComponent({
             )}
             {groupingMode === "services" && portLayout === "grid" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
-                {groupedServices.map((service) => (
+                {servicesToDisplay.map((service) => (
                   <ServiceCard
                     key={service.key}
                     serviceName={service.name}
@@ -949,7 +952,7 @@ function ServerSectionComponent({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                    {groupedServices.map((service) => (
+                    {servicesToDisplay.map((service) => (
                       <ServiceCard
                         key={service.key}
                         serviceName={service.name}
@@ -1183,6 +1186,17 @@ function ServerSectionComponent({
               </div>
             )}
             </>
+            )}
+
+            {!isExpanded && groupedServices.length > 8 && portLayout !== "grid" && groupingMode === "services" && (
+              <div className="p-4 text-center border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={onToggleExpanded}
+                  className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+                >
+                  + {groupedServices.length - 8} more services
+                </button>
+              </div>
             )}
           </div>
         )}
