@@ -5,9 +5,9 @@ All notable changes to portracker will be documented in this file.
 ## [1.3.0] - 2026-02-02
 
 **Highlights**
-- Service-Centric View — Ports organized by service with expandable cards (now default)
-- API Key Authentication — Secure peer-to-peer communication between instances
-- Autoxpose Integration — See publicly exposed services directly in your dashboard
+- Service-Centric View - Ports organized by service with expandable cards (now default)
+- API Key Authentication - Secure peer-to-peer communication between instances
+- autoxpose Integration - See publicly exposed services directly in your dashboard
 
 ---
 
@@ -21,7 +21,7 @@ All notable changes to portracker will be documented in this file.
 
 ### Integrations
 
-- **Autoxpose Integration**: See which services are publicly exposed by connecting to your autoxpose instance from Settings
+- **autoxpose Integration**: See which services are publicly exposed by connecting to your autoxpose instance from Settings
   - **[sub]** Public URLs displayed alongside internal ports with SSL status indicators
   - **[sub]** Clickable links open your public endpoints directly
 

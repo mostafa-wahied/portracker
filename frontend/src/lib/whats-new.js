@@ -70,7 +70,7 @@ export function parseChangelog(changelogContent) {
 
       if (inHighlights && line.startsWith('- ')) {
         const highlightText = line.replace(/^-\s*/, '');
-        const parts = highlightText.split(/\s*[—–-]\s*/);
+        const parts = highlightText.split(/\s+[-–—]\s+/);
         const title = parts[0]?.trim() || highlightText;
         const description = parts[1]?.trim() || '';
         features.highlights.push({ title, description });
@@ -226,6 +226,9 @@ export function combineVersionChanges(versions, versionKeys) {
   for (const version of sortedVersions) {
     const versionChanges = versions[version];
     if (versionChanges) {
+      if (versionChanges.highlights?.length) {
+        combined.highlights.push(...versionChanges.highlights);
+      }
       CATEGORY_KEYS.forEach(key => {
         if (versionChanges[key]?.length) {
           combined[key].push(...versionChanges[key]);
@@ -245,6 +248,9 @@ export function groupVersionChanges(versions, versionKeys) {
     const changes = createFeatureBuckets();
     
     if (versionChanges) {
+      if (versionChanges.highlights?.length) {
+        changes.highlights.push(...versionChanges.highlights);
+      }
       CATEGORY_KEYS.forEach(key => {
         if (versionChanges[key]?.length) {
           changes[key].push(...versionChanges[key]);
@@ -256,7 +262,7 @@ export function groupVersionChanges(versions, versionKeys) {
       version,
       changes
     };
-  }).filter(item => CATEGORY_KEYS.some(key => item.changes[key]?.length > 0));
+  }).filter(item => item.changes.highlights?.length > 0 || CATEGORY_KEYS.some(key => item.changes[key]?.length > 0));
 }
 
 export function shouldShowWhatsNew(currentVersion) {

@@ -290,7 +290,7 @@ Future development is focused on improving the application based on community fe
 
 - ~~Adding user authentication~~ ✅ **Added in v1.2.0** (optional authentication with setup wizard)
 - ~~Adding API key authentication for peer-to-peer communication~~ ✅ **Added in v1.3.0**
-- ~~Autoxpose integration for public URL visibility~~ ✅ **Added in v1.3.0**
+- ~~autoxpose integration for public URL visibility~~ ✅ **Added in v1.3.0**
 - Expanding the library of platform-specific collectors for other host systems
 - Addressing bugs and incorporating requested changes from the community
 

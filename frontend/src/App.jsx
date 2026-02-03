@@ -32,6 +32,7 @@ import { useWhatsNew } from "./lib/hooks/useWhatsNew";
 import { saveCustomServiceName, deleteCustomServiceName, getCustomServiceNames, batchCustomServiceNames } from "./lib/api/customServiceNames";
 import { batchNotes, saveNote } from "./lib/api/notes";
 import { getAutoxposeStatus, connectAutoxpose, disconnectAutoxpose, setAutoxposeDisplayMode, setAutoxposeUrlStyle, getAutoxposeServices, getAutoxposeDomain } from "./lib/api/autoxpose";
+import { AutoxposeNudge } from "./components/autoxpose";
 import { generatePortKey } from "./lib/utils/portUtils";
 import { formatUptime } from "@/lib/utils";
 import { useAuth } from "./contexts/AuthContext";
@@ -2077,6 +2078,11 @@ export default function App() {
           </div>
         </div>
       )}
+      <AutoxposeNudge
+        servers={groups}
+        autoxposeConnected={autoxposeStatus?.connected}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+      />
       {healthToast && (
         <div
           className={`fixed top-20 right-6 z-50 px-4 py-2.5 rounded-lg shadow-lg border backdrop-blur-sm animate-in fade-in-0 slide-in-from-top-2 duration-200 ${
@@ -2222,6 +2228,7 @@ export default function App() {
 
       <WhatsNewModal
         {...getWhatsNewModalProps()}
+        onOpenSettings={() => setSettingsModalOpen(true)}
       />
 
       <ServiceRenameModal
