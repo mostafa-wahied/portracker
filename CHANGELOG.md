@@ -2,6 +2,12 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.3.1] - 2026-02-03
+
+### Fixed
+
+- **Database Schema**: Fixed missing `remote_api_key` column in initial database creation that caused "no such column" errors for fresh installations (resolves #82)
+
 ## [1.3.0] - 2026-02-02
 
 **Highlights**
