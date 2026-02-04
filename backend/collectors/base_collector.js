@@ -139,11 +139,15 @@ class BaseCollector {
    * @returns {Object} Normalized port entry
    */
   normalizePortEntry(entry) {
+    let hostIp = entry.host_ip || "0.0.0.0";
+    if (hostIp === "::" || hostIp === "[::]" || hostIp === "*") {
+      hostIp = "0.0.0.0";
+    }
     return {
       source: entry.source || this.platform,
       owner: entry.owner || "unknown",
       protocol: entry.protocol || "tcp",
-      host_ip: entry.host_ip || "0.0.0.0",
+      host_ip: hostIp,
       host_port: parseInt(entry.host_port, 10) || 0,
       target: entry.target || null,
       container_id: entry.container_id || null,
