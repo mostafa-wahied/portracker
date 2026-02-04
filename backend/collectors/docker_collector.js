@@ -29,6 +29,13 @@ class DockerCollector extends BaseCollector {
   this.dockerApi = new DockerAPIClient();
   }
 
+  _normalizeHostIp(ip) {
+    if (!ip || ip === '' || ip === '::' || ip === '::0' || ip === '0.0.0.0') {
+      return '0.0.0.0';
+    }
+    return ip;
+  }
+
   async initialize() {
     return await this.dockerApi.connect();
   }
@@ -164,7 +171,8 @@ class DockerCollector extends BaseCollector {
 
           const dockerPorts = await this._getDockerContainerPorts();
           dockerPorts.forEach((port) => {
-            const key = `${port.host_ip}:${port.host_port}:${port.protocol}`;
+            const normalizedIp = this._normalizeHostIp(port.host_ip);
+            const key = `${normalizedIp}:${port.host_port}:${port.protocol}`;
             if (!dockerPortsMap.has(key)) {
               if (port.container_id) {
                 port.created = containerCreationTimeMap.get(port.container_id) || null;
@@ -184,8 +192,9 @@ class DockerCollector extends BaseCollector {
 
             if (container.internalPorts && container.internalPorts.length > 0) {
               container.internalPorts.forEach((internalPort) => {
-                const publishedKey = `${internalPort.host_ip}:${internalPort.host_port}:${internalPort.protocol}`;
-                const internalKey = `${internalPort.host_ip}:${internalPort.host_port}:${internalPort.protocol}:${container.id}:internal`;
+                const normalizedIp = this._normalizeHostIp(internalPort.host_ip);
+                const publishedKey = `${normalizedIp}:${internalPort.host_port}:${internalPort.protocol}`;
+                const internalKey = `${normalizedIp}:${internalPort.host_port}:${internalPort.protocol}:${container.id}:internal`;
 
                 if (!dockerPortsMap.has(publishedKey) && !dockerPortsMap.has(internalKey)) {
                   internalPort.created = containerCreationTimeMap.get(container.id) || null;
@@ -203,7 +212,9 @@ class DockerCollector extends BaseCollector {
           const systemPorts = await this._getSystemPorts();
 
           for (const port of systemPorts) {
-            const key = `${port.host_ip}:${port.host_port}`;
+            // Use same key format as docker ports for proper dedup
+            const normalizedIp = this._normalizeHostIp(port.host_ip);
+            const key = `${normalizedIp}:${port.host_port}:${port.protocol || 'tcp'}`;
             if (dockerPortsMap.has(key)) {
               continue;
             }
@@ -301,10 +312,10 @@ class DockerCollector extends BaseCollector {
           const targetPort = parseInt(port, 10);
 
           for (const binding of hostBindings) {
-            const hostIp = binding.HostIp || '0.0.0.0';
+            const hostIp = this._normalizeHostIp(binding.HostIp);
             const hostPort = parseInt(binding.HostPort, 10);
 
-            if (!hostIp || isNaN(hostPort)) continue;
+            if (isNaN(hostPort)) continue;
 
             portEntries.push(
               this.normalizePortEntry({

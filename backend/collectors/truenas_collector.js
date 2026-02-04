@@ -570,8 +570,8 @@ class TrueNASCollector extends BaseCollector {
    * @returns {string} Resolved IP address
    */
   _resolveHostIP(host_ip) {
-    if (host_ip === "0.0.0.0" || host_ip === "::") {
-      return host_ip;
+    if (host_ip === "::" || host_ip === "[::]" || host_ip === "0.0.0.0") {
+      return "0.0.0.0";
     }
 
     switch (host_ip) {
@@ -1119,16 +1119,29 @@ class TrueNASCollector extends BaseCollector {
           await this._buildHostProcToContainerMap();
 
   for (const port of dockerPorts) {
+          const normalizedIp = this._resolveHostIP(port.host_ip);
+          
+          if (port.internal && port.container_id) {
+            const publishedKey = `${normalizedIp}:${port.host_port}`;
+            const existingPort = uniquePorts.get(publishedKey);
+            if (existingPort && existingPort.container_id === port.container_id) {
+              continue;
+            }
+          }
+          
           const key = port.internal
             ? `${port.container_id}:${port.host_port}:internal`
-            : `${port.host_ip}:${port.host_port}`;
+            : `${normalizedIp}:${port.host_port}`;
+          port.host_ip = normalizedIp;
           port.created =
             containerCreationTimeMap.get(port.container_id) || null;
           uniquePorts.set(key, port);
         }
 
         for (const port of systemPorts) {
-          const key = `${port.host_ip}:${port.host_port}`;
+          const normalizedIp = this._resolveHostIP(port.host_ip);
+          const key = `${normalizedIp}:${port.host_port}`;
+          port.host_ip = normalizedIp;
           if (uniquePorts.has(key)) {
             const existingPort = uniquePorts.get(key);
             if (!existingPort.pid) existingPort.pid = port.pid;

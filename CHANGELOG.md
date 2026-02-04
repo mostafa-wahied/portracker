@@ -2,6 +2,12 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.3.2] - 2026-02-03
+
+### Fixed
+
+- **Duplicate Ports**: Fixed duplicate port entries caused by IPv4/IPv6 wildcard addresses and internal port detection (resolves #82)
+
 ## [1.3.1] - 2026-02-03
 
 ### Fixed
