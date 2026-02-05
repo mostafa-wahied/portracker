@@ -7,6 +7,7 @@ import {
   groupVersionChanges,
   compareVersions
 } from '../whats-new';
+import whatsNewConfig from '../whats-new-config';
 import Logger from '../logger';
 
 const logger = new Logger('useWhatsNew');
@@ -152,18 +153,119 @@ export function useWhatsNew() {
     initializeWhatsNew();
   }, [isDismissed]);
 
+  const buildCombinedChanges = (versions, versionKeys, mergeTitles) => {
+    const combined = combineVersionChanges(versions, []);
+    const perVersion = groupVersionChanges(versions, versionKeys);
+    const mergeSet = new Set(
+      Array.isArray(mergeTitles) ? mergeTitles.map((title) => title.toLowerCase()) : []
+    );
+    const mergedByCategory = new Map();
+
+    for (const versionData of perVersion) {
+      const changes = versionData.changes || {};
+      for (const [category, features] of Object.entries(changes)) {
+        if (!Array.isArray(features) || features.length === 0) continue;
+        if (!combined[category]) combined[category] = [];
+
+        for (const feature of features) {
+          const title = feature?.title || '';
+          const titleKey = title.toLowerCase();
+
+          if (mergeSet.has(titleKey)) {
+            let categoryMap = mergedByCategory.get(category);
+            if (!categoryMap) {
+              categoryMap = new Map();
+              mergedByCategory.set(category, categoryMap);
+            }
+
+            let mergedFeature = categoryMap.get(titleKey);
+            if (!mergedFeature) {
+              mergedFeature = {
+                title,
+                description: '',
+                details: []
+              };
+              categoryMap.set(titleKey, mergedFeature);
+              combined[category].push(mergedFeature);
+            }
+
+            mergedFeature.details.push({
+              title: versionData.version,
+              description: feature.description || ''
+            });
+          } else {
+            combined[category].push(feature);
+          }
+        }
+      }
+    }
+
+    return combined;
+  };
+
   const getModalProps = () => {
-    const version = newVersions.length > 1 
-      ? `${newVersions[newVersions.length - 1]} - ${newVersions[0]}` 
+    const version = newVersions.length > 1
+      ? `${newVersions[newVersions.length - 1]} - ${newVersions[0]}`
       : (newVersions.length > 0 ? newVersions[0] : currentVersion);
-    
-    const changes = newVersions.length > 0 
+
+    const changes = newVersions.length > 0
       ? combineVersionChanges(whatsNewData, newVersions)
       : whatsNewData[currentVersion] || {};
     
-    const groupedChanges = newVersions.length > 0 
+    let groupedChanges = newVersions.length > 0
       ? groupVersionChanges(whatsNewData, newVersions)
       : null;
+
+    const combineGroups = Array.isArray(whatsNewConfig?.combineWhatsNewGroups)
+      ? whatsNewConfig.combineWhatsNewGroups
+      : [];
+
+    if (groupedChanges && combineGroups.length > 0) {
+      const combinedGroups = [];
+      const consumedVersions = new Set();
+      const versionSet = new Set(newVersions);
+
+      for (const versionData of groupedChanges) {
+        if (consumedVersions.has(versionData.version)) {
+          continue;
+        }
+
+        const group = combineGroups.find((entry) =>
+          Array.isArray(entry?.versions) && entry.versions.includes(versionData.version)
+        );
+
+        if (!group) {
+          combinedGroups.push(versionData);
+          consumedVersions.add(versionData.version);
+          continue;
+        }
+
+        const presentVersions = group.versions.filter((v) => versionSet.has(v));
+        if (presentVersions.length <= 1) {
+          combinedGroups.push(versionData);
+          consumedVersions.add(versionData.version);
+          continue;
+        }
+
+        presentVersions.forEach((v) => consumedVersions.add(v));
+
+        const sortedVersions = presentVersions.sort((a, b) => compareVersions(b, a));
+        const combinedVersionLabel = sortedVersions.length > 1
+          ? `${sortedVersions[sortedVersions.length - 1]} - ${sortedVersions[0]}`
+          : sortedVersions[0];
+
+        const mergedChanges = group.mergeTitles?.length
+          ? buildCombinedChanges(whatsNewData, sortedVersions, group.mergeTitles)
+          : combineVersionChanges(whatsNewData, sortedVersions);
+
+        combinedGroups.push({
+          version: combinedVersionLabel,
+          changes: mergedChanges
+        });
+      }
+
+      groupedChanges = combinedGroups;
+    }
 
     const props = {
       isOpen: isModalOpen,

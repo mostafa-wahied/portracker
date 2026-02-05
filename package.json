@@ -1,6 +1,6 @@
 {
   "name": "portracker",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "A multi-platform port-tracking dashboard",
   "main": "backend/index.js",
   "scripts": {
