@@ -2,6 +2,12 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.3.3] - 2026-02-05
+
+### Fixed
+
+- **Duplicate Ports**: Skip internal Docker ports when a published binding exists, preventing duplicate rows for the same container port (addresses #82)
+
 ## [1.3.2] - 2026-02-03
 
 ### Fixed

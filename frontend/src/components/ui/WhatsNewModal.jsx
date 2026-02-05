@@ -91,9 +91,11 @@ const FeatureCard = ({ feature, index }) => {
           <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm leading-tight mb-1 transition-colors">
             {feature.title}
           </h4>
-          <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
-            {feature.description}
-          </p>
+          {feature.description && (
+            <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+              {feature.description}
+            </p>
+          )}
           {hasDetails && (
             <ul className="mt-2 ml-3 space-y-1.5">
               {feature.details.map((detail, i) => (

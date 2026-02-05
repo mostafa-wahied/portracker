@@ -212,7 +212,6 @@ class DockerCollector extends BaseCollector {
           const systemPorts = await this._getSystemPorts();
 
           for (const port of systemPorts) {
-            // Use same key format as docker ports for proper dedup
             const normalizedIp = this._normalizeHostIp(port.host_ip);
             const key = `${normalizedIp}:${port.host_port}:${port.protocol || 'tcp'}`;
             if (dockerPortsMap.has(key)) {
@@ -371,10 +370,14 @@ class DockerCollector extends BaseCollector {
 
           const networkMode = inspection.HostConfig?.NetworkMode || '';
           const exposedPorts = inspection.Config?.ExposedPorts || {};
+          const portBindings = inspection.NetworkSettings?.Ports || {};
 
           const internalPorts = [];
           if (exposedPorts && typeof exposedPorts === 'object') {
             Object.keys(exposedPorts).forEach(portDef => {
+              if (portBindings[portDef] && portBindings[portDef] !== null) {
+                return;
+              }
               const [port, protocol] = portDef.split('/');
               const portNum = parseInt(port, 10);
               if (!isNaN(portNum)) {
