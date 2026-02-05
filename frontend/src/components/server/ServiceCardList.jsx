@@ -139,7 +139,7 @@ export function ServiceCardList({
           {publishedPorts.map((port) => {
             const autoxposeData = getAutoxposeData(autoxposePorts, port);
             return (
-              <React.Fragment key={port.host_port}>
+              <React.Fragment key={`autoxpose-${generatePortKey(serverId, port)}`}>
                 {autoxposeData && autoxposeDisplayMode === "url" && (
                   <ExternalUrlChip
                     url={autoxposeData.url}
@@ -160,7 +160,7 @@ export function ServiceCardList({
           })}
           {publishedPorts.map((port) => (
             <ClickablePortBadge
-              key={`port-${port.host_port}`}
+              key={`badge-${generatePortKey(serverId, port)}`}
               port={port}
               serverId={serverId}
               serverUrl={serverUrl}

@@ -27,6 +27,66 @@ class SystemCollector extends BaseCollector {
     this.procParser = new ProcParser();
   }
 
+  _normalizeHostIp(hostIp) {
+    if (!hostIp || hostIp === "*" || hostIp === "::" || hostIp === "[::]") {
+      return "0.0.0.0";
+    }
+    return hostIp;
+  }
+
+  _selectPreferredProcessPortEntry(existingEntry, nextEntry) {
+    if (!existingEntry) return nextEntry;
+    if (!nextEntry) return existingEntry;
+    const score = (entry) => {
+      let value = 0;
+      const normalizedIp = this._normalizeHostIp(entry.host_ip);
+      if (normalizedIp === "0.0.0.0") value += 3;
+      if (normalizedIp === "127.0.0.1") value += 2;
+      return value;
+    };
+    return score(nextEntry) > score(existingEntry) ? nextEntry : existingEntry;
+  }
+
+  _getProcessLogicalKey(entry) {
+    if (!entry || !entry.host_port) return null;
+    const hostPort = parseInt(entry.host_port, 10);
+    if (Number.isNaN(hostPort) || hostPort <= 0) return null;
+    const protocol = entry.protocol || "tcp";
+    const owner = String(entry.owner || "").trim().toLowerCase();
+    if (!owner || owner === "unknown") {
+      const pid =
+        entry.pid ||
+        (Array.isArray(entry.pids) && entry.pids.length > 0 ? entry.pids[0] : null);
+      if (pid) return `pid:${pid}:${hostPort}:${protocol}`;
+      return `unknown:${entry.source || "system"}:${hostPort}:${protocol}`;
+    }
+    return `owner:${owner}:${hostPort}:${protocol}`;
+  }
+
+  _collapseProcessLogicalDuplicates(entries) {
+    const passthroughEntries = [];
+    const processEntries = new Map();
+
+    entries.forEach((rawEntry) => {
+      const entry = this.normalizePortEntry(rawEntry);
+      if (entry.container_id) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      const logicalKey = this._getProcessLogicalKey(entry);
+      if (!logicalKey) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      processEntries.set(
+        logicalKey,
+        this._selectPreferredProcessPortEntry(processEntries.get(logicalKey), entry)
+      );
+    });
+
+    return [...passthroughEntries, ...processEntries.values()];
+  }
+
   /**
    * Get local system information
    * @returns {Promise<Object>} System information
@@ -153,6 +213,7 @@ class SystemCollector extends BaseCollector {
     return this.cacheGetOrSet('ports', async () => {
       try {
         this.log("Collecting system ports");
+        let collectedPorts = null;
 
         if (!this.isWindows && this.procParser) {
           try {
@@ -168,7 +229,7 @@ class SystemCollector extends BaseCollector {
 
               if (allPorts.length >= 3) {
                 this.log(`Successfully collected ${allPorts.length} ports via /proc (TCP: ${tcpPorts.length}, UDP: ${udpPorts.length})`);
-                return allPorts.map(port => this.normalizePortEntry({
+                collectedPorts = allPorts.map((port) => this.normalizePortEntry({
                   source: "system",
                   owner: port.owner,
                   protocol: port.protocol,
@@ -191,11 +252,14 @@ class SystemCollector extends BaseCollector {
           }
         }
 
-        if (this.isWindows) {
-          return await this.getWindowsPorts();
-        } else {
-          return await this.getLinuxPorts();
+        if (!collectedPorts) {
+          if (this.isWindows) {
+            collectedPorts = await this.getWindowsPorts();
+          } else {
+            collectedPorts = await this.getLinuxPorts();
+          }
         }
+        return this._collapseProcessLogicalDuplicates(collectedPorts);
       } catch (err) {
         this.logError("Error collecting system ports:", err.message, err.stack);
         return [

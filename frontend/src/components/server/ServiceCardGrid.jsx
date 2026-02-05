@@ -125,7 +125,7 @@ export function ServiceCardGrid({
 
         <div className="flex flex-wrap gap-1.5 mb-3">
           {publishedPorts.map((port) => (
-            <React.Fragment key={port.host_port}>
+            <React.Fragment key={generatePortKey(serverId, port)}>
               <ClickablePortBadge
                 port={port}
                 serverId={serverId}

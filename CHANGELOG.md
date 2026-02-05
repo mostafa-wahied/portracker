@@ -2,6 +2,13 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [1.3.4] - 2026-02-05
+
+### Fixed
+
+- **Host-Network Service Deduplication**: Added logical deduplication for services using host networking so the same listener is not shown multiple times when discovered through both Docker and process-based collection paths (addresses #82)
+- **Service Port Rendering**: Updated service view port keys to use full port identity, avoiding repeated port chips when entries share the same host port number
+
 ## [1.3.3] - 2026-02-05
 
 ### Fixed

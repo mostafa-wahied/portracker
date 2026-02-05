@@ -143,12 +143,24 @@ class BaseCollector {
     if (hostIp === "::" || hostIp === "[::]" || hostIp === "*") {
       hostIp = "0.0.0.0";
     }
+    const parsedPid = parseInt(entry.pid, 10);
+    const pid = Number.isNaN(parsedPid) ? null : parsedPid;
+    const pids = Array.isArray(entry.pids)
+      ? entry.pids
+          .map((candidatePid) => parseInt(candidatePid, 10))
+          .filter((candidatePid) => !Number.isNaN(candidatePid) && candidatePid > 0)
+      : pid
+        ? [pid]
+        : [];
+    const primaryPid = pid || pids[0] || null;
     return {
       source: entry.source || this.platform,
       owner: entry.owner || "unknown",
       protocol: entry.protocol || "tcp",
       host_ip: hostIp,
       host_port: parseInt(entry.host_port, 10) || 0,
+      pid: primaryPid,
+      pids,
       target: entry.target || null,
       container_id: entry.container_id || null,
       vm_id: entry.vm_id || null,

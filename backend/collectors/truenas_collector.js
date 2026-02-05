@@ -150,6 +150,220 @@ class TrueNASCollector extends BaseCollector {
     return names || 'unknown';
   }
 
+  _normalizeNameToken(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  _findContainerByProcessName(processName, containers = []) {
+    const rawProcessName = String(processName || "").trim().toLowerCase();
+    const processToken = this._normalizeNameToken(rawProcessName);
+    if (!processToken) return null;
+
+    const genericProcessNames = new Set([
+      "unknown",
+      "system",
+      "node",
+      "python",
+      "python3",
+      "java",
+      "dotnet",
+      "dockerd",
+      "containerd",
+      "sshd",
+      "bash",
+      "sh",
+      "kworker",
+      "avahidaemon"
+    ]);
+    if (genericProcessNames.has(rawProcessName) || genericProcessNames.has(processToken)) {
+      return null;
+    }
+
+    let bestMatch = null;
+    for (const container of containers) {
+      if (!container || !container.id) continue;
+
+      const containerName = String(container.name || "");
+      const containerImage = String(container.image || "");
+      const nameToken = this._normalizeNameToken(containerName);
+      const imageToken = this._normalizeNameToken(containerImage);
+
+      if (!nameToken && !imageToken) continue;
+
+      let score = 0;
+      if (nameToken && nameToken === processToken) score += 5;
+      if (nameToken && (nameToken.includes(processToken) || processToken.includes(nameToken))) score += 3;
+      if (imageToken && (imageToken.includes(processToken) || processToken.includes(imageToken))) score += 1;
+      if (score < 3) continue;
+
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = {
+          score,
+          id: container.id,
+          name: container.name,
+          ambiguous: false
+        };
+      } else if (score === bestMatch.score && container.id !== bestMatch.id) {
+        bestMatch.ambiguous = true;
+      }
+    }
+
+    if (!bestMatch || bestMatch.ambiguous) return null;
+    return {
+      id: bestMatch.id,
+      name: bestMatch.name
+    };
+  }
+
+  _getDockerLogicalPortKey(entry) {
+    if (!entry || entry.source !== "docker" || !entry.container_id || !entry.host_port) {
+      return null;
+    }
+    const hostPort = parseInt(entry.host_port, 10);
+    if (Number.isNaN(hostPort) || hostPort <= 0) {
+      return null;
+    }
+    const protocol = entry.protocol || "tcp";
+    const containerId = String(entry.container_id).substring(0, 12);
+    return `${containerId}:${hostPort}:${protocol}`;
+  }
+
+  _selectPreferredDockerPortEntry(existingEntry, nextEntry) {
+    if (!existingEntry) return nextEntry;
+    if (!nextEntry) return existingEntry;
+    const score = (entry) => {
+      let value = 0;
+      const hostIp = this._resolveHostIP(entry.host_ip);
+      if (hostIp === "0.0.0.0") value += 3;
+      if (hostIp === "127.0.0.1") value += 2;
+      if (!entry.internal) value += 1;
+      return value;
+    };
+    return score(nextEntry) > score(existingEntry) ? nextEntry : existingEntry;
+  }
+
+  _collapseDockerLogicalDuplicates(entries) {
+    const passthroughEntries = [];
+    const publishedDockerEntries = new Map();
+    const internalDockerEntries = new Map();
+
+    entries.forEach((rawEntry) => {
+      const entry = this.normalizePortEntry(rawEntry);
+      const logicalKey = this._getDockerLogicalPortKey(entry);
+      if (!logicalKey) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      if (entry.internal) {
+        internalDockerEntries.set(
+          logicalKey,
+          this._selectPreferredDockerPortEntry(internalDockerEntries.get(logicalKey), entry)
+        );
+        return;
+      }
+      publishedDockerEntries.set(
+        logicalKey,
+        this._selectPreferredDockerPortEntry(publishedDockerEntries.get(logicalKey), entry)
+      );
+    });
+
+    const collapsedEntries = [...passthroughEntries];
+    for (const entry of publishedDockerEntries.values()) {
+      collapsedEntries.push(entry);
+    }
+    for (const [logicalKey, entry] of internalDockerEntries.entries()) {
+      if (!publishedDockerEntries.has(logicalKey)) {
+        collapsedEntries.push(entry);
+      }
+    }
+    return collapsedEntries;
+  }
+
+  _getProcessLogicalPortKey(entry) {
+    if (!entry || !entry.host_port) {
+      return null;
+    }
+    const hostPort = parseInt(entry.host_port, 10);
+    if (Number.isNaN(hostPort) || hostPort <= 0) {
+      return null;
+    }
+    const protocol = entry.protocol || "tcp";
+    const owner = String(entry.owner || "").trim().toLowerCase();
+    if (!owner || owner === "unknown") {
+      const pid =
+        entry.pid ||
+        (Array.isArray(entry.pids) && entry.pids.length > 0 ? entry.pids[0] : null);
+      if (pid) {
+        return `pid:${pid}:${hostPort}:${protocol}`;
+      }
+      if (entry.source === "system" || (entry.source === "docker" && !entry.container_id)) {
+        return `unknown:${entry.source || "system"}:${hostPort}:${protocol}`;
+      }
+      return null;
+    }
+    return `owner:${owner}:${hostPort}:${protocol}`;
+  }
+
+  _collapseProcessLogicalDuplicates(entries) {
+    const passthroughEntries = [];
+    const processEntries = new Map();
+
+    entries.forEach((rawEntry) => {
+      const entry = this.normalizePortEntry(rawEntry);
+      if (entry.source === "docker" && entry.container_id) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      const logicalKey = this._getProcessLogicalPortKey(entry);
+      if (!logicalKey) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      processEntries.set(
+        logicalKey,
+        this._selectPreferredDockerPortEntry(processEntries.get(logicalKey), entry)
+      );
+    });
+
+    return [...passthroughEntries, ...processEntries.values()];
+  }
+
+  _getApplicationPortMappingKey(port) {
+    const hostIp = this._resolveHostIP(port.host_ip);
+    const hostPort = parseInt(port.host_port, 10);
+    const containerPort = parseInt(port.container_port, 10);
+    const safeHostPort = Number.isNaN(hostPort) || hostPort <= 0 ? 0 : hostPort;
+    const safeContainerPort =
+      Number.isNaN(containerPort) || containerPort <= 0 ? safeHostPort : containerPort;
+    const protocol = port.protocol || "tcp";
+    const internal = port.internal ? "1" : "0";
+    return `${hostIp}:${safeHostPort}:${safeContainerPort}:${protocol}:${internal}`;
+  }
+
+  _dedupeApplicationPorts(ports = []) {
+    const dedupedPorts = new Map();
+    ports.forEach((port) => {
+      const normalizedHostIp = this._resolveHostIP(port.host_ip);
+      const hostPort = parseInt(port.host_port, 10);
+      const containerPort = parseInt(port.container_port, 10);
+      const safeHostPort = Number.isNaN(hostPort) || hostPort <= 0 ? 0 : hostPort;
+      const safeContainerPort =
+        Number.isNaN(containerPort) || containerPort <= 0 ? safeHostPort : containerPort;
+      const normalizedPort = {
+        host_ip: normalizedHostIp,
+        host_port: safeHostPort,
+        container_port: safeContainerPort,
+        protocol: port.protocol || "tcp",
+        internal: Boolean(port.internal),
+      };
+      const key = this._getApplicationPortMappingKey(normalizedPort);
+      if (!dedupedPorts.has(key)) {
+        dedupedPorts.set(key, normalizedPort);
+      }
+    });
+    return [...dedupedPorts.values()];
+  }
+
   /**
    * Check if this system is TrueNAS with confidence score
    * @param {Object} serverConfig The server's configuration, including API keys.
@@ -972,6 +1186,7 @@ class TrueNASCollector extends BaseCollector {
     };
 
     let containerCreationTimeMap = new Map();
+    let dockerContainers = [];
 
     try {
       this.logInfo("Starting core functionality collection (Docker + System)");
@@ -991,7 +1206,12 @@ class TrueNASCollector extends BaseCollector {
 
       perf.start("docker-containers-collection");
       try {
-      const dockerContainers = await this.cacheGetOrSet('dockerContainers', () => this._getDockerContainers(), { ttlMs: 45000 });        containerCreationTimeMap = new Map(
+        dockerContainers = await this.cacheGetOrSet(
+          "dockerContainers",
+          () => this._getDockerContainers(),
+          { ttlMs: 45000 }
+        );
+        containerCreationTimeMap = new Map(
           dockerContainers.map((c) => [c.id, c.created])
         );
 
@@ -1045,12 +1265,18 @@ class TrueNASCollector extends BaseCollector {
 
         results.applications.forEach(app => {
           if (app.platform === "docker" && portsByContainer.has(app.id)) {
-            app.platform_data.ports = portsByContainer.get(app.id);
+            app.platform_data.ports = this._dedupeApplicationPorts(
+              portsByContainer.get(app.id)
+            );
           }
         });
 
         perf.start("system-ports-collection");
-  const systemPorts = await this.cacheGetOrSet('systemPorts', () => this._getSystemPorts(), { ttlMs: 30000 });
+        const systemPorts = await this.cacheGetOrSet(
+          "systemPorts",
+          () => this._getSystemPorts(),
+          { ttlMs: 30000 }
+        );
         perf.end("system-ports-collection");
 
         perf.start("pid-to-container-mapping");
@@ -1085,9 +1311,15 @@ class TrueNASCollector extends BaseCollector {
         }
         perf.end("pid-to-container-mapping");
 
+        const getPrimaryPid = (port) =>
+          port?.pid ||
+          (Array.isArray(port?.pids) && port.pids.length > 0
+            ? port.pids[0]
+            : null);
+
         perf.start("process-start-times-collection");
         const pids = [
-          ...new Set(systemPorts.map((p) => p.pid).filter(Boolean)),
+          ...new Set(systemPorts.map((port) => getPrimaryPid(port)).filter(Boolean)),
         ];
         const processStartTimeMap = new Map();
         if (pids.length > 0) {
@@ -1118,9 +1350,9 @@ class TrueNASCollector extends BaseCollector {
         const hostProcToContainerMap =
           await this._buildHostProcToContainerMap();
 
-  for (const port of dockerPorts) {
+        for (const port of dockerPorts) {
           const normalizedIp = this._resolveHostIP(port.host_ip);
-          
+
           if (port.internal && port.container_id) {
             const publishedKey = `${normalizedIp}:${port.host_port}`;
             const existingPort = uniquePorts.get(publishedKey);
@@ -1128,7 +1360,7 @@ class TrueNASCollector extends BaseCollector {
               continue;
             }
           }
-          
+
           const key = port.internal
             ? `${port.container_id}:${port.host_port}:internal`
             : `${normalizedIp}:${port.host_port}`;
@@ -1141,26 +1373,30 @@ class TrueNASCollector extends BaseCollector {
         for (const port of systemPorts) {
           const normalizedIp = this._resolveHostIP(port.host_ip);
           const key = `${normalizedIp}:${port.host_port}`;
+          const portPid = getPrimaryPid(port);
           port.host_ip = normalizedIp;
           if (uniquePorts.has(key)) {
             const existingPort = uniquePorts.get(key);
-            if (!existingPort.pid) existingPort.pid = port.pid;
+            if (!existingPort.pid && portPid) {
+              existingPort.pid = portPid;
+              existingPort.pids = [portPid];
+            }
             continue;
           }
 
           let containerIdForPort = null;
           let ownerName = port.owner;
 
-          if (port.pid && pidToContainerMap.has(port.pid)) {
-            const containerInfo = pidToContainerMap.get(port.pid);
+          if (portPid && pidToContainerMap.has(portPid)) {
+            const containerInfo = pidToContainerMap.get(portPid);
             containerIdForPort = containerInfo.id;
             ownerName = containerInfo.name;
             port.source = "docker";
             this.log(
               `Re-classified port ${port.host_port} to owner ${ownerName} via PID map.`
             );
-          } else if (port.pid && hostProcToContainerMap.has(port.pid)) {
-            const containerInfo = hostProcToContainerMap.get(port.pid);
+          } else if (portPid && hostProcToContainerMap.has(portPid)) {
+            const containerInfo = hostProcToContainerMap.get(portPid);
             containerIdForPort = containerInfo.id;
             ownerName = containerInfo.name;
             port.source = "docker";
@@ -1168,6 +1404,17 @@ class TrueNASCollector extends BaseCollector {
             this.log(
               `Re-classified port ${port.host_port} to owner ${ownerName} via HOST-PROC map.`
             );
+          } else if (!containerIdForPort && ownerName && ownerName !== "unknown") {
+            const containerInfo = this._findContainerByProcessName(ownerName, dockerContainers);
+            if (containerInfo) {
+              containerIdForPort = containerInfo.id;
+              ownerName = containerInfo.name;
+              port.source = "docker";
+              port.target = `${containerInfo.id.substring(0, 12)}:${port.host_port}`;
+              this.log(
+                `Re-classified port ${port.host_port} to owner ${ownerName} via process-name match.`
+              );
+            }
           }
 
           port.owner = ownerName;
@@ -1178,16 +1425,18 @@ class TrueNASCollector extends BaseCollector {
               containerCreationTimeMap.get(containerIdForPort) || null;
           }
 
-          if (port.pid) {
-            port.created = processStartTimeMap.get(port.pid) || null;
+          if (portPid) {
+            port.pid = portPid;
+            port.pids = [portPid];
+            port.created = processStartTimeMap.get(portPid) || null;
           }
 
           uniquePorts.set(key, port);
         }
 
-  perf.start("self-container-attribution");
-  const ourPort = parseInt(process.env.PORT || "4999", 10);
-  for (const port of uniquePorts.values()) {
+        perf.start("self-container-attribution");
+        const ourPort = parseInt(process.env.PORT || "4999", 10);
+        for (const port of uniquePorts.values()) {
           if (
             port.host_port === ourPort &&
             (port.owner === "node" || port.owner === "system") &&
@@ -1226,7 +1475,7 @@ class TrueNASCollector extends BaseCollector {
 
         perf.start("port-filtering");
         const includeSystemUdp = process.env.INCLUDE_UDP === "true";
-        results.ports = Array.from(uniquePorts.values())
+        const filteredPorts = Array.from(uniquePorts.values())
           .filter((port) => {
             if (port.protocol === "tcp") {
               if (
@@ -1262,6 +1511,10 @@ class TrueNASCollector extends BaseCollector {
             return false;
           })
           .map((port) => this.normalizePortEntry(port));
+        const collapsedDockerPorts =
+          this._collapseDockerLogicalDuplicates(filteredPorts);
+        results.ports =
+          this._collapseProcessLogicalDuplicates(collapsedDockerPorts);
         perf.end("port-filtering");
         perf.end("port-reconciliation");
 

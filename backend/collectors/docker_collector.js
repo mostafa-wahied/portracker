@@ -36,6 +36,119 @@ class DockerCollector extends BaseCollector {
     return ip;
   }
 
+  _getDockerLogicalKey(entry) {
+    if (!entry || entry.source !== "docker" || !entry.container_id || !entry.host_port) {
+      return null;
+    }
+    const hostPort = parseInt(entry.host_port, 10);
+    if (Number.isNaN(hostPort) || hostPort <= 0) {
+      return null;
+    }
+    const containerId = String(entry.container_id).substring(0, 12);
+    const protocol = entry.protocol || "tcp";
+    return `${containerId}:${hostPort}:${protocol}`;
+  }
+
+  _selectPreferredDockerPortEntry(existingEntry, nextEntry) {
+    if (!existingEntry) return nextEntry;
+    if (!nextEntry) return existingEntry;
+    const score = (entry) => {
+      let value = 0;
+      const normalizedIp = this._normalizeHostIp(entry.host_ip);
+      if (normalizedIp === "0.0.0.0") value += 3;
+      if (normalizedIp === "127.0.0.1") value += 2;
+      if (!entry.internal) value += 1;
+      return value;
+    };
+    return score(nextEntry) > score(existingEntry) ? nextEntry : existingEntry;
+  }
+
+  _collapseDockerLogicalDuplicates(entries) {
+    const passthroughEntries = [];
+    const publishedDockerEntries = new Map();
+    const internalDockerEntries = new Map();
+
+    entries.forEach((rawEntry) => {
+      const entry = this.normalizePortEntry(rawEntry);
+      const logicalKey = this._getDockerLogicalKey(entry);
+      if (!logicalKey) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      if (entry.internal) {
+        internalDockerEntries.set(
+          logicalKey,
+          this._selectPreferredDockerPortEntry(internalDockerEntries.get(logicalKey), entry)
+        );
+        return;
+      }
+      publishedDockerEntries.set(
+        logicalKey,
+        this._selectPreferredDockerPortEntry(publishedDockerEntries.get(logicalKey), entry)
+      );
+    });
+
+    const collapsedEntries = [...passthroughEntries];
+    for (const entry of publishedDockerEntries.values()) {
+      collapsedEntries.push(entry);
+    }
+    for (const [logicalKey, entry] of internalDockerEntries.entries()) {
+      if (!publishedDockerEntries.has(logicalKey)) {
+        collapsedEntries.push(entry);
+      }
+    }
+    return collapsedEntries;
+  }
+
+  _getProcessLogicalKey(entry) {
+    if (!entry || !entry.host_port) {
+      return null;
+    }
+    const hostPort = parseInt(entry.host_port, 10);
+    if (Number.isNaN(hostPort) || hostPort <= 0) {
+      return null;
+    }
+    const protocol = entry.protocol || "tcp";
+    const owner = String(entry.owner || "").trim().toLowerCase();
+    if (!owner || owner === "unknown") {
+      const pid =
+        entry.pid ||
+        (Array.isArray(entry.pids) && entry.pids.length > 0 ? entry.pids[0] : null);
+      if (pid) {
+        return `pid:${pid}:${hostPort}:${protocol}`;
+      }
+      if (entry.source === "system" || (entry.source === "docker" && !entry.container_id)) {
+        return `unknown:${entry.source || "system"}:${hostPort}:${protocol}`;
+      }
+      return null;
+    }
+    return `owner:${owner}:${hostPort}:${protocol}`;
+  }
+
+  _collapseProcessLogicalDuplicates(entries) {
+    const passthroughEntries = [];
+    const processEntries = new Map();
+
+    entries.forEach((rawEntry) => {
+      const entry = this.normalizePortEntry(rawEntry);
+      if (entry.source === "docker" && entry.container_id) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      const logicalKey = this._getProcessLogicalKey(entry);
+      if (!logicalKey) {
+        passthroughEntries.push(entry);
+        return;
+      }
+      processEntries.set(
+        logicalKey,
+        this._selectPreferredDockerPortEntry(processEntries.get(logicalKey), entry)
+      );
+    });
+
+    return [...passthroughEntries, ...processEntries.values()];
+  }
+
   async initialize() {
     return await this.dockerApi.connect();
   }
@@ -266,8 +379,11 @@ class DockerCollector extends BaseCollector {
           this.logWarn("Failed to collect and process system ports:", systemErr.message);
         }
 
-        this.logInfo(`Total unique ports collected: ${allPorts.length}`);
-        return allPorts;
+        const collapsedPorts = this._collapseDockerLogicalDuplicates(allPorts);
+        const deduplicatedPorts =
+          this._collapseProcessLogicalDuplicates(collapsedPorts);
+        this.logInfo(`Total unique ports collected: ${deduplicatedPorts.length}`);
+        return deduplicatedPorts;
       } catch (err) {
         this.logError("Critical error in getPorts:", err.message, err.stack);
         return [

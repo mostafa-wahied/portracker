@@ -109,7 +109,7 @@ export function ServiceCardTableRow({
         <td className="px-4 py-3">
           <div className="flex items-center space-x-1 flex-wrap gap-1">
             {publishedPorts.map((port) => (
-              <React.Fragment key={port.host_port}>
+              <React.Fragment key={generatePortKey(serverId, port)}>
                 <ClickablePortBadge
                   port={port}
                   serverId={serverId}
