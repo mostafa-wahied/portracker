@@ -246,10 +246,28 @@ function generateWebSocketURLs(uiConfig = null, options = {}) {
 
   const explicitBase = process.env.TRUENAS_WS_BASE;
   if (explicitBase) {
-    const wsBase = explicitBase.replace(/^http/, "ws");
-    urls.push(`${wsBase}/websocket`);
+    const normalizedBase = explicitBase.replace(/\/+$/, "");
+    let wsBase = normalizedBase.replace(/^http/i, "ws");
+    if (requireSecure && /^ws:\/\//i.test(wsBase)) {
+      wsBase = wsBase.replace(/^ws:\/\//i, "wss://");
+      if (appDebugEnabled) {
+        debugDiscovery(
+          `TRUENAS_WS_BASE uses insecure scheme; upgrading to secure WebSocket base: ${wsBase}`
+        );
+      }
+    }
+
+    const explicitWsUrl = `${wsBase}/websocket`;
+    if (!requireSecure || /^wss:\/\//i.test(explicitWsUrl)) {
+      urls.push(explicitWsUrl);
+    } else if (appDebugEnabled) {
+      debugDiscovery(
+        `Ignoring insecure explicit WebSocket URL in secure mode: ${explicitWsUrl}`
+      );
+    }
+
     if (appDebugEnabled) {
-      debugDiscovery(`Added explicit WebSocket URL: ${wsBase}/websocket`);
+      debugDiscovery(`Added explicit WebSocket URL: ${explicitWsUrl}`);
     }
     if (urls.length > 0) {
       return urls;
@@ -276,15 +294,6 @@ function generateWebSocketURLs(uiConfig = null, options = {}) {
           }
         }
       }
-      for (const host of hostAddresses) {
-        if (uiConfig.httpPort) {
-          const url = `ws://${host}:${uiConfig.httpPort}/websocket`;
-          urls.push(url);
-          if (appDebugEnabled) {
-            debugDiscovery(`Added discovered HTTP WebSocket (fallback): ${url}`);
-          }
-        }
-      }
     } else {
       for (const host of hostAddresses) {
         if (uiConfig.httpsEnabled && uiConfig.httpsPort) {
@@ -306,16 +315,23 @@ function generateWebSocketURLs(uiConfig = null, options = {}) {
     }
   }
 
-  if (!uiConfig) {
+  const shouldUseFallbackPorts =
+    !uiConfig || (requireSecure && urls.length === 0);
+
+  if (shouldUseFallbackPorts) {
     if (appDebugEnabled) {
-      debugDiscovery("No UI config discovered, using generic fallback ports");
+      if (!uiConfig) {
+        debugDiscovery("No UI config discovered, using generic fallback ports");
+      } else {
+        debugDiscovery(
+          "No secure WebSocket URL discovered from UI config, using secure fallback ports"
+        );
+      }
     }
     
     const commonPorts = requireSecure ? [
       { port: 443, protocol: "wss" },
       { port: 8443, protocol: "wss" },
-      { port: 80, protocol: "ws" },
-      { port: 8080, protocol: "ws" },
     ] : [
       { port: 443, protocol: "wss" },
       { port: 80, protocol: "ws" },

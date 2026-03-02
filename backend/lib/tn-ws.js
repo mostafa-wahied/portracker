@@ -96,6 +96,15 @@ async function connectWs(options = {}) {
 
     isConnecting = true;
     const currentUrl = urls[i++];
+    if (currentUrl.startsWith("ws://")) {
+      if (appDebugEnabled) {
+        debugWS(
+          `Skipping insecure WebSocket URL for API-key authentication: ${currentUrl}`
+        );
+      }
+      return next(resolve, reject);
+    }
+
     if (appDebugEnabled) {
       debugWS(`Attempting connection to ${currentUrl}`);
     }

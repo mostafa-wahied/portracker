@@ -2,6 +2,13 @@
 
 All notable changes to portracker will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **TrueNAS API Key Transport Security**: Enforced secure WebSocket usage for TrueNAS API key authentication by restricting secure mode to `wss://` endpoints and skipping insecure `ws://` endpoints.
+- **TrueNAS WebSocket Base Handling**: In secure mode, `TRUENAS_WS_BASE` now upgrades insecure `ws://` values to `wss://` and ignores insecure explicit URLs.
+
 ## [1.3.4] - 2026-02-05
 
 ### Fixed
