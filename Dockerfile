@@ -26,7 +26,6 @@ RUN apt-get clean && \
     python3 \
     make \
     g++ \
-    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
@@ -52,7 +51,6 @@ RUN apt-get clean && \
     docker.io \
     netcat-openbsd \
     wget \
-    sqlite3 \
     procps \
     util-linux \
     && rm -rf /var/lib/apt/lists/*

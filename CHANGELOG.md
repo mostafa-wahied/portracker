@@ -4,6 +4,12 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-03-02
+
+### Security
+
+- **Remove Vulnerable SQLite System Packages**: Removed unused `libsqlite3-dev` and `sqlite3` system packages from Docker image to address CVE-2025-7458. portracker uses `better-sqlite3` which bundles its own SQLite 3.49.2 (not affected) and never used the system libraries.
+
 ### Fixed
 
 - **TrueNAS API Key Transport Security**: Enforced secure WebSocket usage for TrueNAS API key authentication by restricting secure mode to `wss://` endpoints and skipping insecure `ws://` endpoints.
@@ -45,7 +51,7 @@ All notable changes to portracker will be documented in this file.
 
 ### Security
 
-- **API Key Authentication**: Secure peer-to-peer communication between Portracker instances
+- **API Key Authentication**: Secure peer-to-peer communication between portracker instances
   - **[sub]** Generate unique API keys for external access from Settings
   - **[sub]** Backward compatible - only required when remote server has authentication enabled
 
