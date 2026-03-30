@@ -158,6 +158,19 @@ class DockerAPIClient {
     });
   }
 
+  async listServices(options = {}) {
+    await this._ensureConnected();
+    const key = `services:${JSON.stringify(options.filters || {})}`;
+    return await this.cache.getOrSet(key, this.ttl.containers, async () => {
+      try {
+        return await this.docker.listServices(options);
+      } catch (error) {
+        this.logger.error('listServices failed:', error.message);
+        throw error;
+      }
+    });
+  }
+
   async inspectContainer(containerId, options = {}) {
     await this._ensureConnected();
     const useSize = options.size === true;

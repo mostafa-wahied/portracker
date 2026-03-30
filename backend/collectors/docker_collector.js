@@ -295,6 +295,16 @@ class DockerCollector extends BaseCollector {
             }
           });
 
+          const swarmPorts = await this._getSwarmServicePorts();
+          swarmPorts.forEach((port) => {
+            const normalizedIp = this._normalizeHostIp(port.host_ip);
+            const key = `${normalizedIp}:${port.host_port}:${port.protocol}`;
+            if (!dockerPortsMap.has(key)) {
+              dockerPortsMap.set(key, port);
+              allPorts.push(port);
+            }
+          });
+
           const allRunningContainers = await this._getHostNetworkContainers();
           allRunningContainers.forEach((container) => {
             if (container.pids && container.pids.length > 0) {
@@ -410,9 +420,23 @@ class DockerCollector extends BaseCollector {
       for (const container of containers) {
         const containerName = container.Names;
         const containerId = container.ID;
-        const composeProject = container.Labels?.['com.docker.compose.project'] || null;
-        const composeService = container.Labels?.['com.docker.compose.service'] || null;
-        
+
+        const swarmServiceName = container.Labels?.['com.docker.swarm.service.name'] || null;
+        const stackNamespace = container.Labels?.['com.docker.stack.namespace'] || null;
+
+        const composeProject = container.Labels?.['com.docker.compose.project'] || stackNamespace || null;
+
+        let composeService = container.Labels?.['com.docker.compose.service'] || null;
+        if (!composeService && swarmServiceName) {
+          composeService = (stackNamespace && swarmServiceName.startsWith(stackNamespace + '_'))
+            ? swarmServiceName.slice(stackNamespace.length + 1)
+            : swarmServiceName;
+        }
+
+        // For swarm task containers, use the service name as the owner so host-mode
+        // published ports are attributed and grouped consistently with ingress services.
+        const effectiveOwner = swarmServiceName || containerName;
+
         if (!container.Ports || container.Ports.length === 0) {
           continue;
         }
@@ -420,9 +444,9 @@ class DockerCollector extends BaseCollector {
         const rawPorts = await this.dockerApi.docker.getContainer(container.ID).inspect();
         const portBindings = rawPorts.NetworkSettings.Ports || {};
 
-  for (const [containerPort, hostBindings] of Object.entries(portBindings)) {
+        for (const [containerPort, hostBindings] of Object.entries(portBindings)) {
           if (!hostBindings) continue;
-          
+
           const [port, protocol] = containerPort.split('/');
           const targetPort = parseInt(port, 10);
 
@@ -435,13 +459,13 @@ class DockerCollector extends BaseCollector {
             portEntries.push(
               this.normalizePortEntry({
                 source: "docker",
-                owner: containerName,
+                owner: effectiveOwner,
                 protocol: protocol,
                 host_ip: hostIp,
                 host_port: hostPort,
                 target: `${containerId}:${targetPort}`,
                 container_id: containerId,
-                app_id: containerName,
+                app_id: effectiveOwner,
                 compose_project: composeProject,
                 compose_service: composeService,
                 pids: [],
@@ -454,6 +478,64 @@ class DockerCollector extends BaseCollector {
       return portEntries;
     } catch (err) {
       this.logWarn("Failed to get Docker container ports:", err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get Docker Swarm service ports (ingress and host publish modes).
+   * These ports are managed at the service layer and do not appear in
+   * container-level port bindings, so they require separate discovery.
+   * @returns {Promise<Array>} Swarm service port entries
+   * @private
+   */
+  async _getSwarmServicePorts() {
+    try {
+      const systemInfo = await this.dockerApi.getSystemInfo();
+      if (systemInfo?.Swarm?.LocalNodeState !== 'active') {
+        return [];
+      }
+
+      const services = await this.dockerApi.listServices();
+      const portEntries = [];
+
+      for (const service of services) {
+        const serviceId = service.ID;
+        const serviceName = service.Spec?.Name || serviceId;
+        const labels = service.Spec?.Labels || {};
+        const stackNamespace = labels['com.docker.stack.namespace'] || null;
+
+        let composeService = serviceName;
+        if (stackNamespace && serviceName.startsWith(stackNamespace + '_')) {
+          composeService = serviceName.slice(stackNamespace.length + 1);
+        }
+
+        const ports = service.Endpoint?.Ports || [];
+        for (const port of ports) {
+          if (!port.PublishedPort) continue;
+
+          portEntries.push(
+            this.normalizePortEntry({
+              source: 'docker',
+              owner: serviceName,
+              protocol: (port.Protocol || 'tcp').toLowerCase(),
+              host_ip: '0.0.0.0',
+              host_port: port.PublishedPort,
+              target: `${serviceId.substring(0, 12)}:${port.TargetPort}`,
+              container_id: null,
+              app_id: serviceName,
+              compose_project: stackNamespace,
+              compose_service: composeService,
+              pids: [],
+            })
+          );
+        }
+      }
+
+      this.logInfo(`Collected ${portEntries.length} Swarm service ports`);
+      return portEntries;
+    } catch (err) {
+      this.logWarn('Failed to get Swarm service ports:', err.message);
       return [];
     }
   }
