@@ -21,10 +21,7 @@
     "@radix-ui/react-dropdown-menu": "^2.1.15",
     "better-sqlite3": "^11.10.0",
     "dockerode": "^4.0.7",
-    "jq": "^1.7.2",
-    "node-fetch": "^2.7.0",
-    "react-router-dom": "^7.6.2",
-    "sqlite3": "^5.1.7"
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
