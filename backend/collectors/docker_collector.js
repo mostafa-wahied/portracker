@@ -687,9 +687,11 @@ class DockerCollector extends BaseCollector {
         const imageLower = image.toLowerCase();
         const processLower = processName.toLowerCase();
 
+        // Match portracker's own node process to the portracker container only when the
+        // image itself is a portracker image — not merely because a stack is named
+        // "portracker-*", which would wrongly match unrelated containers.
         if (
-          (nameLower.includes("portracker") ||
-            imageLower.includes("portracker")) &&
+          imageLower.includes("portracker") &&
           (processLower.includes("node") || processLower.includes("portracker"))
         ) {
           return {
