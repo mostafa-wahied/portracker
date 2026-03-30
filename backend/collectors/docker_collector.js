@@ -885,7 +885,7 @@ class DockerCollector extends BaseCollector {
                 }
                 
                 this.logInfo(`Fallback /proc method: ${allPorts.length} ports found (TCP: ${tcpPorts.length}, UDP: ${udpPorts.length})`);
-                return allPorts.map(port => this.normalizePortEntry(port));
+                return allPorts.map(port => this.normalizePortEntry({ source: port.source || 'system', ...port }));
               }
             }
           } catch (procErr) {
