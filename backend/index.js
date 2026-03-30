@@ -2717,7 +2717,11 @@ app.get("*", (req, res, _next) => {
   logger.debug(`Serving frontend for path: ${req.path}`);
   res.sendFile(indexPath, (err) => {
     if (err) {
-      logger.error(`Failed to send ${indexPath} for ${req.path}: ${err.message}`);
+      if (err.code === 'ENOENT') {
+        logger.debug(`Frontend not built yet (${indexPath} not found) for ${req.path}`);
+      } else {
+        logger.error(`Failed to send ${indexPath} for ${req.path}: ${err.message}`);
+      }
       if (!res.headersSent) {
         res.status(404).json({
           error: "Frontend entry point not found",
