@@ -699,8 +699,21 @@ class TrueNASCollector extends BaseCollector {
       for (const container of containers) {
         const containerName = this._formatContainerNames(container.Names);
         const containerId = container.ID;
-        const composeProject = container.Labels?.['com.docker.compose.project'] || null;
-        const composeService = container.Labels?.['com.docker.compose.service'] || null;
+        const swarmServiceName = container.Labels?.['com.docker.swarm.service.name'] || null;
+        const stackNamespace = container.Labels?.['com.docker.stack.namespace'] || null;
+
+        const composeProject = container.Labels?.['com.docker.compose.project'] || stackNamespace || null;
+
+        let composeService = container.Labels?.['com.docker.compose.service'] || null;
+        if (!composeService && swarmServiceName) {
+          composeService = (stackNamespace && swarmServiceName.startsWith(stackNamespace + '_'))
+            ? swarmServiceName.slice(stackNamespace.length + 1)
+            : swarmServiceName;
+        }
+
+        // For swarm task containers, use the service name as the owner so host-mode
+        // published ports are attributed and grouped consistently with ingress services.
+        const effectiveOwner = swarmServiceName || containerName;
 
         const rawPorts = await this.dockerApi.docker.getContainer(container.ID).inspect();
         const portBindings = rawPorts.NetworkSettings.Ports || {};
@@ -708,9 +721,9 @@ class TrueNASCollector extends BaseCollector {
         if (container.Ports && container.Ports.length > 0) {
           for (const [containerPort, hostBindings] of Object.entries(portBindings)) {
             if (!hostBindings) continue;
-          
+
           const [port, protocol] = containerPort.split('/');
-          
+
           for (const hostBinding of hostBindings) {
             const hostIP = this._resolveHostIP(hostBinding.HostIp || '0.0.0.0');
             const hostPort = hostBinding.HostPort;
@@ -724,14 +737,14 @@ class TrueNASCollector extends BaseCollector {
 
             ports.push({
               source: "docker",
-              owner: containerName,
+              owner: effectiveOwner,
               protocol: protocol || "tcp",
               host_ip: hostIP,
               host_port: parseInt(hostPort, 10),
               target: port,
               container_id: containerId,
               vm_id: null,
-              app_id: containerId,
+              app_id: effectiveOwner,
               compose_project: composeProject,
               compose_service: composeService,
             });
@@ -751,14 +764,14 @@ class TrueNASCollector extends BaseCollector {
           if (!isNaN(portNum) && !isPublished) {
             ports.push({
               source: "docker",
-              owner: containerName,
+              owner: effectiveOwner,
               protocol: protocol || "tcp",
               host_ip: "0.0.0.0",
               host_port: portNum,
               target: `${containerId.substring(0, 12)}:${portNum}(internal)`,
               container_id: containerId,
               vm_id: null,
-              app_id: containerId,
+              app_id: effectiveOwner,
               internal: true,
               compose_project: composeProject,
               compose_service: composeService,
@@ -774,6 +787,62 @@ class TrueNASCollector extends BaseCollector {
         err.message,
         err.stack
       );
+      return [];
+    }
+  }
+
+  /**
+   * Get Docker Swarm service ports (ingress and host publish modes).
+   * These ports are managed at the service layer and do not appear in
+   * container-level port bindings, so they require separate discovery.
+   * @returns {Promise<Array>} Swarm service port entries
+   * @private
+   */
+  async _getSwarmServicePorts() {
+    try {
+      const systemInfo = await this.dockerApi.getSystemInfo();
+      if (systemInfo?.Swarm?.LocalNodeState !== 'active') {
+        return [];
+      }
+
+      const services = await this.dockerApi.listServices();
+      const portEntries = [];
+
+      for (const service of services) {
+        const serviceId = service.ID;
+        const serviceName = service.Spec?.Name || serviceId;
+        const labels = service.Spec?.Labels || {};
+        const stackNamespace = labels['com.docker.stack.namespace'] || null;
+
+        let composeService = serviceName;
+        if (stackNamespace && serviceName.startsWith(stackNamespace + '_')) {
+          composeService = serviceName.slice(stackNamespace.length + 1);
+        }
+
+        const ports = service.Endpoint?.Ports || [];
+        for (const port of ports) {
+          if (!port.PublishedPort) continue;
+
+          portEntries.push({
+            source: 'docker',
+            owner: serviceName,
+            protocol: (port.Protocol || 'tcp').toLowerCase(),
+            host_ip: '0.0.0.0',
+            host_port: port.PublishedPort,
+            target: `${serviceId.substring(0, 12)}:${port.TargetPort}`,
+            container_id: null,
+            app_id: serviceName,
+            compose_project: stackNamespace,
+            compose_service: composeService,
+            pids: [],
+          });
+        }
+      }
+
+      this.logInfo(`Collected ${portEntries.length} Swarm service ports`);
+      return portEntries;
+    } catch (err) {
+      this.logWarn('Failed to get Swarm service ports:', err.message);
       return [];
     }
   }
@@ -1245,6 +1314,25 @@ class TrueNASCollector extends BaseCollector {
       try {
         perf.start("docker-ports-collection");
         const dockerPorts = await this._getDockerPorts();
+
+        // Merge Swarm service ports (ingress + host-mode published at service layer)
+        const swarmPorts = await this._getSwarmServicePorts();
+        const dockerPortsMap = new Map();
+        dockerPorts.forEach(p => {
+          const ip = this._resolveHostIP(p.host_ip);
+          const key = p.internal
+            ? `${p.container_id}:${p.host_port}:internal`
+            : `${ip}:${p.host_port}`;
+          dockerPortsMap.set(key, p);
+        });
+        swarmPorts.forEach(p => {
+          const ip = this._resolveHostIP(p.host_ip);
+          const key = `${ip}:${p.host_port}`;
+          if (!dockerPortsMap.has(key)) {
+            dockerPortsMap.set(key, p);
+            dockerPorts.push(p);
+          }
+        });
         perf.end("docker-ports-collection");
 
         const portsByContainer = new Map();
