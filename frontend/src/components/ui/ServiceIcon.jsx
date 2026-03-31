@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, useRef, useCallback } from 'react';
+import { useState, useEffect, memo, useRef, useCallback, useMemo } from 'react';
 import { Box, Server, Cpu } from 'lucide-react';
 import { getIconUrls } from '@/lib/service-icons';
 
@@ -24,7 +24,13 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
     return () => observer.disconnect();
   }, []);
   
-  const urls = getIconUrls(name, isDark);
+  const urls = useMemo(() => {
+    const serviceUrls = getIconUrls(name, isDark);
+    if (source === 'docker' && name?.toLowerCase() !== 'docker') {
+      return [...serviceUrls, ...getIconUrls('docker', isDark)];
+    }
+    return serviceUrls;
+  }, [name, isDark, source]);
   const currentUrl = urls[urlIndex];
   const iconUrl = currentUrl?.url;
   const isThemeVariant = currentUrl?.isThemeVariant;
