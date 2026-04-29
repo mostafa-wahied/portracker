@@ -47,10 +47,16 @@ export function AppHeader({
   onOpenApiKey,
   refreshInterval = 30000,
   autoxposeStatus = null,
+  searchInputRef,
 }) {
   const auth = useAuth();
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
   const [searching, setSearching] = useState(false);
+  const isMac = useMemo(
+    () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform),
+    []
+  );
+  const searchShortcutLabel = isMac ? "⌘K" : "Ctrl+K";
 
   const filterButtons = useMemo(
     () => [
@@ -118,7 +124,7 @@ export function AppHeader({
   const getInputPadding = () => {
     const hasClear = !!localSearchTerm;
     if (hasClear) return "pr-12";
-    return "pr-10";
+    return "pr-24 sm:pr-28";
   };
 
   const logoLongPressHandlers = useLongPress(
@@ -164,6 +170,7 @@ export function AppHeader({
               {searchIcon}
             </div>
             <Input
+              ref={searchInputRef}
               type="text"
               placeholder="Search ports, processes..."
               className={`pl-10 ${getInputPadding()} w-full max-w-[36rem] sm:max-w-[28rem] md:max-w-[32rem] lg:max-w-[40rem] border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}
@@ -172,6 +179,16 @@ export function AppHeader({
             />
 
             <div className="absolute inset-y-0 right-0 flex items-center pr-3 space-x-2">
+              {!localSearchTerm && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                      {searchShortcutLabel}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Focus search • {isMac ? "Cmd+K" : "Ctrl+K"}</TooltipContent>
+                </Tooltip>
+              )}
               {localSearchTerm && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -185,7 +202,7 @@ export function AppHeader({
                       <X className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Clear search</TooltipContent>
+                  <TooltipContent>Clear search • Esc</TooltipContent>
                 </Tooltip>
               )}
             </div>
@@ -276,7 +293,7 @@ export function AppHeader({
                 {refreshIcon}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{loading ? "Refreshing..." : "Refresh all data"}</TooltipContent>
+            <TooltipContent>{loading ? "Refreshing..." : `Refresh all data • ${isMac ? "Cmd+R" : "Ctrl+R"}`}</TooltipContent>
           </Tooltip>
 
           {onAutoRefreshToggle && (
@@ -316,7 +333,7 @@ export function AppHeader({
                 >
                   <Sparkles className="h-5 w-5" />
                   {hasNewFeatures && (
-                    <span className="absolute " />
+                    <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-indigo-500 ring-2 ring-white dark:ring-slate-900" />
                   )}
                 </Button>
               </TooltipTrigger>

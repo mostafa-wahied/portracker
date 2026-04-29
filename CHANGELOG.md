@@ -4,6 +4,13 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **[Sidebar Controls]**: Desktop sidebar can now be resized, collapsed to a cleaner icon rail, and rediscovered with a one-time coachmark that points out the new controls.
+- **[Keyboard Shortcuts]**: `Cmd/Ctrl+K` focuses search, `Escape` clears and blurs, `Cmd/Ctrl+B` toggles the sidebar, `Cmd/Ctrl+R` refreshes, and `1`–`9` quick-switch between servers.
+- **[Server Health Indicator]**: Server cards in the sidebar now show a colored dot (green = online, red = unreachable, blue pulse = updating).
+- **[Last Refreshed Timestamp]**: Each server card displays a live-updating "Updated Xm ago" label showing when data was last fetched.
+
 ## [1.3.7] - 2026-04-02
 
 ### Fixed

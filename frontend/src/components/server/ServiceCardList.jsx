@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -91,11 +91,7 @@ export function ServiceCardList({
           )}
 
           <div className="flex items-center">
-            {isExpanded ? (
-              <ChevronDown className="h-5 w-5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-5 w-5 text-slate-400" />
-            )}
+            <ChevronRight className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} />
           </div>
 
           {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} />}
@@ -171,7 +167,7 @@ export function ServiceCardList({
       </div>
 
       {isExpanded && (
-        <div className="border-t border-slate-200 dark:border-slate-700">
+        <div className="border-t border-slate-200 dark:border-slate-700 animate-in fade-in-0 slide-in-from-top-1 duration-200">
           {(() => {
             const containerGroups = new Map();
             ports.forEach((port) => {
