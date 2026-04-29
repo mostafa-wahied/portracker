@@ -34,25 +34,7 @@ export function useWhatsNew() {
 
   const handleShow = useCallback(() => {
     setIsModalOpen(true);
-    
-    const hasExistingData = newVersions.length > 0 && whatsNewData[newVersions[0]];
-    
-    if (!hasExistingData && currentVersion) {
-      const testChanges = {
-        frontend: [
-          { title: 'Container Details Drawer', description: 'New slide-out panel to show detailed information for Docker containers including stats, labels, mounts, and environment variables' },
-          { title: 'Internal Port Display', description: 'UI now correctly shows and differentiates internal-only ports from published ports with health status monitoring' },
-          { title: 'Global Search', description: 'Search bar now includes an option to search across all servers simultaneously' },
-          { title: "What's New Modal", description: 'Automatic notification system to stay updated with new features when opening new versions' }
-        ],
-        backend: [
-          { title: 'Collector Caching', description: 'Added caching mechanism to all data collectors to reduce duplicate requests and improve data refresh speed' }
-        ]
-      };
-      setWhatsNewData(prev => ({ ...prev, [currentVersion]: testChanges }));
-      setNewVersions([currentVersion]);
-    }
-  }, [whatsNewData, newVersions, currentVersion]);
+  }, []);
 
   const handleDismiss = useCallback(() => {
     try {
@@ -137,7 +119,9 @@ export function useWhatsNew() {
               isDismissed
             });
             
-            if (!isDismissed) {
+            const shouldAutoOpen = !isDismissed && !!lastSeenVersion;
+
+            if (shouldAutoOpen) {
               logger.debug('Opening What\'s New modal');
               setTimeout(() => {
                 setIsModalOpen(true);

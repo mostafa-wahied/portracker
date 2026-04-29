@@ -330,10 +330,10 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                What's New in portracker {version}
+                What&apos;s New in portracker {version}
               </DialogTitle>
               <DialogDescription className="text-slate-600 dark:text-slate-400 mt-1">
-                Discover the latest features and improvements
+                A quick look at the changes you&apos;ll actually notice.
               </DialogDescription>
             </div>
           </div>
@@ -362,14 +362,14 @@ export function WhatsNewModal({ isOpen, onClose, onDismiss, version, changes, gr
             }}
             className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           >
-            Don't show again
+            Don&apos;t auto-open again
           </Button>
           
           <Button
             onClick={onClose}
             className="min-w-[120px] bg-indigo-600 hover:bg-indigo-700 text-white dark:bg-indigo-500 dark:hover:bg-indigo-600 transition-colors duration-200"
           >
-            Get Started
+            Back to dashboard
           </Button>
         </div>
       </DialogContent>
