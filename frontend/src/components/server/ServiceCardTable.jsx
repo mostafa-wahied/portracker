@@ -100,7 +100,7 @@ export function ServiceCardTableRow({
               }`} 
             />
             {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={20} className="flex-shrink-0" />}
-            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
+            <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} hostOverride={hostOverride} serviceName={serviceName} isDocker={isDocker} />
             <span className="font-medium text-sm text-slate-900 dark:text-slate-100">
               {serviceName}
             </span>

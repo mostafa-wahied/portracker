@@ -53,12 +53,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { collectKnownComposeProjects, inferComposeProjectFor } from "./compose-attribution";
 
-/**
- * Renders a comprehensive server overview section, including system information, virtual machines, and port management with sorting, filtering, and multiple layout options.
- *
- * Displays server status, host details, and provides interactive controls for sorting and viewing ports in list, grid, card, or table formats. Allows toggling between expanded and collapsed views, managing hidden ports, and switching layouts for system info and VMs. Handles user actions such as copying, editing notes, and toggling port visibility.
- */
 function ServerSectionComponent({
   server,
   ok,
@@ -228,15 +224,18 @@ function ServerSectionComponent({
     if (groupingMode !== "services") return [];
     
     const serviceMap = new Map();
+    const knownComposeProjects = collectKnownComposeProjects(sortedPorts);
+    const inferComposeProject = (port) => inferComposeProjectFor(port, knownComposeProjects);
     
     sortedPorts.forEach((port) => {
       let serviceKey;
       let serviceName;
       
       if (port.source === "docker") {
-        if (port.compose_project) {
-          serviceKey = `docker:${port.compose_project}`;
-          serviceName = port.compose_project;
+        const composeProject = inferComposeProject(port);
+        if (composeProject) {
+          serviceKey = `docker:${composeProject}`;
+          serviceName = composeProject;
         } else {
           serviceKey = `docker:${port.container_id || port.owner}`;
           serviceName = port.customServiceName || port.owner || "Unknown Container";
@@ -989,9 +988,7 @@ function ServerSectionComponent({
             <>
             {portLayout === "list" && (
               <>
-                {/**
-                 * Select all header for non-table views
-                 */}
+                {}
                 {selectionMode && (
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center space-x-3">
@@ -1066,9 +1063,7 @@ function ServerSectionComponent({
 
             {portLayout === "grid" && (
               <>
-                {/**
-                 * Select all header for grid view
-                 */}
+                {}
                 {selectionMode && (
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 mb-4">
                     <div className="flex items-center space-x-3">

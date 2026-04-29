@@ -72,7 +72,9 @@ function PortCardComponent({
   const shouldHighlight = !!searchTerm;
 
   let hostForUi;
-  if (port.host_ip === "0.0.0.0" || port.host_ip === "127.0.0.1") {
+  if (port.host_ip === "127.0.0.1") {
+    hostForUi = "127.0.0.1";
+  } else if (port.host_ip === "0.0.0.0") {
     if (serverId === "local") {
       hostForUi = hostOverride || window.location.hostname;
     } else if (serverUrl) {
@@ -92,6 +94,7 @@ function PortCardComponent({
   return (
     <li
       tabIndex="0"
+      data-port-row={String(port.host_port)}
       className={`flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group focus:outline-none focus:bg-slate-50 dark:focus:bg-slate-800/50 ${
         isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : ''
       }`}

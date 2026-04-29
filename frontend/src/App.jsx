@@ -39,11 +39,12 @@ import { generatePortKey } from "./lib/utils/portUtils";
 import { formatUptime } from "@/lib/utils";
 import { useAuth } from "./contexts/AuthContext";
 import { buildAutoRefreshMessages } from "@/lib/autoRefreshMessages";
+import { ServiceHealthProvider } from "@/hooks/useServiceHealth";
+import { OverridesProvider } from "@/hooks/useOverrides";
 
 const keyOf = (srvId, p) => generatePortKey(srvId, p);
 
 const logger = new Logger('App');
-
 
 export default function App() {
   const auth = useAuth();
@@ -110,7 +111,6 @@ export default function App() {
   }, []);
 
   const { hackerMode, konamiHint, disableHackerMode } = useKonamiHackerMode({ pushHealthToast });
-
 
   const [actionFeedback, setActionFeedback] = useState({
     copy: null,
@@ -666,6 +666,17 @@ export default function App() {
     []
   );
 
+  const whatsNewModalProps = getWhatsNewModalProps();
+
+  const sidebarLayout = useSidebarLayout({
+    pushHealthToast,
+    isWhatsNewOpen: whatsNewModalProps.isOpen,
+    loading,
+    groupCount: groups.length,
+    logger,
+  });
+  const { stampRefreshed, onOpenAddServer: handleOpenAddServer } = sidebarLayout;
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -930,17 +941,6 @@ export default function App() {
   }, [selectedServer, deepLinkContainer]);
 
   const searchInputRef = useRef(null);
-
-  const whatsNewModalProps = getWhatsNewModalProps();
-
-  const sidebarLayout = useSidebarLayout({
-    pushHealthToast,
-    isWhatsNewOpen: whatsNewModalProps.isOpen,
-    loading,
-    groupCount: groups.length,
-    logger,
-  });
-  const { stampRefreshed, onOpenAddServer: handleOpenAddServer } = sidebarLayout;
 
   useKeyboardShortcuts({
     onFocusSearch: () => searchInputRef.current?.focus(),
@@ -1606,7 +1606,7 @@ export default function App() {
               type: serverData.type || "peer",
               unreachable: serverData.unreachable || false,
               platform_type: serverData.platform_type || "unknown",
-              apiKey: serverData.apiKey || null,  // Always include for new servers
+              apiKey: serverData.apiKey || null,
             }),
           });
 
@@ -1873,20 +1873,17 @@ export default function App() {
         onRename={openRenameModal}
         onCopy={(p, portProtocol) => {
           let hostForCopy;
-          if (server.id === "local" &&
-              (p.host_ip === "0.0.0.0" ||
-               p.host_ip === "127.0.0.1" ||
-               p.host_ip === "[::]" ||
-               p.host_ip === "[::1]")) {
+          if (p.host_ip === "127.0.0.1" || p.host_ip === "[::1]") {
+            hostForCopy = p.host_ip === "[::1]" ? "[::1]" : "127.0.0.1";
+          }
+          else if (server.id === "local" &&
+              (p.host_ip === "0.0.0.0" || p.host_ip === "[::]")) {
             hostForCopy = hostOverride || window.location.hostname;
           }
           else if (
             server.id !== "local" &&
             server.url &&
-            (p.host_ip === "0.0.0.0" ||
-             p.host_ip === "127.0.0.1" ||
-             p.host_ip === "[::]" ||
-             p.host_ip === "[::1]")
+            (p.host_ip === "0.0.0.0" || p.host_ip === "[::]")
           ) {
             try {
               hostForCopy = new URL(server.url).hostname;
@@ -1985,6 +1982,8 @@ export default function App() {
 
   return (
     <TooltipProvider>
+      <OverridesProvider>
+      <ServiceHealthProvider>
       {konamiHint && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg border backdrop-blur-sm pointer-events-none animate-in fade-in-0 slide-in-from-top-2 duration-200 bg-white/95 dark:bg-slate-800/95 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100">
           <div className="flex items-center gap-2">
@@ -2272,6 +2271,8 @@ export default function App() {
         })()}
         loading={false}
       />
+      </ServiceHealthProvider>
+      </OverridesProvider>
     </TooltipProvider>
   );
 
@@ -2307,6 +2308,4 @@ export default function App() {
     }
   }
 }
-
-
 

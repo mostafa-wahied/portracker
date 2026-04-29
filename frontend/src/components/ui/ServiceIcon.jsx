@@ -4,6 +4,45 @@ import { getIconUrls } from '@/lib/service-icons';
 
 const urlIndexCache = new Map();
 
+const RESOLVED_LS_KEY = 'portracker.iconResolved.v1';
+const RESOLVED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readResolvedCache() {
+  try {
+    const raw = localStorage.getItem(RESOLVED_LS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeResolvedCache(map) {
+  try {
+    localStorage.setItem(RESOLVED_LS_KEY, JSON.stringify(map));
+  } catch {
+  }
+}
+
+function getResolved(key) {
+  const map = readResolvedCache();
+  const entry = map[key];
+  if (!entry) return undefined;
+  if (typeof entry.t !== 'number' || Date.now() - entry.t > RESOLVED_TTL_MS) {
+    delete map[key];
+    writeResolvedCache(map);
+    return undefined;
+  }
+  return entry;
+}
+
+function setResolved(key, payload) {
+  const map = readResolvedCache();
+  map[key] = { ...payload, t: Date.now() };
+  writeResolvedCache(map);
+}
+
 function getCacheKey(name, isDark) {
   return `${name?.toLowerCase() || ''}:${isDark ? 'dark' : 'light'}`;
 }
@@ -13,8 +52,21 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
   const [needsInvert, setNeedsInvert] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const cacheKey = getCacheKey(name, isDark);
-  const [urlIndex, setUrlIndex] = useState(() => urlIndexCache.get(cacheKey) ?? 0);
+
+  const persistedRef = useRef(null);
+  if (persistedRef.current === null) {
+    persistedRef.current = getResolved(cacheKey) || false;
+  }
+  const persisted = persistedRef.current;
+
+  const initialIndex = (() => {
+    if (persisted && persisted.url === null) return -1;
+    return urlIndexCache.get(cacheKey) ?? 0;
+  })();
+
+  const [urlIndex, setUrlIndex] = useState(initialIndex);
   const imgRef = useRef(null);
+
   
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -25,19 +77,28 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
   }, []);
   
   const urls = useMemo(() => {
+    if (persisted && persisted.url) {
+      return [{ url: persisted.url, isThemeVariant: !!persisted.themeVariant }];
+    }
     const serviceUrls = getIconUrls(name, isDark);
     if (source === 'docker' && name?.toLowerCase() !== 'docker') {
       return [...serviceUrls, ...getIconUrls('docker', isDark)];
     }
     return serviceUrls;
-  }, [name, isDark, source]);
+  }, [name, isDark, source, persisted]);
   const currentUrl = urls[urlIndex];
   const iconUrl = currentUrl?.url;
   const isThemeVariant = currentUrl?.isThemeVariant;
   
   useEffect(() => {
     const newCacheKey = getCacheKey(name, isDark);
-    setUrlIndex(urlIndexCache.get(newCacheKey) ?? 0);
+    const fresh = getResolved(newCacheKey);
+    persistedRef.current = fresh || false;
+    if (fresh && fresh.url === null) {
+      setUrlIndex(-1);
+    } else {
+      setUrlIndex(urlIndexCache.get(newCacheKey) ?? 0);
+    }
     setNeedsInvert(false);
     setIsLoaded(false);
   }, [isDark, name]);
@@ -49,6 +110,7 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
       setNeedsInvert(false);
       setIsLoaded(true);
       urlIndexCache.set(cacheKey, urlIndex);
+      setResolved(cacheKey, { url: iconUrl, themeVariant: true, invert: false });
       return;
     }
     
@@ -78,6 +140,7 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
         }
         setNeedsInvert(true);
         setIsLoaded(true);
+        setResolved(cacheKey, { url: iconUrl, themeVariant: false, invert: true });
       } else if (!isDark && avgBrightness > 200) {
         const nextVariantIdx = urls.findIndex((u, i) => i > urlIndex && u.isThemeVariant);
         if (nextVariantIdx !== -1) {
@@ -86,16 +149,18 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
         }
         setNeedsInvert(true);
         setIsLoaded(true);
+        setResolved(cacheKey, { url: iconUrl, themeVariant: false, invert: true });
       } else {
         setNeedsInvert(false);
         setIsLoaded(true);
         urlIndexCache.set(cacheKey, urlIndex);
+        setResolved(cacheKey, { url: iconUrl, themeVariant: false, invert: false });
       }
     } catch {
       setNeedsInvert(false);
       setIsLoaded(true);
     }
-  }, [cacheKey, isDark, isThemeVariant, urlIndex, urls]);
+  }, [cacheKey, iconUrl, isDark, isThemeVariant, urlIndex, urls]);
   
   const FallbackIcon = source === 'docker' ? Box : source === 'system' ? Cpu : Server;
   const containerClasses = `inline-flex items-center justify-center relative ${className}`;
@@ -107,6 +172,7 @@ function ServiceIconComponent({ name, source = 'docker', className = '', size = 
       setNeedsInvert(false);
       setIsLoaded(false);
     } else {
+      setResolved(cacheKey, { url: null });
       setUrlIndex(-1);
     }
   };

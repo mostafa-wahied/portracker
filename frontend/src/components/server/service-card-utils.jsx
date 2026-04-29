@@ -8,7 +8,10 @@ import {
 } from "@/components/ui/tooltip";
 
 export function getHostForPort(port, serverId, serverUrl, hostOverride) {
-  if (port.host_ip === "0.0.0.0" || port.host_ip === "127.0.0.1") {
+  if (port.host_ip === "127.0.0.1") {
+    return "127.0.0.1";
+  }
+  if (port.host_ip === "0.0.0.0") {
     if (serverId === "local") {
       return hostOverride || window.location.hostname;
     } else if (serverUrl) {

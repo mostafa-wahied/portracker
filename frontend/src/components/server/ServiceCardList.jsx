@@ -71,8 +71,12 @@ export function ServiceCardList({
   };
 
   return (
-    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800/50">
+    <div
+      className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800/50"
+      data-service-name={serviceName}
+    >
       <div
+        data-service-card-header="true"
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
       >
@@ -96,7 +100,7 @@ export function ServiceCardList({
 
           {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} />}
 
-          <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} />
+          <AggregatedHealthDot ports={ports} serverId={serverId} serverUrl={serverUrl} hostOverride={hostOverride} serviceName={serviceName} isDocker={isDocker} />
 
           <div className="flex flex-col">
             <div className="flex items-center space-x-2">

@@ -42,11 +42,6 @@ const getDisplayServiceName = (port) => {
   return port.customServiceName || port.owner || "Unknown Service";
 };
 
-/**
- * Displays detailed information and interactive actions for a network port, with optional search term highlighting.
- *
- * Renders a styled UI card showing port status, clickable port number, internal port details, owner, notes, source, creation date, and host information. Provides actions for copying, editing notes, and toggling ignore state, with dynamic highlighting of search matches.
- */
 export function PortGridItem({
   port,
   serverId,
@@ -77,7 +72,9 @@ export function PortGridItem({
   const shouldHighlight = !!searchTerm;
 
   let hostForUi;
-  if (port.host_ip === "0.0.0.0" || port.host_ip === "127.0.0.1") {
+  if (port.host_ip === "127.0.0.1") {
+    hostForUi = "127.0.0.1";
+  } else if (port.host_ip === "0.0.0.0") {
     if (serverId === "local") {
       hostForUi = hostOverride || window.location.hostname;
     } else if (serverUrl) {

@@ -5,18 +5,103 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useServiceHealth } from "@/hooks/useServiceHealth";
+import { WhyThisStatusPopover } from "./WhyThisStatusPopover";
+
+const COLOR_CLASSES = {
+  green: "bg-green-500",
+  yellow: "bg-yellow-500",
+  red: "bg-red-500",
+  gray: "bg-gray-400",
+};
+
+function stopStatusEvent(event) {
+  event.stopPropagation();
+}
+
+function deriveStatusesFromComponents(components, ports) {
+  const out = {};
+  if (!Array.isArray(components) || !Array.isArray(ports)) return out;
+  const byContainer = new Map();
+  components.forEach((c) => {
+    if (c && c.containerId) byContainer.set(c.containerId, c);
+  });
+  const samePort = (a, b) => Number(a) === Number(b);
+  const matchesEntry = (entry, port) => {
+    if (!entry) return false;
+    if (!samePort(entry.host_port, port.host_port)) return false;
+    if (!entry.host_ip || !port.host_ip) return true;
+    return entry.host_ip === port.host_ip;
+  };
+  ports.forEach((port) => {
+    if (!port || port.host_ip == null || port.host_port == null) return;
+    const key = `${port.host_ip}:${port.host_port}`;
+    const comp = port.container_id ? byContainer.get(port.container_id) : null;
+    if (!comp) return;
+    const probe = comp.probe || {};
+    const evidence = probe.evidence || {};
+    const failures = Array.isArray(evidence.failures) ? evidence.failures : [];
+    const suppressed = Array.isArray(evidence.suppressed) ? evidence.suppressed : [];
+    const failure = failures.find((f) => matchesEntry(f, port));
+    if (failure) {
+      out[key] = { color: 'red', reason: failure.error || 'unreachable', isInternal: !!port.internal };
+      return;
+    }
+    const supp = suppressed.find((s) => matchesEntry(s, port));
+    if (supp) {
+      out[key] = { color: 'gray', suppressed: true, suppressedReason: supp.reason || 'unknown', isInternal: !!port.internal };
+      return;
+    }
+    out[key] = { color: probe.ok === true ? 'green' : 'red', isInternal: !!port.internal };
+  });
+  return out;
+}
+
+function shortStatusReason(reason, colorWord) {
+  if (!reason) return colorWord;
+
+  const legacyPartial = reason.match(/^HEALTHCHECK ok but (\d+) port\(s\) unreachable:/i);
+  if (legacyPartial) {
+    const count = Number(legacyPartial[1]);
+    return `Service is running, but ${count} published port${count === 1 ? "" : "s"} aren't responding`;
+  }
+
+  return reason
+    .replace(/\bdid not answer\b/gi, "aren't responding")
+    .replace(/\bHEALTHCHECK\b/g, "health check")
+    .replace(/\bcore component(s)?\b/gi, "main service$1")
+    .replace(/\bcore service\(s\)\b/gi, "main service(s)");
+}
 
 export function AggregatedHealthDot({
   ports,
   serverId,
   serverUrl,
+  hostOverride,
+  serviceName,
+  isDocker,
 }) {
   const [portStatuses, setPortStatuses] = useState({});
   const [checking, setChecking] = useState(true);
   const abortControllerRef = useRef(null);
+  const sh = useServiceHealth();
+  const isLocal = !serverId || serverId === "local";
+  const composeProject = (ports || []).find((p) => p && p.compose_project)?.compose_project || null;
+  const containerIds = Array.from(
+    new Set((ports || []).map((p) => p && p.container_id).filter(Boolean))
+  );
+  const anyContainerId = containerIds[0] || null;
+  const shLookup = sh.enabled && isLocal
+    ? sh.lookupCard({ isDocker, composeProject, serviceName, containerId: anyContainerId, containerIds })
+    : null;
+  const shHasVerdict = !!(shLookup && shLookup.color);
 
   useEffect(() => {
     if (!ports || ports.length === 0) {
+      setChecking(false);
+      return;
+    }
+    if (shHasVerdict) {
       setChecking(false);
       return;
     }
@@ -102,7 +187,7 @@ export function AggregatedHealthDot({
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [ports, serverId, serverUrl]);
+  }, [ports, serverId, serverUrl, shHasVerdict]);
 
   const getAggregatedState = () => {
     if (checking || Object.keys(portStatuses).length === 0) {
@@ -164,6 +249,87 @@ export function AggregatedHealthDot({
 
   const state = getAggregatedState();
 
+  const [explainerOpen, setExplainerOpen] = useState(false);
+
+  if (isLocal && sh.loading) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="relative flex-shrink-0">
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-[230px]">
+            <p className="font-medium text-xs">Checking service health...</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  if (shLookup && shLookup.color) {
+    const colorClass = COLOR_CLASSES[shLookup.color] || COLOR_CLASSES.gray;
+    const colorWord = {
+      green: "All reachable",
+      yellow: "Partially reachable",
+      red: "Main component unreachable",
+      gray: "Status unclear",
+    }[shLookup.color] || "Service health";
+    const title = shortStatusReason(shLookup.reason, colorWord);
+    return (
+      <>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExplainerOpen(true); }}
+                onMouseDown={stopStatusEvent}
+                onPointerDown={stopStatusEvent}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setExplainerOpen(true);
+                  }
+                }}
+                className="relative flex flex-shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+                aria-label={`Service status: ${title}. Open details.`}
+              >
+                <div className={`w-2 h-2 rounded-full ${colorClass}`} />
+                <span aria-hidden="true" className="absolute -inset-2" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              className="max-w-[230px]"
+              onClick={stopStatusEvent}
+              onMouseDown={stopStatusEvent}
+              onPointerDown={stopStatusEvent}
+            >
+              <p className="font-medium text-xs leading-snug">{title}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <WhyThisStatusPopover
+          open={explainerOpen}
+          onOpenChange={setExplainerOpen}
+          serviceName={serviceName || (shLookup.services[0] && shLookup.services[0].name) || "service"}
+          color={shLookup.color}
+          reason={shLookup.reason}
+          components={shLookup.components}
+          ports={ports}
+          portStatuses={deriveStatusesFromComponents(shLookup.components, ports)}
+          updatedAt={sh.updatedAt}
+          onRefresh={sh.refresh}
+          serverId={serverId}
+          serverUrl={serverUrl}
+          hostOverride={hostOverride}
+        />
+      </>
+    );
+  }
+
   return (
     <TooltipProvider>
       <Tooltip>
@@ -175,7 +341,12 @@ export function AggregatedHealthDot({
             )}
           </div>
         </TooltipTrigger>
-        <TooltipContent>
+        <TooltipContent
+          className="max-w-[230px]"
+          onClick={stopStatusEvent}
+          onMouseDown={stopStatusEvent}
+          onPointerDown={stopStatusEvent}
+        >
           <p className="font-medium text-xs">{state.title}</p>
           {state.hasNoWebUI && (
             <p className="text-xs text-slate-400">Some ports have no web UI</p>

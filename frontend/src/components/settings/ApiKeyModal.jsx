@@ -216,7 +216,7 @@ export function ApiKeyModal({ isOpen, onClose }) {
                 ) : (
                   <div className="space-y-3">
                     <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Generate an API key to allow other Portracker instances to scan this server.
+                      Generate an API key to allow other portracker instances to scan this server.
                     </p>
                     <Button onClick={generateKey} className="w-full" disabled={loading}>
                       {loading ? (

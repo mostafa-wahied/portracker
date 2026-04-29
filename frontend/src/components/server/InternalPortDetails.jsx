@@ -278,7 +278,7 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300 text-[10px] font-medium">
-                                no healthcheck
+                                no health check
                               </span>
                             )}
                           </div>
@@ -730,10 +730,6 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
   );
 }
 
-
-/**
- * Clock icon component
- */
 function ClockIcon(props) {
   return (
     <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>

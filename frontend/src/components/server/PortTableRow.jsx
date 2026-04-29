@@ -72,7 +72,9 @@ function PortTableRowComponent({
   const shouldHighlight = !!searchTerm;
 
   let hostForUi;
-  if (port.host_ip === "0.0.0.0" || port.host_ip === "127.0.0.1") {
+  if (port.host_ip === "127.0.0.1") {
+    hostForUi = "127.0.0.1";
+  } else if (port.host_ip === "0.0.0.0") {
     if (serverId === "local") {
       hostForUi = hostOverride || window.location.hostname;
     } else if (serverUrl) {

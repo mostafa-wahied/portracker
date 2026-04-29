@@ -5,6 +5,36 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useServiceHealth } from "@/hooks/useServiceHealth";
+
+const FEAT_COLOR_CLASSES = {
+  green: "bg-green-500",
+  yellow: "bg-yellow-500",
+  red: "bg-red-500",
+  gray: "bg-gray-400",
+};
+
+function samePort(a, b) {
+  return Number(a) === Number(b);
+}
+
+function failureForPort(port, failures) {
+  if (!Array.isArray(failures)) return null;
+  return failures.find((failure) => {
+    if (!samePort(failure.host_port, port.host_port)) return false;
+    if (!failure.host_ip || !port.host_ip) return true;
+    return failure.host_ip === port.host_ip;
+  }) || null;
+}
+
+function suppressedForPort(port, suppressed) {
+  if (!Array.isArray(suppressed)) return null;
+  return suppressed.find((entry) => {
+    if (!samePort(entry.host_port, port.host_port)) return false;
+    if (!entry.host_ip || !port.host_ip) return true;
+    return entry.host_ip === port.host_ip;
+  }) || null;
+}
 
 export function PortStatusIndicator({
   serverId,
@@ -12,10 +42,21 @@ export function PortStatusIndicator({
   port,
   onProtocolChange,
 }) {
+  const sh = useServiceHealth();
+  const isLocal = !serverId || serverId === "local";
+  const shHit = sh.enabled && isLocal && port.container_id
+    ? sh.lookupPort({ container_id: port.container_id })
+    : null;
+  const shHasVerdict = !!(shHit && shHit.component);
+
   const [statusData, setStatusData] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    if (shHasVerdict) {
+      setChecking(false);
+      return undefined;
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -76,7 +117,7 @@ export function PortStatusIndicator({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [port.host_ip, port.host_port, port.owner, port.internal, port.container_id, port.source, serverId, serverUrl, onProtocolChange]);
+  }, [shHasVerdict, port.host_ip, port.host_port, port.owner, port.internal, port.container_id, port.source, serverId, serverUrl, onProtocolChange]);
 
   const getDotState = () => {
     if (checking) {
@@ -112,10 +153,57 @@ export function PortStatusIndicator({
   const dotState = getDotState();
   const showNoWebUIIndicator = !checking && statusData?.color === 'green' && !dotState.hasWebUI;
 
+  if (shHasVerdict) {
+    const comp = shHit.component;
+    const probe = comp.probe || {};
+    const evidence = probe.evidence || {};
+    const failures = Array.isArray(evidence.failures) ? evidence.failures : [];
+    const suppressed = Array.isArray(evidence.suppressed) ? evidence.suppressed : [];
+    const failedHere = failureForPort(port, failures);
+    const suppressedHere = !failedHere ? suppressedForPort(port, suppressed) : null;
+    const ok = probe.ok === true;
+    let probeColor;
+    let summary;
+    let detail;
+    if (suppressedHere) {
+      probeColor = 'gray';
+      summary = 'host-only';
+      detail = 'Bound to 127.0.0.1, so it is reachable only from the machine running the container.';
+    } else if (failedHere) {
+      probeColor = 'red';
+      summary = 'Port unreachable';
+      detail = "This published port isn't responding. The container itself appears to be running normally.";
+    } else if (ok) {
+      probeColor = 'green';
+      summary = 'reachable';
+      detail = comp.reason;
+    } else {
+      probeColor = 'red';
+      summary = probe.error || 'unreachable';
+      detail = comp.reason;
+    }
+    const colorClass = FEAT_COLOR_CLASSES[probeColor];
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="relative">
+              <div className={`w-2.5 h-2.5 rounded-full ${colorClass}`} />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="font-medium">{summary}</p>
+            {detail && <p className="text-xs text-slate-400">{detail}</p>}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger>
+        <TooltipTrigger asChild>
           <div className="relative">
             <div className={`w-2.5 h-2.5 rounded-full ${dotState.color}`} />
             {showNoWebUIIndicator && (
