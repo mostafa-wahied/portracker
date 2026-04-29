@@ -219,7 +219,6 @@ class DockerCollector extends BaseCollector {
     }
   }
 
-
   /**
    * Get Docker applications (containers)
    * @returns {Promise<Array>} List of applications
@@ -388,10 +387,9 @@ class DockerCollector extends BaseCollector {
         } catch (systemErr) {
           this.logWarn("Failed to collect and process system ports:", systemErr.message);
         }
-
         const collapsedPorts = this._collapseDockerLogicalDuplicates(allPorts);
-        const deduplicatedPorts =
-          this._collapseProcessLogicalDuplicates(collapsedPorts);
+        const deduplicatedPorts = this._collapseProcessLogicalDuplicates(collapsedPorts);
+        await require("../lib/docker/compose-attribution").enrichComposeLabels(this.dockerApi, deduplicatedPorts, this.logWarn.bind(this));
         this.logInfo(`Total unique ports collected: ${deduplicatedPorts.length}`);
         return deduplicatedPorts;
       } catch (err) {

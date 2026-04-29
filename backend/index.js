@@ -19,6 +19,7 @@ const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
 const recoveryManager = require('./lib/recovery-manager');
+const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
 const BASE_DEBUG = process.env.DEBUG === 'true';
@@ -45,7 +46,6 @@ const pingDebugStats = {
   startTime: Date.now(),
   lastSummaryTime: Date.now()
 };
-
 
 function logPingDebug(message, force = false) {
   pingDebugStats.count++;
@@ -154,7 +154,6 @@ function getDockerHostIP() {
   return "172.17.0.1";
 }
 
-
 function isDockerDesktopEnvironment() {
   try {
     if (process.env.DOCKER_DESKTOP === 'true') {
@@ -197,7 +196,6 @@ function isDockerDesktopEnvironment() {
     return false;
   }
 }
-
 
 async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = false) {
   const controller = new AbortController();
@@ -365,17 +363,6 @@ async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = 
   }
 }
 
-
-/**
- * Determines the status and accessibility of a service based on its type and HTTP(S) response data.
- *
- * Evaluates the service type and the results of HTTP and HTTPS protocol checks to classify the service as accessible, listening, unreachable, or in error. Returns a status object with color coding, descriptive title, and protocol information when applicable.
- *
- * @param {Object} serviceInfo - Metadata about the service, including type, name, and description.
- * @param {Object} httpsResponse - Result of the HTTPS protocol check, including reachability and status code.
- * @param {Object} httpResponse - Result of the HTTP protocol check, including reachability and status code.
- * @return {Object} An object describing the service's status, color, title, description, and protocol if relevant.
- */
 function determineServiceStatus(serviceInfo, httpsResponse, httpResponse) {
   const serviceType = serviceInfo.type;
   
@@ -611,9 +598,6 @@ app.use('/api/autoxpose', autoxposeRoutes);
 
 const PORT = process.env.PORT || 3000;
 
-/**
- * Get all ports from the local system using the collector framework.
- */
 app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true";
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
@@ -678,9 +662,6 @@ app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
   }
 });
 
-/**
- * New peer-based endpoint to replace remote API connectivity.
- */
 app.get("/api/all-ports", requireAuthOrApiKey, async (req, res) => {
   const debug = req.query.debug === "true" || process.env.DEBUG === 'true';
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(debug);
@@ -725,12 +706,11 @@ app.get("/api/all-ports", requireAuthOrApiKey, async (req, res) => {
   }
 });
 
-/**
- * Collects and returns the list of open ports on the local system using the most suitable platform-specific collector.
- * @param {Object} [options] - Optional settings for port collection.
- * @param {boolean} [options.debug] - Enables debug logging if true.
- * @return {Promise<Array>} Resolves with an array of port information objects.
- */
+app.get("/api/services", requireAuthOrApiKey, require('./routes/services').createServicesHandler({
+  getLocalPortsUsingCollectors: (...a) => getLocalPortsUsingCollectors(...a),
+  dockerApi, logger, baseDebug: BASE_DEBUG,
+}));
+
 async function getLocalPortsUsingCollectors(options = {}) {
   const currentDebug = options.debug || false;
 
@@ -742,13 +722,19 @@ async function getLocalPortsUsingCollectors(options = {}) {
 
     const ports = await collector.getPorts();
     logger.debug(`[getLocalPortsUsingCollectors] Collected ${ports?.length || 0} ports.`);
-    
+
+    await enrichComposeLabelsOnPorts(ports);
+
     return ports;
   } catch (error) {
     logger.error("[getLocalPortsUsingCollectors] Primary collection attempt failed:", error.message);
     logger.debug("Stack trace:", error.stack || "");
     throw error;
   }
+}
+
+async function enrichComposeLabelsOnPorts(ports) {
+  return enrichComposeLabelsOnPortsImpl(dockerApi, ports, logger);
 }
 
 function getPortRangeForSuggestion() {
@@ -889,9 +875,6 @@ async function generateUnusedPortFromPortList(portEntries, { bindCheck = false, 
   return generateUnusedPortWithSet(usedPorts, { bindCheck, method });
 }
 
-/**
- * New endpoint to scan a server with the appropriate collector
- */
 app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
@@ -953,6 +936,8 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
       const collectData = await collector.collectAll();
 
       if (collectData.ports && Array.isArray(collectData.ports)) {
+        await enrichComposeLabelsOnPorts(collectData.ports);
+
         const enrichedPorts = collectData.ports.map((port) => {
           const internalFlag = port.internal ? 1 : 0;
           const noteEntry = db
@@ -1083,11 +1068,6 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   }
 });
 
-/**
- * Generate an unused TCP port for the given server.
- * - For local: uses collectors to find used ports, excludes well-known/reserved, then validates with a TCP bind test.
- * - For peers: forwards the request to the peer's /api/servers/local/generate-port endpoint.
- */
 app.post("/api/servers/:id/generate-port", async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
@@ -1305,10 +1285,6 @@ function validateNoteInput(req, res, next) {
   next();
 }
 
-/**
- * Middleware that validates the presence and format of the server ID parameter in the request.
- * Responds with a 400 error if the ID is missing or not a non-empty string.
- */
 function validateServerIdParam(req, res, next) {
   const serverId = req.params.id;
   if (
@@ -1328,10 +1304,6 @@ function validateServerIdParam(req, res, next) {
   next();
 }
 
-/**
- * Middleware that validates input for custom service name operations.
- * Validates server_id, host_ip, host_port, custom_name, and container_id fields.
- */
 function validateCustomServiceNameInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, custom_name, container_id, internal } = req.body;
 
@@ -1408,10 +1380,6 @@ function validateCustomServiceNameInput(req, res, next) {
   next();
 }
 
-/**
- * Middleware that validates input for ignore operations.
- * Validates server_id, host_ip, host_port, protocol, ignored, and container_id fields.
- */
 function validateIgnoreInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, ignored, container_id, internal } = req.body;
 
@@ -1488,10 +1456,6 @@ function validateIgnoreInput(req, res, next) {
   next();
 }
 
-/**
- * Middleware that validates input for custom service name delete operations.
- * Validates server_id, host_ip, host_port, protocol, and container_id fields.
- */
 function validateCustomServiceNameDeleteInput(req, res, next) {
   const { server_id, host_ip, host_port, protocol, container_id, internal } = req.body;
 
@@ -2043,10 +2007,6 @@ app.delete("/api/custom-service-names", requireAuth, validateCustomServiceNameDe
 
     let deletedCount = result.changes;
 
-    /**
-     * If no rows were deleted and we have a container_id, try deleting without container_id
-     * This handles legacy records that were created before container_id support
-     */
     if (deletedCount === 0 && container_id) {
       const legacyResult = db
         .prepare("DELETE FROM custom_service_names WHERE server_id = ? AND host_ip = ? AND host_port = ? AND protocol = ? AND container_id IS NULL AND internal = ?")
@@ -2449,7 +2409,7 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
       host_ip === "[::1]")
   ) {
     if (isInDocker) {
-      const dockerHostIP = getDockerHostIP();
+      const dockerHostIP = HOST_OVERRIDE || getDockerHostIP();
       pingable_host_ip = dockerHostIP;
       logPingDebug(
         `Detected Docker environment, using host IP '${dockerHostIP}' for port ${host_port}`
