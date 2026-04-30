@@ -168,7 +168,7 @@ export function PortStatusIndicator({
     if (suppressedHere) {
       probeColor = 'gray';
       summary = 'host-only';
-      detail = 'Bound to 127.0.0.1, so it is reachable only from the machine running the container.';
+      detail = 'Bound to 127.0.0.1';
     } else if (failedHere) {
       probeColor = 'red';
       summary = 'Port unreachable';

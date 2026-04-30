@@ -62,11 +62,11 @@ function suppressedReasonLabel() {
 function suppressedReasonTooltip(reason) {
   switch (reason) {
     case 'host-network':
-      return 'Bound to 127.0.0.1 on a host-network container, so it is reachable only from the machine running the container.';
+      return 'Container uses host networking; 127.0.0.1 stays local.';
     case 'no-bridge-ip':
-      return 'Bound to 127.0.0.1 with no bridge route, so it is reachable only from the machine running the container.';
+      return 'No bridge IP available to route through.';
     default:
-      return 'Bound to 127.0.0.1, so it is reachable only from the machine running the container.';
+      return 'Bound to 127.0.0.1';
   }
 }
 
