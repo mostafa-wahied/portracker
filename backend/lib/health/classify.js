@@ -20,7 +20,7 @@ function classify(signals, context) {
     return result(ctx.override, 'override', 'user override', 'R2');
   }
 
-  if (s.hasHealthcheck && s.healthcheckStatus) {
+  if (s.hasHealthcheck && s.healthcheckStatus && s.containerState === 'running') {
     const hs = String(s.healthcheckStatus).toLowerCase();
     if (hs === 'healthy') {
       return result(ROLES.CORE_ACCESS, 'high', 'container reports healthy', 'R1');
@@ -31,6 +31,22 @@ function classify(signals, context) {
     if (hs === 'starting') {
       return result(ROLES.CORE_ACCESS, 'medium', 'container is still starting', 'R1');
     }
+  }
+  if (s.hasHealthcheck && s.containerState === 'created') {
+    return result(ROLES.CORE_ACCESS, 'high', 'container has not started', 'R1');
+  }
+  if (s.hasHealthcheck && s.containerState === 'restarting') {
+    return result(ROLES.CORE_ACCESS, 'medium', 'container is restarting', 'R1');
+  }
+  if (s.hasHealthcheck && s.containerState === 'exited') {
+    const restart = String(s.restartPolicy || 'no').toLowerCase();
+    if (s.exitCode === 0 && (restart === 'no' || restart === 'on-failure')) {
+      return result(ROLES.JOB_EXPECTED_EXIT, 'medium', 'container exited 0 with non-always restart policy', 'R6');
+    }
+    return result(ROLES.CORE_ACCESS, 'high', 'container has exited', 'R1');
+  }
+  if (s.hasHealthcheck && s.containerState === 'dead') {
+    return result(ROLES.CORE_ACCESS, 'high', 'container is dead', 'R1');
   }
 
   const deps = Array.isArray(s.dependsOn) ? s.dependsOn : [];

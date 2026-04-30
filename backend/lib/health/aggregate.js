@@ -86,6 +86,9 @@ function aggregate(entries) {
   } else if (jobs.length > 0 && support.length === 0) {
     color = 'gray';
     reason = 'only expected-exit jobs observed';
+  } else if (support.length > 0 && supportFailures.length > 0) {
+    color = 'gray';
+    reason = 'No main service identified; a helper component is failing. Set a role to get a verdict.';
   } else if (support.length > 0 && supportFailures.length === 0) {
     color = 'gray';
     reason = 'No main service identified; helper services are reachable';

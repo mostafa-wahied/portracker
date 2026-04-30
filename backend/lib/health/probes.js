@@ -83,6 +83,7 @@ async function probeHttpLike(scheme, host, port, opts) {
   const head = await httpRequestOnce(scheme, host, port, path, 'HEAD', timeoutMs, allowInsecure);
   if (head && head.statusCode && head.statusCode < 500 && head.statusCode !== 404) {
     return normalizeResult(true, head.latency, {
+      kind: scheme,
       protocol: scheme,
       method: 'HEAD',
       statusCode: head.statusCode,
@@ -94,6 +95,7 @@ async function probeHttpLike(scheme, host, port, opts) {
   const get = await httpRequestOnce(scheme, host, port, path, 'GET', remaining, allowInsecure);
   if (get && get.statusCode && get.statusCode < 500) {
     return normalizeResult(true, get.latency, {
+      kind: scheme,
       protocol: scheme,
       method: 'GET',
       statusCode: get.statusCode,
@@ -104,6 +106,7 @@ async function probeHttpLike(scheme, host, port, opts) {
 
   const err = (get && get.error) || (head && head.error) || 'No successful response';
   return normalizeResult(false, Date.now() - started, {
+    kind: scheme,
     protocol: scheme,
     url: `${scheme}://${host}:${port}${path}`,
     headStatus: head ? head.statusCode || null : null,
@@ -131,6 +134,7 @@ function probeTcp(host, port, opts) {
       const latency = Date.now() - started;
       try { socket.destroy(); } catch (_e) { void _e; }
       resolve(normalizeResult(ok, latency, {
+        kind: 'tcp',
         protocol: 'tcp',
         host,
         port,
@@ -166,6 +170,7 @@ function probeUdp(host, port, opts) {
       if (timer) clearTimeout(timer);
       try { socket.close(); } catch (_e) { void _e; }
       resolve(normalizeResult(ok, Date.now() - started, Object.assign({
+        kind: 'udp',
         protocol: 'udp',
         host,
         port,

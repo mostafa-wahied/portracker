@@ -38,12 +38,13 @@ function extractHealthcheck(inspection) {
   const hasHealthBlock = !!state.Health;
   const status = hasHealthBlock ? safeLower(state.Health.Status || '') : '';
   const cfg = inspection.Config && inspection.Config.Healthcheck;
-  const declared = hasHealthBlock && status && status !== 'none'
+  const hasRealHealth = hasHealthBlock && status && status !== 'none';
+  const declared = hasRealHealth
     ? true
     : !!(cfg && Array.isArray(cfg.Test) && cfg.Test.length > 0 && cfg.Test[0] !== 'NONE');
   return {
     declared,
-    status: declared ? (status || 'starting') : null,
+    status: hasRealHealth ? status : null,
   };
 }
 
