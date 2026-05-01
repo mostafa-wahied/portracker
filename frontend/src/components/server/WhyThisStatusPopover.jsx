@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { useOverrides } from '@/hooks/useOverrides';
 import { getDisplayHost } from './expanded-view-utils';
+import { humanizeProbeError } from '@/lib/health-copy';
 
 const COLOR_CLASSES = {
   green: 'bg-green-500',
@@ -13,16 +15,16 @@ const COLOR_CLASSES = {
 };
 
 const SIMPLE_ROLE = {
-  core_access: { label: 'main', tone: 'blue' },
-  core_runtime: { label: 'main', tone: 'blue' },
+  core_access: { label: 'main service', tone: 'blue' },
+  core_runtime: { label: 'main service', tone: 'blue' },
   support: { label: 'helper', tone: 'slate' },
   job_expected_exit: { label: 'finished', tone: 'slate' },
-  unknown: { label: 'unclear', tone: 'slate' },
+  unknown: { label: 'role unset', tone: 'slate' },
 };
 
 const ROLE_OPTIONS = [
   { value: 'auto', label: 'Auto (detect)' },
-  { value: 'core_runtime', label: 'Main' },
+  { value: 'core_runtime', label: 'Main service' },
   { value: 'support', label: 'Helper' },
   { value: 'job_expected_exit', label: 'Finished job' },
   { value: 'unknown', label: 'Unknown' },
@@ -186,7 +188,7 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
             {latency && <span>{latency}</span>}
             {!ok && err && (
               <span className="truncate" title={err}>
-                {latency ? '· ' : ''}{err}
+                {latency ? '· ' : ''}{humanizeProbeError(err)}
               </span>
             )}
           </div>
@@ -232,12 +234,45 @@ function summarize(components) {
   const mains = list.filter((c) => roleOf(c) === 'core_access' || roleOf(c) === 'core_runtime');
   const mainsOk = mains.filter((c) => c.probe && c.probe.ok === true);
   if (mains.length === 0) {
-    return `No main component identified (${list.length} component${list.length === 1 ? '' : 's'}).`;
+    return `No main service identified (${list.length} component${list.length === 1 ? '' : 's'} found).`;
   }
   if (mainsOk.length === mains.length) {
-    return `All ${mains.length} main component${mains.length === 1 ? '' : 's'} reachable.`;
+    return `All ${mains.length} main service${mains.length === 1 ? '' : 's'} reachable.`;
   }
-  return `${mains.length - mainsOk.length} of ${mains.length} main component${mains.length === 1 ? '' : 's'} unreachable.`;
+  return `${mains.length - mainsOk.length} of ${mains.length} main service${mains.length === 1 ? '' : 's'} unreachable.`;
+}
+
+const LEGEND_CHIP_CLASS = 'inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-[11px] leading-snug';
+const LEGEND_TERM_CLASS = 'font-semibold text-slate-700 dark:text-slate-200';
+
+const LEGEND_ITEMS = [
+  { term: 'main service', desc: 'the app you connect to' },
+  { term: 'helper', desc: 'supporting piece (db, cache, worker)' },
+  { term: 'finished job', desc: 'one-shot setup task' },
+];
+
+function RoleLegend() {
+  return (
+    <div className="pt-2 space-y-2">
+      <TooltipProvider delayDuration={150}>
+        <div className="flex flex-wrap gap-1.5">
+          {LEGEND_ITEMS.map(({ term, desc }) => (
+            <Tooltip key={term}>
+              <TooltipTrigger asChild>
+                <span tabIndex={-1} className={LEGEND_CHIP_CLASS + ' cursor-help'}>
+                  <span className={LEGEND_TERM_CLASS}>{term}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{desc}</TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+      </TooltipProvider>
+      <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+        The dot reflects main services only. Hover a chip for its definition.
+      </p>
+    </div>
+  );
 }
 
 export function WhyThisStatusPopover({
@@ -299,12 +334,13 @@ export function WhyThisStatusPopover({
             <span className="mx-1.5 text-slate-400">·</span>
             <span>{summary}</span>
           </DialogDescription>
+          <RoleLegend />
         </DialogHeader>
 
         <div className="border border-slate-200 dark:border-slate-700 rounded-md max-h-96 overflow-y-auto">
           {componentCount === 0 ? (
             <div className="p-4 text-sm text-slate-500 dark:text-slate-400 text-center">
-              No component detail available for this service.
+              No component data available.
             </div>
           ) : (
             components.map((c, i) => (

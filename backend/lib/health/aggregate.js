@@ -37,7 +37,7 @@ function aggregate(entries) {
   if (list.length === 0) {
     return {
       color: 'gray',
-      reason: 'no components observed',
+      reason: 'No components found.',
       failingComponents: [],
       components: [],
       evidence: [],
@@ -68,33 +68,32 @@ function aggregate(entries) {
 
   if (core.length > 0 && coreFailures.length > 0) {
     color = 'red';
-    reason = `main service${coreFailures.length > 1 ? 's' : ''} failing: ${coreFailures.map((c) => c.componentId || c.role).join(', ')}`;
+    reason = 'Main service unreachable.';
   } else if (core.length > 0 && corePartial.length > 0) {
     color = 'yellow';
     const detail = corePartial.map((c) => c.probe.error).filter(Boolean).join('; ');
-    reason = detail || `core partially reachable: ${corePartial.map((c) => c.componentId).join(', ')}`;
+    reason = detail || 'Service is partially reachable.';
   } else if (core.length > 0 && (supportFailures.length > 0 || unknownFailures.length > 0)) {
     color = 'yellow';
-    const degraded = supportFailures.concat(unknownFailures);
-    reason = `main service reachable; helper issue: ${degraded.map((c) => c.componentId || c.role).join(', ')}`;
+    reason = 'Main service reachable, but a helper has issues.';
   } else if (core.length > 0) {
     color = 'green';
-    reason = 'Main service is reachable';
+    reason = 'Main service is reachable.';
   } else if (unknown.length > 0) {
     color = 'gray';
-    reason = 'No main service identified; set a role if needed';
+    reason = 'No main service identified — set a role if needed.';
   } else if (jobs.length > 0 && support.length === 0) {
     color = 'gray';
-    reason = 'only expected-exit jobs observed';
+    reason = 'Only finished jobs observed.';
   } else if (support.length > 0 && supportFailures.length > 0) {
     color = 'gray';
-    reason = 'No main service identified; a helper component is failing. Set a role to get a verdict.';
+    reason = 'No main service identified, and a helper is failing. Pick a role to get a verdict.';
   } else if (support.length > 0 && supportFailures.length === 0) {
     color = 'gray';
-    reason = 'No main service identified; helper services are reachable';
+    reason = 'No main service identified; helper services are reachable.';
   } else {
     color = 'gray';
-    reason = 'insufficient signal';
+    reason = 'Not enough info to judge.';
   }
 
   const failingComponents = coreFailures

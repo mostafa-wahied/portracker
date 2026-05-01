@@ -59,18 +59,7 @@ function deriveStatusesFromComponents(components, ports) {
 
 function shortStatusReason(reason, colorWord) {
   if (!reason) return colorWord;
-
-  const legacyPartial = reason.match(/^HEALTHCHECK ok but (\d+) port\(s\) unreachable:/i);
-  if (legacyPartial) {
-    const count = Number(legacyPartial[1]);
-    return `Service is running, but ${count} published port${count === 1 ? "" : "s"} aren't responding`;
-  }
-
-  return reason
-    .replace(/\bdid not answer\b/gi, "aren't responding")
-    .replace(/\bHEALTHCHECK\b/g, "health check")
-    .replace(/\bcore component(s)?\b/gi, "main service$1")
-    .replace(/\bcore service\(s\)\b/gi, "main service(s)");
+  return reason;
 }
 
 export function AggregatedHealthDot({
@@ -193,7 +182,7 @@ export function AggregatedHealthDot({
     if (checking || Object.keys(portStatuses).length === 0) {
       return {
         color: "bg-blue-400 animate-pulse",
-        title: "Checking health...",
+        title: "Checking…",
         hasNoWebUI: false,
       };
     }
@@ -261,7 +250,7 @@ export function AggregatedHealthDot({
             </div>
           </TooltipTrigger>
           <TooltipContent className="max-w-[230px]">
-            <p className="font-medium text-xs">Checking service health...</p>
+            <p className="font-medium text-xs">Checking…</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -273,7 +262,7 @@ export function AggregatedHealthDot({
     const colorWord = {
       green: "All reachable",
       yellow: "Partially reachable",
-      red: "Main component unreachable",
+      red: "Main service unreachable",
       gray: "Status unclear",
     }[shLookup.color] || "Service health";
     const title = shortStatusReason(shLookup.reason, colorWord);

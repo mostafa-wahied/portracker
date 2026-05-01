@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useServiceHealth } from "@/hooks/useServiceHealth";
+import { humanizeProbeError } from "@/lib/health-copy";
 
 const FEAT_COLOR_CLASSES = {
   green: "bg-green-500",
@@ -171,16 +172,16 @@ export function PortStatusIndicator({
       detail = 'Bound to 127.0.0.1';
     } else if (failedHere) {
       probeColor = 'red';
-      summary = 'Port unreachable';
-      detail = "This published port isn't responding. The container itself appears to be running normally.";
+      summary = 'unreachable';
+      detail = "Container is running, but the port isn't responding.";
     } else if (ok) {
       probeColor = 'green';
       summary = 'reachable';
       detail = comp.reason;
     } else {
       probeColor = 'red';
-      summary = probe.error || 'unreachable';
-      detail = comp.reason;
+      summary = 'unreachable';
+      detail = humanizeProbeError(probe.error) || comp.reason;
     }
     const colorClass = FEAT_COLOR_CLASSES[probeColor];
     return (
