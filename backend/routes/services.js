@@ -17,9 +17,6 @@ function groupPortsByService(ports) {
 
 function createServicesHandler({ getLocalPortsUsingCollectors, dockerApi, logger, baseDebug }) {
   return async function servicesHandler(req, res) {
-    if (process.env.FEAT_001_ENABLED !== 'true') {
-      return res.status(404).json({ error: 'feature-disabled' });
-    }
     const debug = req.query.debug === "true";
     const hasDebugQuery = Object.prototype.hasOwnProperty.call(req.query, 'debug');
     if (hasDebugQuery) logger.setDebugEnabled(debug);
