@@ -321,8 +321,7 @@ async function computeServiceHealth(service, deps) {
   for (const [key, sig] of signalsByContainer.entries()) {
     const representative = representativeByContainer.get(key);
     const siblingCtx = buildSiblingContext(ports, sig, signalsByContainer);
-    const overrideKey = sig.containerId ? `${service.serviceId || ''}::${sig.containerId}` : null;
-    const overrideRole = overrideKey && typeof overrides[overrideKey] === 'string' ? overrides[overrideKey] : null;
+    const overrideRole = sig.containerId && typeof overrides[sig.containerId] === 'string' ? overrides[sig.containerId] : null;
     const classification = classify(sig, {
       siblingServices: siblingCtx.siblingServices,
       siblingDependsOnUs: siblingCtx.siblingDependsOnUs,
