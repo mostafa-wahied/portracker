@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { useOverrides } from '@/hooks/useOverrides';
 import { getDisplayHost } from './expanded-view-utils';
 import { humanizeProbeError } from '@/lib/health-copy';
@@ -275,6 +275,82 @@ function RoleLegend() {
   );
 }
 
+function ResetServiceRolesChip({ count, busy, confirming, onAskConfirm, onCancel, onConfirm }) {
+  if (confirming) {
+    return (
+      <div
+        role="group"
+        aria-label="Confirm reset roles"
+        className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/60 text-[10px] font-medium text-slate-700 dark:text-slate-200"
+      >
+        <span className="px-0.5">Reset {count}?</span>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => { e.stopPropagation(); onCancel(); }}
+          disabled={busy}
+          className="px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"
+        >
+          No
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+          disabled={busy}
+          className="px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+        >
+          {busy ? '\u2026' : 'Yes'}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => { e.stopPropagation(); onAskConfirm(); }}
+          aria-label={`Reset ${count} customized role${count === 1 ? '' : 's'}`}
+          className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/30 text-[10px] font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+        >
+          <RotateCcw className="w-3 h-3" />
+          <span className="tabular-nums">{count}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Reset {count} customized role{count === 1 ? '' : 's'} for this service</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function useServiceOverrideClear(components) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { setOverride, clearAllForService } = useOverrides();
+  const serviceOverrideCount = Array.isArray(components)
+    ? components.filter((c) => c && c.overridden).length
+    : 0;
+  const serviceIdForClear = Array.isArray(components) && components.length > 0
+    ? (components.find((c) => c && c._serviceId) || {})._serviceId
+    : null;
+  const onConfirm = async () => {
+    if (!serviceIdForClear) return;
+    setBusy(true);
+    try {
+      await clearAllForService(serviceIdForClear);
+      setConfirming(false);
+    } finally { setBusy(false); }
+  };
+  return {
+    setOverride, serviceOverrideCount, serviceIdForClear,
+    confirming, busy,
+    onAskConfirm: () => setConfirming(true),
+    onCancel: () => setConfirming(false),
+    onConfirm,
+  };
+}
+
 export function WhyThisStatusPopover({
   open,
   onOpenChange,
@@ -290,30 +366,23 @@ export function WhyThisStatusPopover({
   hostOverride,
 }) {
   const [refreshing, setRefreshing] = useState(false);
-  const { setOverride } = useOverrides();
+  const ov = useServiceOverrideClear(components);
   const colorClass = COLOR_CLASSES[color] || COLOR_CLASSES.gray;
   const componentCount = Array.isArray(components) ? components.length : 0;
   const summary = summarize(components);
   const displayCtx = { serverId, serverUrl, hostOverride };
   const handleChangeRole = (serviceId, containerId, role) => {
-    setOverride(serviceId, containerId, role);
+    ov.setOverride(serviceId, containerId, role);
   };
-
   const handleRefresh = async (e) => {
     if (e) { e.stopPropagation(); e.preventDefault(); }
     if (!onRefresh || refreshing) return;
     setRefreshing(true);
-    try {
-      await onRefresh();
-    } finally {
-      setRefreshing(false);
-    }
+    try { await onRefresh(); } finally { setRefreshing(false); }
   };
-
   const updatedLabel = updatedAt
     ? `Updated ${Math.max(0, Math.round((Date.now() - updatedAt) / 1000))}s ago`
     : 'Not yet updated';
-
   const stop = (e) => e.stopPropagation();
 
   return (
@@ -328,6 +397,16 @@ export function WhyThisStatusPopover({
           <div className="flex items-center gap-2">
             <span className={`w-2.5 h-2.5 rounded-full ${colorClass}`} />
             <DialogTitle className="text-base">Why this status?</DialogTitle>
+            {ov.serviceOverrideCount > 0 && ov.serviceIdForClear && (
+              <ResetServiceRolesChip
+                count={ov.serviceOverrideCount}
+                busy={ov.busy}
+                confirming={ov.confirming}
+                onAskConfirm={ov.onAskConfirm}
+                onCancel={ov.onCancel}
+                onConfirm={ov.onConfirm}
+              />
+            )}
           </div>
           <DialogDescription className="pt-1 text-slate-600 dark:text-slate-400">
             <span className="font-medium text-slate-800 dark:text-slate-200">{serviceName}</span>
@@ -356,12 +435,14 @@ export function WhyThisStatusPopover({
           )}
         </div>
 
-        <DialogFooter className="flex items-center justify-between sm:justify-between gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">{updatedLabel}</span>
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+        <DialogFooter>
+          <div className="flex items-center justify-between gap-2 w-full">
+            <span className="text-xs text-slate-500 dark:text-slate-400">{updatedLabel}</span>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

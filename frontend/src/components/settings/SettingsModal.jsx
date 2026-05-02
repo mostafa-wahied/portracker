@@ -33,6 +33,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOverrides } from "@/hooks/useOverrides";
 
 const VERSION = "1.3.0";
 
@@ -74,6 +75,10 @@ export function SettingsModal({
   const [autoxposeUrl, setAutoxposeUrl] = useState("");
   const [autoxposeConnecting, setAutoxposeConnecting] = useState(false);
   const [autoxposeError, setAutoxposeError] = useState(null);
+  const { overrides, clearAll: clearAllOverrides } = useOverrides();
+  const overrideCount = overrides ? Object.keys(overrides).length : 0;
+  const [confirmClearOverrides, setConfirmClearOverrides] = useState(false);
+  const [clearingOverrides, setClearingOverrides] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -425,6 +430,60 @@ export function SettingsModal({
                     checked={localDisableCache}
                     onCheckedChange={handleCacheToggle}
                   />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm">Service role overrides</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3.5 w-3.5 text-slate-400 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[240px]">
+                        Roles you've manually changed for individual containers (Main / Helper / Finished job). Reset to let portracker auto-detect them again.
+                      </TooltipContent>
+                    </Tooltip>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {overrideCount === 0 ? "none set" : overrideCount + " set"}
+                    </span>
+                  </div>
+                  {confirmClearOverrides ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirmClearOverrides(false)}
+                        disabled={clearingOverrides}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={clearingOverrides}
+                        onClick={async () => {
+                          setClearingOverrides(true);
+                          try {
+                            await clearAllOverrides();
+                          } finally {
+                            setClearingOverrides(false);
+                            setConfirmClearOverrides(false);
+                          }
+                        }}
+                      >
+                        {clearingOverrides ? "Clearing..." : "Confirm clear"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={overrideCount === 0}
+                      onClick={() => setConfirmClearOverrides(true)}
+                    >
+                      Clear all
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
