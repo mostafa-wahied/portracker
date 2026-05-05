@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
 const { Logger } = require("./lib/logger");
+const { migrateServersInPlace } = require("./lib/db/servers-migrations");
 
 const logger = new Logger("Database", { debug: process.env.DEBUG === 'true' });
 
@@ -37,6 +38,7 @@ if (!tableExists) {
       api_key TEXT,
       api_key_created_at TEXT,
       remote_api_key TEXT,
+      position INTEGER,
       FOREIGN KEY (parentId) REFERENCES servers(id)
     );
     
@@ -177,26 +179,7 @@ if (!tableExists) {
         'Database schema migration for "type" column completed successfully'
       );
     } else {
-      if (!columnNames.includes("platform")) {
-        logger.info("Migrating database: Adding platform column to servers table");
-        db.prepare(
-          "ALTER TABLE servers ADD COLUMN platform TEXT DEFAULT 'standard'"
-        ).run();
-      }
-      if (!columnNames.includes("platform_config")) {
-        logger.info(
-          "Migrating database: Adding platform_config column to servers table"
-        );
-        db.prepare("ALTER TABLE servers ADD COLUMN platform_config TEXT").run();
-      }
-      if (!columnNames.includes("platform_type")) {
-        logger.info(
-          "Migrating database: Adding platform_type column to servers table"
-        );
-        db.prepare(
-          "ALTER TABLE servers ADD COLUMN platform_type TEXT DEFAULT 'auto'"
-        ).run();
-      }
+      migrateServersInPlace(db, logger, columnNames);
     }
 
     const customServiceNamesTableExists = db

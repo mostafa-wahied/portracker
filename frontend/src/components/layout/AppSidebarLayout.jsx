@@ -14,6 +14,7 @@ export function AppSidebarLayout({
   onSelect,
   addServer,
   deleteServer,
+  onReorder,
   loading,
   hostOverride,
   sidebarLayout,
@@ -41,6 +42,7 @@ export function AppSidebarLayout({
           onSelect={onSelect}
           onAdd={addServer}
           onDelete={deleteServer}
+          onReorder={onReorder}
           loading={loading}
           hostOverride={hostOverride}
           lastRefreshedAt={sidebarLayout.lastRefreshedAt}

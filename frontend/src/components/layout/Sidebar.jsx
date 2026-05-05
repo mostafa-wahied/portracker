@@ -7,6 +7,8 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -21,7 +23,10 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { SidebarSkeleton } from "./SidebarSkeleton";
-import { ServerCard } from "./ServerCard";
+import { SortableServerCard } from "./SortableServerCard";
+import { SidebarSortChip } from "./SidebarSortChip";
+import { buildSidebarTree, sortByLabel, computeReorderItems } from "@/lib/sidebar-tree";
+import { useSidebarSortMode } from "@/hooks/useSidebarSortMode";
 
 const generateServerId = (label) => {
   if (!label || !label.trim()) {
@@ -46,6 +51,7 @@ export function Sidebar({
   onSelect,
   onAdd,
   onDelete,
+  onReorder,
   loading,
   hostOverride,
   lastRefreshedAt = {},
@@ -69,6 +75,13 @@ export function Sidebar({
   const [submitting, setSubmitting] = useState(false);
   const [validationStatus, setValidationStatus] = useState(null);
   const latestValidationRef = useRef(0);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const { sortMode, setSortMode, undoState, undoToPrevious } = useSidebarSortMode();
 
   useEffect(() => {
     if (!requestedMode) {
@@ -325,25 +338,18 @@ export function Sidebar({
     return <SidebarSkeleton />;
   }
 
-  const serverMap = new Map(servers.map((s) => [s.id, s]));
-  const topLevelServers = [];
-  const childrenMap = new Map();
-
-  servers.forEach((server) => {
-    if (server.parentId && serverMap.has(server.parentId)) {
-      const children = childrenMap.get(server.parentId) || [];
-      children.push(server);
-      childrenMap.set(server.parentId, children);
-    } else {
-      topLevelServers.push(server);
-    }
-  });
+  const tree = buildSidebarTree(servers);
+  const { topLevelServers, childrenMap } = tree;
+  const dragEnabled = Boolean(onReorder) && sortMode === "custom";
+  const displayedTopLevel = sortByLabel(topLevelServers, sortMode);
 
   const renderServerHierarchy = (server, level = 0) => {
     const children = childrenMap.get(server.id) || [];
+    const displayedChildren = sortByLabel(children, sortMode);
     const maxIndentLevel = 3;
+    const childIds = displayedChildren.map((c) => c.id);
     return (
-      <ServerCard
+      <SortableServerCard
         key={server.id}
         server={server}
         isSelected={selectedId === server.id}
@@ -352,15 +358,26 @@ export function Sidebar({
         onDelete={setServerToDelete}
         hostOverride={hostOverride}
         lastRefreshedTs={lastRefreshedAt[server.id]}
+        draggable={dragEnabled}
       >
-        {children.length > 0 && level < maxIndentLevel && (
+        {displayedChildren.length > 0 && level < maxIndentLevel && (
           <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700/50 space-y-3">
-            {children.map((child) => renderServerHierarchy(child, level + 1))}
+            <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+              {displayedChildren.map((child) => renderServerHierarchy(child, level + 1))}
+            </SortableContext>
           </div>
         )}
-      </ServerCard>
+      </SortableServerCard>
     );
   };
+
+  const handleDragEnd = (event) => {
+    if (!onReorder || !dragEnabled) return;
+    const items = computeReorderItems(event.active, event.over, tree);
+    if (items) onReorder(items);
+  };
+
+  const topLevelIds = displayedTopLevel.map((s) => s.id);
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">
@@ -381,8 +398,25 @@ export function Sidebar({
             </h3>
           </div>
           <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-4">
-            {!loading &&
-              topLevelServers.map((server) => renderServerHierarchy(server))}
+            {!loading && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+                  {displayedTopLevel.map((server) => renderServerHierarchy(server))}
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+          <div className="px-6 pt-2 flex-shrink-0">
+            <SidebarSortChip
+              sortMode={sortMode}
+              onChange={setSortMode}
+              undoState={undoState}
+              onUndo={undoToPrevious}
+            />
           </div>
           <div className="p-6 mt-auto flex-shrink-0">
             <button

@@ -18,6 +18,7 @@ const { requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = re
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
+const { registerServerRoutes } = require('./routes/servers');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 
@@ -595,6 +596,7 @@ app.use(checkAuthEnabled);
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/autoxpose', autoxposeRoutes);
+registerServerRoutes(app, { db, logger, requireAuth, validateServerInput });
 
 const PORT = process.env.PORT || 3000;
 
@@ -669,7 +671,11 @@ app.get("/api/all-ports", requireAuthOrApiKey, async (req, res) => {
   logger.debug(`GET /api/all-ports called with debug=${debug}`);
   
   try {
-    const servers = db.prepare("SELECT * FROM servers").all();
+    const servers = db
+      .prepare(
+        "SELECT * FROM servers ORDER BY (position IS NULL) ASC, position ASC, label COLLATE NOCASE ASC"
+      )
+      .all();
 
     const results = servers.map((s) => ({
       id: s.id,
@@ -1528,119 +1534,6 @@ function validateCustomServiceNameDeleteInput(req, res, next) {
 
   next();
 }
-
-app.get("/api/servers", requireAuth, (req, res) => {
-  logger.debug("GET /api/servers");
-  try {
-    const stmt = db.prepare(
-      "SELECT id, label, url, parentId, type, unreachable, platform_type, (remote_api_key IS NOT NULL) as hasApiKey FROM servers"
-    );
-    const servers = stmt.all();
-    logger.debug(`Returning ${servers.length} servers`);
-    res.json(servers);
-  } catch (error) {
-    logger.error("Failed to get servers:", error.message);
-    logger.debug("Stack trace:", error.stack || "");
-    res
-      .status(500)
-      .json({ error: "Failed to retrieve servers", details: error.message });
-  }
-});
-
-app.post("/api/servers", requireAuth, validateServerInput, (req, res) => {
-  const { id, label, url, parentId, type, unreachable, platform_type, apiKey } =
-    req.body;
-
-  if (!id) {
-    return res.status(400).json({ error: "Field 'id' is required" });
-  }
-
-  if (type === "peer" && !unreachable && (!url || url.trim().length === 0)) {
-    return res
-      .status(400)
-      .json({
-        error: "Validation failed",
-        details: "Field 'url' is required for reachable peer servers",
-        field: "url",
-      });
-  }
-
-  const dbUnreachable = unreachable ? 1 : 0;
-
-  try {
-    const existing = db.prepare("SELECT id FROM servers WHERE id = ?").get(id);
-    if (existing) {
-      if (apiKey !== undefined) {
-        db.prepare(
-          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ?, remote_api_key = ? WHERE id = ?"
-        ).run(
-          label,
-          url,
-          parentId || null,
-          type,
-          dbUnreachable,
-          platform_type,
-          apiKey || null,
-          id
-        );
-      } else {
-        db.prepare(
-          "UPDATE servers SET label = ?, url = ?, parentId = ?, type = ?, unreachable = ?, platform_type = ? WHERE id = ?"
-        ).run(
-          label,
-          url,
-          parentId || null,
-          type,
-          dbUnreachable,
-          platform_type,
-          id
-        );
-      }
-      logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
-      res.status(200).json({ message: "Server updated successfully", id });
-    } else {
-      db.prepare(
-        "INSERT INTO servers (id, label, url, parentId, type, unreachable, platform_type, remote_api_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        id,
-        label,
-        url,
-        parentId || null,
-        type,
-        dbUnreachable,
-        platform_type,
-        apiKey || null
-      );
-      logger.info(`Server added successfully. ID: ${id}, Label: "${label}"`);
-      res.status(201).json({ message: "Server added successfully", id });
-    }
-  } catch (error) {
-    logger.error(`Database error in POST /api/servers (ID: ${id}): ${error.message}`);
-    logger.debug("Stack trace:", error.stack || "");
-    if (error.message.includes("UNIQUE constraint failed")) {
-      return res
-        .status(409)
-        .json({ error: `Server with ID '${id}' already exists.` });
-    }
-    if (
-      error.message.toLowerCase().includes("can only bind") ||
-      error.message.toLowerCase().includes("datatype mismatch")
-    ) {
-      logger.error(
-        `Possible data binding/type issue for server ID ${id}. Payload received: ${JSON.stringify(req.body)}`
-      );
-      return res
-        .status(500)
-        .json({
-          error: "Failed to save server due to data type issue.",
-          details: error.message,
-        });
-    }
-    res
-      .status(500)
-      .json({ error: "Failed to save server", details: error.message });
-  }
-});
 
 app.delete("/api/servers/:id", requireAuth, validateServerIdParam, (req, res) => {
   const serverId = req.params.id;

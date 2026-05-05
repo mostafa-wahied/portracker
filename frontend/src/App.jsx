@@ -28,6 +28,7 @@ import { ChangePasswordPage } from "./components/auth/ChangePasswordPage";
 import { BarChart3 } from "lucide-react";
 import Logger from "./lib/logger";
 import { useWhatsNew } from "./lib/hooks/useWhatsNew";
+import { useReorderServers } from "./hooks/useReorderServers";
 import { useKeyboardShortcuts } from "./lib/hooks/useKeyboardShortcuts";
 import { useSidebarLayout } from "./lib/hooks/useSidebarLayout";
 import { useKonamiHackerMode } from "./lib/hooks/useKonamiHackerMode";
@@ -49,12 +50,10 @@ const logger = new Logger('App');
 export default function App() {
   const auth = useAuth();
   const { shouldShowButton: shouldShowWhatsNewButton, handleShow: handleShowWhatsNew, getModalProps: getWhatsNewModalProps } = useWhatsNew();
-  
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hostOverride, setHostOverride] = useState(null);
-  
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [modalSrvId, setModalSrvId] = useState("");
   const [modalPort, setModalPort] = useState(null);
@@ -290,14 +289,12 @@ export default function App() {
       setAutoxposePorts(null);
       return;
     }
-    
     const fetchServices = async () => {
       try {
         const [servicesData, domainData] = await Promise.all([
           getAutoxposeServices(),
           getAutoxposeDomain(),
         ]);
-        
         const services = servicesData?.services || [];
         const domain = domainData?.domain;
         
@@ -1530,6 +1527,7 @@ export default function App() {
       .catch(logger.error);
   }, []);
 
+  const handleReorder = useReorderServers({ servers, groups, setServers, setGroups });
   const addServer = useCallback(
     async (serverData, isUpdate = false) => {
       if (isUpdate) {
@@ -2056,6 +2054,7 @@ export default function App() {
           onSelect={handleSelectServer}
           addServer={addServer}
           deleteServer={deleteServer}
+          onReorder={handleReorder}
           loading={loading}
           hostOverride={hostOverride}
           sidebarLayout={sidebarLayout}

@@ -75,7 +75,14 @@ function matchesService(serviceName) {
 export function findEligibleService(servers) {
   if (!servers?.length) return null;
 
-  for (const server of servers) {
+  const ordered = [...servers].sort((a, b) => {
+    const ap = Number.isFinite(a?.position) ? a.position : Number.POSITIVE_INFINITY;
+    const bp = Number.isFinite(b?.position) ? b.position : Number.POSITIVE_INFINITY;
+    if (ap !== bp) return ap - bp;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+
+  for (const server of ordered) {
     const ports = server.data || server.ports || [];
     for (const port of ports) {
       const rawName = port.customServiceName || port.originalServiceName || port.owner;
