@@ -34,17 +34,11 @@ router.post('/connect', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const cleanUrl = url.replace(/\/+$/, '');
-    autoxposeClient.setBaseUrl(cleanUrl);
-    
-    const result = await autoxposeClient.testConnection();
+    const result = await autoxposeClient.connect(url);
     
     if (result.success) {
-      const userId = isAuthEnabled() && req.session?.userId ? req.session.userId : null;
-      settingsManager.updateUserSetting(userId, 'autoxposeUrl', cleanUrl);
-      settingsManager.updateUserSetting(userId, 'autoxposeEnabled', true);
-      settingsManager.updateUserSetting(null, 'autoxposeUrl', cleanUrl);
-      settingsManager.updateUserSetting(null, 'autoxposeEnabled', true);
+      const cleanUrl = autoxposeClient.getStatus().url;
+      settingsManager.setAutoxposeConnection(cleanUrl);
       
       logger.info(`Autoxpose connected: ${cleanUrl}`);
     }
@@ -58,13 +52,8 @@ router.post('/connect', async (req, res) => {
 
 router.post('/disconnect', (req, res) => {
   try {
-    const userId = isAuthEnabled() && req.session?.userId ? req.session.userId : null;
-    
     autoxposeClient.setBaseUrl(null);
-    settingsManager.updateUserSetting(userId, 'autoxposeEnabled', false);
-    settingsManager.deleteSetting(userId, 'autoxposeUrl');
-    settingsManager.updateUserSetting(null, 'autoxposeEnabled', false);
-    settingsManager.deleteSetting(null, 'autoxposeUrl');
+    settingsManager.clearAutoxposeConnection();
     
     logger.info('Autoxpose disconnected');
     res.json({ success: true });

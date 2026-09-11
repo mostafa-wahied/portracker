@@ -23,12 +23,13 @@ function debugWS(message, ...args) {
  * @param {boolean} options.requireSecure - Whether to prioritize secure connections (for API key usage)
  */
 async function getTrueNASWebSocketURLs(options = {}) {
-  const { appDebugEnabled = false, requireSecure = false } = options;
+  const { appDebugEnabled = false, requireSecure = false, signal } = options;
   try {
     if (appDebugEnabled) {
       debugWS("Attempting to auto-discover TrueNAS UI configuration...");
     }
-    const uiConfig = await discoverUIConfig({ appDebugEnabled });
+    const uiConfig = await discoverUIConfig({ appDebugEnabled, signal });
+    signal?.throwIfAborted();
 
     if (uiConfig) {
       if (appDebugEnabled) {
@@ -47,6 +48,7 @@ async function getTrueNASWebSocketURLs(options = {}) {
 
     return urls;
   } catch (err) {
+    signal?.throwIfAborted();
     if (appDebugEnabled) {
       debugWS(
         `Error during auto-discovery: ${err.message}, using fallback URLs`
@@ -66,335 +68,176 @@ async function getTrueNASWebSocketURLs(options = {}) {
  * @param {number} [options.port] - Optional port for WebSocket connection (used by auto-discover)
  * @returns {Promise<Function>} A request function for making middleware calls, and a close function
  */
-async function connectWs(options = {}) {
-  const { apiKey, appDebugEnabled = false, host, port } = options;
+function timeoutValue(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-  if (!apiKey) {
-    if (appDebugEnabled) {
-      debugWS(
-        "connectWs called without an API key. This should not happen if TrueNASClient is working correctly."
-      );
-    }
-    throw new Error("No API key provided for WebSocket authentication");
+function withAbort(signal, operation) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return operation();
+    }).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+function createSession(socket) {
+  const pending = new Map();
+  let nextId = 0;
+  let closed = false;
+  const heartbeat = setInterval(() => {
+    if (socket.readyState !== WebSocket.OPEN) return close();
+    try { socket.send(JSON.stringify({ msg: "ping" })); } catch { close(); }
+  }, 20000);
+  heartbeat.unref?.();
+
+  function settle(id, error, value) {
+    const request = pending.get(id);
+    if (!request) return;
+    pending.delete(id);
+    clearTimeout(request.timer);
+    request.signal?.removeEventListener("abort", request.abort);
+    if (error) request.reject(error);
+    else request.resolve(value);
   }
 
-  const urls = await getTrueNASWebSocketURLs({ appDebugEnabled, host, port, requireSecure: true });
-  let ws,
-    i = 0;
-  let pingInterval = null;
-  let authenticated = false;
-  let currentConnectionAttempt = null;
-
-  const requestQueue = [];
-  let isConnecting = false;
-
-  function next(resolve, reject) {
-    if (i >= urls.length) {
-      isConnecting = false;
-      return reject(new Error("WebSocket connection failed for all endpoints"));
+  function receive(data) {
+    let message;
+    try { message = JSON.parse(data); } catch { return; }
+    if (message.msg === "result") {
+      settle(message.id, message.error ? new Error("TrueNAS request failed") : null, message.result);
     }
-
-    isConnecting = true;
-    const currentUrl = urls[i++];
-    if (currentUrl.startsWith("ws://")) {
-      if (appDebugEnabled) {
-        debugWS(
-          `Skipping insecure WebSocket URL for API-key authentication: ${currentUrl}`
-        );
-      }
-      return next(resolve, reject);
-    }
-
-    if (appDebugEnabled) {
-      debugWS(`Attempting connection to ${currentUrl}`);
-    }
-
-    if (currentConnectionAttempt && currentConnectionAttempt.timeoutId) {
-      clearTimeout(currentConnectionAttempt.timeoutId);
-    }
-
-    currentConnectionAttempt = { url: currentUrl };
-
-    ws = new WebSocket(currentUrl, {
-      rejectUnauthorized: false,
-    });
-
-    ws.once("open", () => {
-      if (appDebugEnabled) {
-        debugWS(`WebSocket connected to ${currentUrl}, sending handshake`);
-      }
-
-      ws.send(
-        JSON.stringify({
-          msg: "connect",
-          version: "1",
-          support: ["1"],
-        })
-      );
-
-      const connectHandler = (data) => {
-        try {
-          const message = JSON.parse(data);
-
-          if (message.msg === "connected") {
-            if (appDebugEnabled) {
-              debugWS("WebSocket handshake completed, starting authentication");
-            }
-            ws.removeListener("message", connectHandler);
-
-            if (appDebugEnabled) {
-              debugWS("🔑 Authenticating with API key...");
-            }
-
-            const authId = Date.now() + Math.random();
-            const authPayload = JSON.stringify({
-              id: authId,
-              msg: "method",
-              method: "auth.login_with_api_key",
-              params: [apiKey],
-            });
-
-            const authHandler = (authData) => {
-              try {
-                const authMessage = JSON.parse(authData);
-
-                if (authMessage.id === authId && authMessage.msg === "result") {
-                  if (appDebugEnabled) {
-                    debugWS("Authentication response received");
-                  }
-                  ws.removeListener("message", authHandler);
-                  clearTimeout(currentConnectionAttempt.authTimeoutId);
-
-                  if (authMessage.error) {
-                    if (appDebugEnabled) {
-                      debugWS(
-                        `Authentication failed for ${currentUrl}:`,
-                        authMessage.error
-                      );
-                    }
-                    ws.close();
-                    return;
-                  } else {
-                    if (appDebugEnabled) {
-                      debugWS(
-                        `Successfully authenticated with API key via ${currentUrl}`
-                      );
-                    }
-                    authenticated = true;
-                    isConnecting = false;
-
-                    if (pingInterval) clearInterval(pingInterval);
-                    pingInterval = setInterval(() => {
-                      if (ws && ws.readyState === WebSocket.OPEN) {
-                        if (appDebugEnabled) {
-                          debugWS("Sending keep-alive ping");
-                        }
-                        ws.send(JSON.stringify({ msg: "ping" }));
-                      }
-                    }, 20000);
-
-                    requestQueue.forEach((queued) => queued.execute());
-                    requestQueue.length = 0;
-
-                    resolve({ requestFn: wrappedRequest, closeFn: close });
-                  }
-                }
-              } catch (err) {
-                if (appDebugEnabled) {
-                  debugWS(
-                    `Error parsing authentication response: ${err.message}`
-                  );
-                }
-                ws.removeListener("message", authHandler);
-                clearTimeout(currentConnectionAttempt.authTimeoutId);
-                ws.close();
-              }
-            };
-
-            ws.on("message", authHandler);
-            ws.send(authPayload);
-
-            currentConnectionAttempt.authTimeoutId = setTimeout(() => {
-              if (!authenticated) {
-                if (appDebugEnabled) {
-                  debugWS(`Authentication timeout for ${currentUrl}`);
-                }
-                ws.removeListener("message", authHandler);
-                ws.close();
-              }
-            }, 10000);
-          }
-        } catch (err) {
-          if (appDebugEnabled) {
-            debugWS(`Error parsing connect message: ${err.message}`);
-          }
-          ws.close();
-        }
-      };
-
-      ws.on("message", connectHandler);
-
-      currentConnectionAttempt.connectTimeoutId = setTimeout(() => {
-        if (
-          !authenticated &&
-          ws.readyState !== WebSocket.CLOSED &&
-          ws.readyState !== WebSocket.CLOSING
-        ) {
-          if (appDebugEnabled) {
-            debugWS(`WebSocket connection handshake timeout for ${currentUrl}`);
-          }
-          ws.removeListener("message", connectHandler);
-          ws.close();
-        }
-      }, 10000);
-    });
-
-    ws.once("error", (err) => {
-      if (appDebugEnabled) {
-        debugWS(`WebSocket error for ${currentUrl}: ${err.message}`);
-      }
-      if (pingInterval) clearInterval(pingInterval);
-      clearTimeout(currentConnectionAttempt.connectTimeoutId);
-      clearTimeout(currentConnectionAttempt.authTimeoutId);
-
-      if (!authenticated && isConnecting) {
-        next(resolve, reject);
-      }
-    });
-
-    ws.on("close", () => {
-      if (appDebugEnabled) {
-        debugWS(`WebSocket connection closed for ${currentUrl}`);
-      }
-      if (pingInterval) {
-        clearInterval(pingInterval);
-        pingInterval = null;
-      }
-      if (
-        !authenticated &&
-        isConnecting &&
-        currentConnectionAttempt &&
-        currentConnectionAttempt.url === currentUrl
-      ) {
-        if (ws.readyState !== WebSocket.OPEN) {
-          next(resolve, reject);
-        }
-      }
-    });
-  }
-
-  function wrappedRequest(method, params = []) {
-    return new Promise((resolve, reject) => {
-      const executeRequest = () => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          return reject(new Error("WebSocket not connected"));
-        }
-        if (!authenticated) {
-          return reject(new Error("WebSocket not authenticated"));
-        }
-
-        const id = Date.now() + Math.random();
-        const payload = JSON.stringify({ id, msg: "method", method, params });
-
-        if (appDebugEnabled) {
-          debugWS(`Sending authenticated request: ${method} (${id})`);
-        }
-
-        const messageHandler = (data) => {
-          try {
-            const message = JSON.parse(data);
-            if (message.id === id && message.msg === "result") {
-              if (appDebugEnabled) {
-                debugWS(`Received response for ${method} (${id})`);
-              }
-              ws.removeListener("message", messageHandler);
-              clearTimeout(requestTimeoutId);
-
-              if (message.error) {
-                const errorMsg =
-                  typeof message.error === "object"
-                    ? JSON.stringify(message.error)
-                    : message.error;
-                reject(new Error(errorMsg));
-              } else {
-                resolve(message.result);
-              }
-            }
-          } catch (err) {
-            if (appDebugEnabled) {
-              debugWS(`Error parsing message: ${err.message}`);
-            }
-            ws.removeListener("message", messageHandler);
-            clearTimeout(requestTimeoutId);
-            reject(
-              new Error(`Failed to parse WebSocket message: ${err.message}`)
-            );
-          }
-        };
-
-        ws.on("message", messageHandler);
-        ws.send(payload);
-
-        const requestTimeout = parseInt(process.env.TRUENAS_WS_REQUEST_TIMEOUT_MS || '40000', 10);
-        const requestTimeoutId = setTimeout(() => {
-          ws.removeListener("message", messageHandler);
-          reject(new Error(`Request timeout for method ${method} after ${requestTimeout/1000}s`));
-        }, requestTimeout);
-      };
-
-      if (
-        isConnecting ||
-        (!authenticated && ws && ws.readyState !== WebSocket.OPEN)
-      ) {
-        if (appDebugEnabled) {
-          debugWS(
-            `Queueing request ${method} as WebSocket is connecting/not ready.`
-          );
-        }
-        requestQueue.push({ execute: executeRequest, resolve, reject });
-      } else {
-        executeRequest();
-      }
-    });
   }
 
   function close() {
-    if (pingInterval) {
-      clearInterval(pingInterval);
-      pingInterval = null;
-    }
-    if (ws) {
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-      ) {
-        if (appDebugEnabled) {
-          debugWS("Closing WebSocket connection explicitly.");
-        }
-        authenticated = false;
-        isConnecting = false;
-        ws.close();
-      } else {
-        if (appDebugEnabled) {
-          debugWS(
-            "WebSocket not open or connecting, cannot close (already closed or never opened)."
-          );
-        }
-      }
-    } else {
-      if (appDebugEnabled) {
-        debugWS("No WebSocket instance to close.");
-      }
-    }
-    requestQueue.forEach((queued) =>
-      queued.reject(new Error("WebSocket closed while request was queued"))
-    );
-    requestQueue.length = 0;
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    for (const id of pending.keys()) settle(id, new Error("TrueNAS WebSocket closed"));
+    socket.removeListener("message", receive);
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
   }
 
+  function requestFn(method, params = [], options = {}) {
+    return new Promise((resolve, reject) => {
+      options.signal?.throwIfAborted();
+      if (closed || socket.readyState !== WebSocket.OPEN) {
+        return reject(new Error("TrueNAS WebSocket is not connected"));
+      }
+      const id = ++nextId;
+      const timeout = timeoutValue(options.timeoutMs ?? process.env.TRUENAS_WS_REQUEST_TIMEOUT_MS, 40000);
+      const timer = setTimeout(() => settle(id, new Error(`TrueNAS request timed out: ${method}`)), timeout);
+      const abort = () => settle(id, options.signal.reason);
+      pending.set(id, { resolve, reject, timer, signal: options.signal, abort });
+      options.signal?.addEventListener("abort", abort, { once: true });
+      try { socket.send(JSON.stringify({ id, msg: "method", method, params })); }
+      catch (error) { settle(id, error); }
+    });
+  }
+
+  socket.on("message", receive);
+  socket.on("error", close);
+  socket.on("close", close);
+  return { requestFn, closeFn: close, isConnected: () => !closed && socket.readyState === WebSocket.OPEN };
+}
+
+function connectEndpoint(url, apiKey, signal, timeoutMs) {
   return new Promise((resolve, reject) => {
-    next(resolve, reject);
+    signal.throwIfAborted();
+    const socket = new WebSocket(url, { rejectUnauthorized: false, handshakeTimeout: timeoutMs });
+    let settled = false;
+    let authenticating = false;
+
+    function finish(error) {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      socket.removeListener("message", receive);
+      socket.removeListener("open", open);
+      socket.removeListener("close", disconnected);
+      socket.removeListener("error", failed);
+      if (error) {
+        socket.on("error", () => {});
+        socket.terminate();
+        reject(error);
+      } else {
+        resolve(createSession(socket));
+      }
+    }
+
+    function abort() { finish(signal.reason); }
+    function failed() { finish(new Error("TrueNAS WebSocket connection failed")); }
+    function disconnected() { finish(new Error("TrueNAS WebSocket closed before authentication")); }
+    function send(message) {
+      try { socket.send(JSON.stringify(message)); } catch (error) { finish(error); }
+    }
+    function open() { send({ msg: "connect", version: "1", support: ["1"] }); }
+
+    function receive(data) {
+      let message;
+      try { message = JSON.parse(data); } catch { return finish(new Error("Invalid TrueNAS handshake response")); }
+      if (message.msg === "connected" && !authenticating) {
+        authenticating = true;
+        send({ id: "auth", msg: "method", method: "auth.login_with_api_key", params: [apiKey] });
+      } else if (authenticating && message.id === "auth" && message.msg === "result") {
+        if (message.error || message.result !== true) {
+          const error = new Error("TrueNAS API authentication rejected; review the configured API key and permissions");
+          error.code = "TRUENAS_AUTH_FAILED";
+          finish(error);
+        } else {
+          finish();
+        }
+      } else if (message.msg === "failed") {
+        finish(new Error("TrueNAS WebSocket protocol handshake rejected"));
+      }
+    }
+
+    signal.addEventListener("abort", abort, { once: true });
+    socket.once("open", open);
+    socket.on("message", receive);
+    socket.once("error", failed);
+    socket.once("close", disconnected);
+    if (signal.aborted) abort();
   });
+}
+
+async function connectWs(options = {}) {
+  if (!options.apiKey) throw new Error("No API key provided for WebSocket authentication");
+  const timeoutMs = timeoutValue(options.timeoutMs ?? process.env.TRUENAS_WS_CONNECT_TIMEOUT_MS, 10000);
+  const controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
+  const expiresAt = Date.now() + timeoutMs;
+  const timer = setTimeout(() => controller.abort(new Error("TrueNAS connection timed out")), timeoutMs);
+  try {
+    const urls = await withAbort(signal, () => getTrueNASWebSocketURLs({ ...options, signal, requireSecure: true }));
+    const secureUrls = [...new Set(urls)].filter(url => url.startsWith("wss://"));
+    let lastError = new Error("No secure TrueNAS WebSocket endpoints available");
+    for (const [index, url] of secureUrls.entries()) {
+      signal.throwIfAborted();
+      const attempt = new AbortController();
+      const budget = Math.max(1, Math.floor((expiresAt - Date.now()) / (secureUrls.length - index)));
+      const attemptTimer = setTimeout(() => attempt.abort(new Error("TrueNAS connection attempt timed out")), budget);
+      try {
+        const session = await connectEndpoint(url, options.apiKey, AbortSignal.any([signal, attempt.signal]), budget);
+        if (signal.aborted) { session.closeFn(); signal.throwIfAborted(); }
+        return session;
+      } catch (error) {
+        lastError = error;
+        signal.throwIfAborted();
+        if (error.code === "TRUENAS_AUTH_FAILED") throw error;
+        if (options.appDebugEnabled) logger.debug(`TrueNAS endpoint ${index + 1} failed: ${error.message}`);
+      } finally {
+        clearTimeout(attemptTimer);
+      }
+    }
+    throw lastError;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 module.exports = {

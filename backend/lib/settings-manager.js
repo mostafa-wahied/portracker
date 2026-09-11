@@ -1,14 +1,12 @@
 const db = require('../db');
 const { Logger } = require('./logger');
+const {
+  DEFAULT_SETTINGS,
+  isUserSettingKey,
+  validateUserSettings,
+} = require('./settings-schema');
 
 const logger = new Logger('SettingsManager', { debug: process.env.DEBUG === 'true' });
-
-const DEFAULT_SETTINGS = {
-  theme: 'system',
-  showServiceIcons: true,
-  defaultView: 'service',
-  defaultLayout: 'grid'
-};
 
 function ensureSettingsTable() {
   try {
@@ -47,6 +45,9 @@ function getUserSettings(userId = null) {
   const settings = { ...DEFAULT_SETTINGS };
 
   for (const row of rows) {
+    if (!isUserSettingKey(row.setting_key)) {
+      continue;
+    }
     try {
       settings[row.setting_key] = JSON.parse(row.setting_value);
     } catch {
@@ -58,8 +59,9 @@ function getUserSettings(userId = null) {
 }
 
 function updateUserSetting(userId = null, key, value) {
-  if (!key || typeof key !== 'string') {
-    logger.warn('Invalid setting key provided');
+  const validation = validateUserSettings({ [key]: value });
+  if (!validation.valid) {
+    logger.warn(validation.error);
     return false;
   }
 
@@ -87,8 +89,9 @@ function updateUserSetting(userId = null, key, value) {
 }
 
 function updateUserSettings(userId = null, settings) {
-  if (!settings || typeof settings !== 'object') {
-    logger.warn('Invalid settings object provided');
+  const validation = validateUserSettings(settings);
+  if (!validation.valid) {
+    logger.warn(validation.error);
     return false;
   }
 
@@ -117,11 +120,79 @@ function getDefaultSettings() {
   return { ...DEFAULT_SETTINGS };
 }
 
+function initializeSettingsStorage() {
+  if (!ensureSettingsTable()) {
+    return false;
+  }
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS autoxpose_connection (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        url TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      )
+    `);
+    const migrationId = 'autoxpose-connection-trust-v1';
+    const applyMigration = db.transaction(() => {
+      const applied = db.prepare(
+        'SELECT id FROM settings_migrations WHERE id = ?'
+      ).get(migrationId);
+      if (applied) return;
+      db.prepare(
+        "DELETE FROM user_settings WHERE setting_key IN ('autoxposeUrl', 'autoxposeEnabled')"
+      ).run();
+      db.prepare(
+        'INSERT INTO settings_migrations (id, applied_at) VALUES (?, ?)'
+      ).run(migrationId, new Date().toISOString());
+    });
+    applyMigration();
+    return true;
+  } catch (error) {
+    logger.error('Failed to initialize settings storage:', error.message);
+    return false;
+  }
+}
+
+function getAutoxposeConnection() {
+  const row = db.prepare(
+    'SELECT url FROM autoxpose_connection WHERE id = 1'
+  ).get();
+  return row || null;
+}
+
+function setAutoxposeConnection(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return false;
+  }
+
+  db.prepare(`
+    INSERT INTO autoxpose_connection (id, url, updated_at)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      url = excluded.url,
+      updated_at = excluded.updated_at
+  `).run(url.trim(), new Date().toISOString());
+  return true;
+}
+
+function clearAutoxposeConnection() {
+  db.prepare('DELETE FROM autoxpose_connection WHERE id = 1').run();
+  return true;
+}
+
 module.exports = {
   getUserSettings,
   updateUserSetting,
   updateUserSettings,
   deleteSetting,
   getDefaultSettings,
-  ensureSettingsTable
+  ensureSettingsTable,
+  initializeSettingsStorage,
+  getAutoxposeConnection,
+  setAutoxposeConnection,
+  clearAutoxposeConnection,
 };

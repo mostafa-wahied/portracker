@@ -1,85 +1,144 @@
 const { Logger } = require('./logger');
 const { SimpleTTLCache } = require('../utils/cache');
+const { requestAutoxposeJson } = require('./autoxpose-http');
 
 const logger = new Logger('AutoxposeClient', { debug: process.env.DEBUG === 'true' });
-const CACHE_TTL = parseInt(process.env.AUTOXPOSE_CACHE_TTL_MS || '30000', 10);
+const configuredCacheTtl = parseInt(process.env.AUTOXPOSE_CACHE_TTL_MS || '30000', 10);
+const CACHE_TTL = Number.isInteger(configuredCacheTtl) && configuredCacheTtl > 0
+  ? configuredCacheTtl
+  : 30000;
 
 class AutoxposeClient {
-  constructor(baseUrl = null) {
+  constructor(baseUrl = null, options = {}) {
     this.baseUrl = baseUrl || process.env.AUTOXPOSE_URL || null;
     this.enabled = process.env.AUTOXPOSE_ENABLED === 'true';
     this.cache = new SimpleTTLCache();
     this.connected = false;
     this.domain = null;
     this.initialized = false;
+    this.initializePromise = null;
+    this.restoreError = null;
+    this.nextRestoreAttemptAt = 0;
+    this.now = options.now || Date.now;
+    this.restoreRetryMs = options.restoreRetryMs || CACHE_TTL;
+    this.requestJson = options.requestJson || requestAutoxposeJson;
+    this.lookup = options.lookup;
+    this.settingsManager = options.settingsManager;
   }
 
   async initialize() {
     if (this.initialized) return;
-    
+    if (this.now() < this.nextRestoreAttemptAt) return;
+    if (this.initializePromise) return this.initializePromise;
+    this.initializePromise = this.restoreConnection();
     try {
-      const settingsManager = require('./settings-manager');
-      const settings = settingsManager.getUserSettings(null);
-      
-      if (settings.autoxposeEnabled && settings.autoxposeUrl) {
-        this.baseUrl = settings.autoxposeUrl;
-        logger.info(`Restoring autoxpose connection to ${this.baseUrl}`);
-        const result = await this.testConnection();
+      await this.initializePromise;
+    } finally {
+      this.initializePromise = null;
+    }
+  }
+
+  async restoreConnection() {
+    try {
+      const settingsManager = this.settingsManager || require('./settings-manager');
+      const connection = settingsManager.getAutoxposeConnection();
+      const configuredUrl = connection?.url
+        ? connection.url
+        : this.enabled && this.baseUrl
+          ? this.baseUrl
+          : null;
+
+      if (configuredUrl) {
+        logger.info('Restoring configured autoxpose connection');
+        const result = await this.connect(configuredUrl);
         if (result.success) {
+          this.nextRestoreAttemptAt = 0;
           logger.info('Autoxpose connection restored successfully');
         } else {
+          this.nextRestoreAttemptAt = this.now() + this.restoreRetryMs;
+          this.restoreError = result.error;
           logger.warn(`Failed to restore autoxpose connection: ${result.error}`);
         }
+      } else {
+        this.initialized = true;
+        this.restoreError = null;
       }
     } catch (error) {
+      this.nextRestoreAttemptAt = this.now() + this.restoreRetryMs;
+      this.restoreError = error.message;
       logger.error(`Error initializing autoxpose client: ${error.message}`);
     }
-    
-    this.initialized = true;
   }
 
   setBaseUrl(url) {
     this.baseUrl = url;
     this.connected = false;
+    this.domain = null;
+    if (!url) {
+      this.enabled = false;
+    }
     this.cache.clear();
+    this.restoreError = null;
+    this.nextRestoreAttemptAt = 0;
   }
 
   isEnabled() {
     return this.connected && !!this.baseUrl;
   }
 
-  async testConnection() {
-    if (!this.baseUrl) {
+  async fetchEndpoint(baseUrl, endpoint) {
+    return this.requestJson(baseUrl, endpoint, {
+      lookup: this.lookup,
+    });
+  }
+
+  async probeConnection(baseUrl) {
+    if (!baseUrl) {
       return { success: false, error: 'No Autoxpose URL configured' };
     }
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
-      const res = await fetch(`${this.baseUrl}/health`, {
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      });
-
-      clearTimeout(timeout);
+      const res = await this.fetchEndpoint(baseUrl, '/health');
 
       if (!res.ok) {
         return { success: false, error: `HTTP ${res.status}` };
       }
 
-      const data = await res.json();
-      this.connected = data.status === 'ok';
-      if (this.connected) {
-        logger.info(`Connected to Autoxpose at ${this.baseUrl}`);
-      }
-      return { success: this.connected, version: data.version || 'unknown' };
+      const success = res.data && typeof res.data === 'object' && res.data.status === 'ok';
+      return success
+        ? { success: true, url: res.url }
+        : { success: false, error: 'Unexpected health response' };
     } catch (error) {
-      this.connected = false;
       const message = error.name === 'AbortError' ? 'Connection timeout' : error.message;
       logger.warn(`Failed to connect to Autoxpose: ${message}`);
       return { success: false, error: message };
     }
+  }
+
+  async connect(baseUrl) {
+    const result = await this.probeConnection(baseUrl);
+    if (result.success) {
+      this.setBaseUrl(result.url);
+      this.connected = true;
+      this.enabled = true;
+      this.initialized = true;
+      this.restoreError = null;
+      logger.info(`Connected to Autoxpose at ${result.url}`);
+      return { success: true };
+    }
+    return result;
+  }
+
+  async testConnection() {
+    const result = await this.probeConnection(this.baseUrl);
+    this.connected = result.success;
+    if (result.success) {
+      this.setBaseUrl(result.url);
+      this.connected = true;
+      logger.info(`Connected to Autoxpose at ${result.url}`);
+      return { success: true };
+    }
+    return result;
   }
 
   async getServices() {
@@ -93,17 +152,17 @@ class AutoxposeClient {
     }
 
     try {
-      const res = await fetch(`${this.baseUrl}/api/services?includeExternal=true`, {
-        headers: { 'Accept': 'application/json' }
-      });
+      const res = await this.fetchEndpoint(
+        this.baseUrl,
+        '/api/services?includeExternal=true'
+      );
 
       if (!res.ok) {
         logger.warn(`Failed to fetch services: HTTP ${res.status}`);
         return [];
       }
 
-      const data = await res.json();
-      const services = data.services || [];
+      const services = Array.isArray(res.data?.services) ? res.data.services : [];
       this.cache.set('services', services, CACHE_TTL);
       return services;
     } catch (error) {
@@ -127,17 +186,16 @@ class AutoxposeClient {
     }
 
     try {
-      const res = await fetch(`${this.baseUrl}/api/settings/dns`, {
-        headers: { 'Accept': 'application/json' }
-      });
+      const res = await this.fetchEndpoint(this.baseUrl, '/api/settings/dns');
 
       if (!res.ok) {
         logger.warn(`Failed to fetch DNS settings: HTTP ${res.status}`);
         return null;
       }
 
-      const data = await res.json();
-      const domain = data.domain || null;
+      const domain = typeof res.data?.domain === 'string'
+        ? res.data.domain.slice(0, 253)
+        : null;
       if (domain) {
         this.domain = domain;
         this.cache.set('domain', domain, CACHE_TTL * 10);
@@ -308,10 +366,12 @@ class AutoxposeClient {
       enabled: this.enabled,
       configured: !!this.baseUrl,
       connected: this.connected,
-      url: this.baseUrl ? this.baseUrl.replace(/\/+$/, '') : null
+      url: this.baseUrl ? this.baseUrl.replace(/\/+$/, '') : null,
+      error: this.restoreError,
     };
   }
 }
 
 const autoxposeClient = new AutoxposeClient();
 module.exports = autoxposeClient;
+module.exports.AutoxposeClient = AutoxposeClient;

@@ -24,6 +24,11 @@ class TrueNASClient {
     this.apiKey = process.env.TRUENAS_API_KEY || options.apiKey;
     this.host = options.host;
     this.port = options.port;
+    this.connectionPromise = null;
+    this.connectionController = null;
+    this.connectionError = null;
+    this.retryAt = 0;
+    this.sessionIsConnected = null;
   }
 
   /**
@@ -34,31 +39,36 @@ class TrueNASClient {
     this.logger.error(...args);
   }
 
-  async connect() {
-    if (this.connected) {
+  async connect(options = {}) {
+    if (this.connected && this.sessionIsConnected?.()) {
       return;
     }
-
-    if (this.appDebugEnabled) {
-      this.logger.debug("Attempting to connect...");
+    this.connected = false;
+    if (this.connectionPromise) return this.connectionPromise;
+    if (this.connectionError && Date.now() < this.retryAt) {
+      throw this.connectionError;
     }
-    await this._doConnect();
+    const controller = new AbortController();
+    this.connectionController = controller;
+    const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
+    const pending = this._doConnect({ ...options, signal });
+    this.connectionPromise = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.connectionPromise === pending) this.connectionPromise = null;
+      if (this.connectionController === controller) this.connectionController = null;
+    }
   }
 
-  async _doConnect() {
+  async _doConnect(options = {}) {
     try {
       if (this.appDebugEnabled) {
         this.logger.debug("Attempting WebSocket connection...");
       }
 
       if (!this.apiKey) {
-        if (this.appDebugEnabled) {
-          this.logger.info(
-            "No API key provided - TrueNAS enhanced features will be disabled. Setting up graceful degradation."
-          );
-        }
-        this._setupGracefulDegradation();
-        return;
+        throw new Error("TrueNAS enhanced features are not configured");
       }
 
       if (this.appDebugEnabled) {
@@ -71,11 +81,20 @@ class TrueNASClient {
         appDebugEnabled: this.appDebugEnabled,
         host: this.host,
         port: this.port,
+        signal: options.signal,
+        timeoutMs: options.timeoutMs,
       });
+      if (options.signal?.aborted) {
+        wsConnection.closeFn();
+        options.signal.throwIfAborted();
+      }
       this.client = wsConnection.requestFn;
       this.wsCloseFn = wsConnection.closeFn;
+      this.sessionIsConnected = wsConnection.isConnected;
       this.clientType = "websocket";
       this.connected = true;
+      this.connectionError = null;
+      this.retryAt = 0;
       if (this.appDebugEnabled) {
         this.logger.info("Connected via WebSocket with authentication");
       }
@@ -84,44 +103,25 @@ class TrueNASClient {
         this.logger.warn(`WebSocket connection failed: ${wsError.message}`);
       }
   this.logger.error("WebSocket connection error", { err: wsError });
-      this._setupGracefulDegradation();
+      this.client = null;
+      this.clientType = "unavailable";
+      this.connected = false;
+      this.connectionError = wsError;
+      const retryDelay = Number(process.env.TRUENAS_RETRY_DELAY_MS || 60000);
+      this.retryAt = wsError.code === "TRUENAS_AUTH_FAILED" ? Infinity :
+        Date.now() + (Number.isFinite(retryDelay) && retryDelay > 0 ? retryDelay : 60000);
+      throw wsError;
     }
   }
 
-  _setupGracefulDegradation() {
-    if (this.appDebugEnabled) {
-      this.logger.debug("Setting up graceful degradation mode for TrueNASClient");
-    }
-
-    this.client = async (method) => {
-      if (this.appDebugEnabled) {
-        this.logger.debug(
-          `TrueNAS method ${method} called in graceful degradation mode. No API call made.`
-        );
-      }
-      if (method === "system.info") return Promise.resolve({});
-      if (method === "app.query") return Promise.resolve([]);
-      if (method === "virt.instance.query") return Promise.resolve([]);
-      return Promise.resolve(null);
-    };
-
-    this.clientType = "graceful-degradation";
-    this.connected = true;
-    if (this.appDebugEnabled) {
-      this.logger.info("TrueNASClient graceful degradation active.");
-    }
-  }
-
-  async call(method, params = []) {
-    if (!this.connected) {
-      await this.connect();
-    }
+  async call(method, params = [], options = {}) {
+    await this.connect(options);
 
     try {
       if (this.appDebugEnabled) {
         this.logger.debug(`Calling TrueNAS API method: ${method}`);
       }
-      const result = await this.client(method, params);
+      const result = await this.client(method, params, options);
       if (this.appDebugEnabled) {
         this.logger.debug(`Received response for ${method}`);
       }
@@ -136,6 +136,7 @@ class TrueNASClient {
   }
 
   close() {
+    this.connectionController?.abort(new Error("TrueNAS connection cancelled"));
     if (this.wsCloseFn) {
       if (this.appDebugEnabled) {
         this.logger.debug("Closing TrueNASClient WebSocket connection via wsCloseFn");
@@ -145,6 +146,7 @@ class TrueNASClient {
     }
     this.client = null;
     this.connected = false;
+    this.sessionIsConnected = null;
     if (this.appDebugEnabled) {
       this.logger.info("TrueNASClient connection closed and reset.");
     }

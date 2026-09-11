@@ -19,7 +19,7 @@ function debugDiscovery(message, ...args) {
  * @returns {Promise<Object|null>} UI configuration or null if failed
  */
 async function discoverUIConfig(options = {}) {
-  const { appDebugEnabled = false } = options;
+  const { appDebugEnabled = false, signal } = options;
   const socketPaths = [
     "/var/run/middlewared.sock",
     "/run/middlewared.sock",
@@ -27,6 +27,7 @@ async function discoverUIConfig(options = {}) {
   ];
 
   for (const socketPath of socketPaths) {
+    signal?.throwIfAborted();
     if (!fs.existsSync(socketPath)) continue;
 
     try {
@@ -36,7 +37,7 @@ async function discoverUIConfig(options = {}) {
       const result = await callSocketMethod(
         socketPath,
         "system.general.config",
-        { appDebugEnabled }
+        { appDebugEnabled, signal }
       );
 
       if (result) {
@@ -54,6 +55,7 @@ async function discoverUIConfig(options = {}) {
         return config;
       }
     } catch (err) {
+      signal?.throwIfAborted();
       if (appDebugEnabled) {
         debugDiscovery(`Failed to discover via ${socketPath}: ${err.message}`);
       }
@@ -66,7 +68,7 @@ async function discoverUIConfig(options = {}) {
         const result = await callSocketMethod(
           socketPath,
           "system.general.config",
-          { appDebugEnabled }
+          { appDebugEnabled, signal }
         );
         if (result) {
           const config = {
@@ -85,6 +87,7 @@ async function discoverUIConfig(options = {}) {
           return config;
         }
       } catch (err2) {
+        signal?.throwIfAborted();
         if (appDebugEnabled) {
           debugDiscovery(
             `Alternative method call also failed for ${socketPath}: ${err2.message}`
@@ -109,7 +112,7 @@ async function discoverUIConfig(options = {}) {
  * @returns {Promise<any>}
  */
 function callSocketMethod(socketPath, method, options = {}) {
-  const { appDebugEnabled = false } = options;
+  const { appDebugEnabled = false, signal } = options;
   return new Promise((resolve, reject) => {
     const http = require("http");
 
@@ -119,6 +122,7 @@ function callSocketMethod(socketPath, method, options = {}) {
     const req = http.request(
       {
         socketPath: socketPath,
+        signal,
         path: "/_middleware",
         method: "POST",
         headers: {

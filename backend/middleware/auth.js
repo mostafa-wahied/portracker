@@ -9,6 +9,53 @@ const { Logger } = require('../lib/logger');
 const { validateAnyApiKey } = require('../lib/api-key-manager');
 
 const logger = new Logger('AuthMiddleware', { debug: process.env.DEBUG === 'true' });
+const warnedOriginMismatches = new Set();
+
+function getConfiguredCorsOrigins() {
+  return String(process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(value => value && value !== '*')
+    .map(value => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function requireAllowedOrigin(req, res, next) {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return next();
+  }
+
+  try {
+    const parsedOrigin = new URL(origin);
+    const requestHost = req.headers.host;
+    const configuredOrigins = getConfiguredCorsOrigins();
+    if (
+      parsedOrigin.host === requestHost ||
+      configuredOrigins.includes(parsedOrigin.origin)
+    ) {
+      return next();
+    }
+    const mismatch = `${parsedOrigin.origin}|${requestHost || ''}`;
+    if (!warnedOriginMismatches.has(mismatch)) {
+      warnedOriginMismatches.add(mismatch);
+      logger.warn('Cross-origin request blocked; preserve Host or configure CORS_ORIGIN', {
+        origin: parsedOrigin.origin,
+        host: requestHost || null,
+      });
+    }
+  } catch {
+    logger.debug('Rejected invalid request origin');
+  }
+
+  return res.status(403).json({ error: 'Cross-origin request blocked' });
+}
 
 /**
  * Check if authentication is enabled
@@ -108,6 +155,8 @@ function isLoggedIn(req) {
 }
 
 module.exports = {
+  getConfiguredCorsOrigins,
+  requireAllowedOrigin,
   checkAuthEnabled,
   requireAuth,
   requireAuthOrApiKey,

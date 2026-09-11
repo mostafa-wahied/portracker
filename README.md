@@ -179,9 +179,11 @@ Configure `portracker` using environment variables.
 | `TRUENAS_API_KEY`  | Optional API key for enhanced TrueNAS data collection. | ` `                   |
 | `ENABLE_AUTH`      | Set to `true` to enable authentication (v1.2.0+).      | `false`               |
 | `SESSION_SECRET`   | Only needed with auth enabled. Prevents logout on container restart. | _random_  |
+| `CORS_ORIGIN`      | Comma-separated browser origins for a separately hosted frontend or a reverse proxy that rewrites `Host`. Same-origin access needs no setting. | _disabled_ |
 | `CACHE_TIMEOUT_MS` | Duration in milliseconds to cache scan results.        | `60000`               |
 | `DISABLE_CACHE`    | Set to `true` to disable all caching.                  | `false`               |
 | `INCLUDE_UDP`      | Set to `true` to include UDP ports in scans.           | `false`               |
+| `MAX_INTERNAL_PORTS_PER_CONTAINER` | Maximum unpublished internal ports listed for one container. Containers above the limit keep published ports but omit internal rows. | `100` |
 | `DEBUG`            | Set to `true` for verbose application logging.         | `false`               |
 
 <sub>\*_Required_</sub>
@@ -244,8 +246,11 @@ services:
 
 **Important Notes:**
 - Authentication is **disabled by default** for backward compatibility
-- When enabled, the dashboard requires login but API endpoints for peer communication remain accessible
+- With authentication disabled, anyone who can reach Portracker has administrator-level UI and API control; keep it on a trusted network or protect it with an authenticated reverse proxy
+- When enabled, dashboard, settings, and integration endpoints require a signed-in session
+- Peer data endpoints accept API key authentication for instance-to-instance communication
 - API key authentication for peer-to-peer communication is available in v1.3.0
+- Reverse proxies should preserve the public `Host` header; otherwise set `CORS_ORIGIN` to the exact public origin, including `https://`
 
 ### Autoxpose Integration (v1.3.0+)
 
@@ -257,6 +262,8 @@ If you run [autoxpose](https://github.com/mostafa-wahied/autoxpose) to manage yo
 2. Expand the **autoxpose** section
 3. Enter your autoxpose URL (e.g., `http://autoxpose:3000`)
 4. Click **Connect**
+
+After upgrading to v1.3.11, reconnect an existing autoxpose integration once while signed in. Private LAN and container-DNS addresses remain supported. Loopback, link-local, reserved, credential-bearing, query-bearing, and redirecting destinations are rejected; use the autoxpose service name or LAN address instead of `localhost`.
 
 **What You'll See:**
 

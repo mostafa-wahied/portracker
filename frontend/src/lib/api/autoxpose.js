@@ -28,6 +28,8 @@ export async function disconnectAutoxpose() {
   const res = await fetch(`${API_BASE}/disconnect`, {
     method: "POST",
     credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
   });
   if (!res.ok) {
     throw new Error(`Failed to disconnect: ${res.status}`);

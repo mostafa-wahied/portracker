@@ -22,6 +22,7 @@ const { TrueNASClient } = require("../lib/truenas-rpc");
 const DockerAPIClient = require("../lib/docker-api");
 const PerformanceTracker = require("../utils/performance-tracker");
 const ProcParser = require("../lib/proc-parser");
+const { buildInternalPorts } = require("../lib/docker/internal-ports");
 
 class TrueNASCollector extends BaseCollector {
   /**
@@ -95,31 +96,39 @@ class TrueNASCollector extends BaseCollector {
     }
   }
 
-  async _ensureTrueNASClient() {
-    if (this.client && this.client.connected) {
-      return this.client;
+  async _ensureTrueNASClient(signal) {
+    signal?.throwIfAborted();
+    if (!this.client) this.client = new TrueNASClient({ debug: this.debug });
+    await this.client.connect({ signal });
+    signal?.throwIfAborted();
+    return this.client;
+  }
+
+  async _collectEnhancedWithinDeadline() {
+    const configured = Number(process.env.TRUENAS_TIMEOUT_MS || 90000);
+    const timeoutMs = Number.isFinite(configured) && configured > 0 ? configured : 90000;
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error("TrueNAS enrichment timed out; Docker and system ports remain available");
+        controller.abort(error);
+        this.client?.close();
+        reject(error);
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([
+        (async () => {
+          await this._ensureTrueNASClient(controller.signal);
+          controller.signal.throwIfAborted();
+          return this._collectEnhancedFeatures(controller.signal);
+        })(),
+        deadline,
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
-    
-    if (this._clientInitPromise) {
-      return this._clientInitPromise;
-    }
-    
-    this._clientInitPromise = (async () => {
-      try {
-        this.client = new TrueNASClient({ debug: this.debug });
-        await this.client.connect();
-        this.log('TrueNAS client connected and ready');
-        return this.client;
-      } catch (err) {
-        this.logWarn('TrueNAS client initialization failed:', err.message);
-        this.client = null;
-        throw err;
-      } finally {
-        this._clientInitPromise = null;
-      }
-    })();
-    
-    return this._clientInitPromise;
   }
 
   /**
@@ -742,30 +751,17 @@ class TrueNASCollector extends BaseCollector {
         }
 
         const containerInspection = await this.dockerApi.inspectContainer(containerId);
-        const exposedPorts = containerInspection.Config.ExposedPorts || {};
-        
-        for (const [exposedPort] of Object.entries(exposedPorts)) {
-          const [port, protocol] = exposedPort.split('/');
-          const portNum = parseInt(port, 10);
-          
-          const isPublished = portBindings[exposedPort] && portBindings[exposedPort] !== null;
-          
-          if (!isNaN(portNum) && !isPublished) {
-            ports.push({
-              source: "docker",
-              owner: effectiveOwner,
-              protocol: protocol || "tcp",
-              host_ip: "0.0.0.0",
-              host_port: portNum,
-              target: `${containerId.substring(0, 12)}:${portNum}(internal)`,
-              container_id: containerId,
-              vm_id: null,
-              app_id: effectiveOwner,
-              internal: true,
-              compose_project: composeProject,
-              compose_service: composeService,
-            });
-          }
+        const internalPorts = buildInternalPorts({
+          exposedPorts: containerInspection.Config?.ExposedPorts || {},
+          portBindings,
+          containerId,
+          containerName: effectiveOwner,
+          composeProject,
+          composeService,
+          logWarn: this.logWarn.bind(this),
+        });
+        for (const internalPort of internalPorts) {
+          ports.push({ ...internalPort, vm_id: null });
         }
       }
       
@@ -1185,6 +1181,7 @@ class TrueNASCollector extends BaseCollector {
       vms: [],
       error: null,
       enhancedFeaturesEnabled: !!process.env.TRUENAS_API_KEY,
+      enhancedFeaturesStatus: { state: process.env.TRUENAS_API_KEY ? "pending" : "disabled" },
     };
 
     let containerCreationTimeMap = new Map();
@@ -1551,22 +1548,13 @@ class TrueNASCollector extends BaseCollector {
       const apiKey = process.env.TRUENAS_API_KEY;
       if (apiKey) {
         this.logInfo("API key detected - collecting enhanced TrueNAS features");
-        this.logInfo("First collection may take longer as middleware initializes connections...");
-        
-        const enhancedFeaturesTimeout = parseInt(process.env.TRUENAS_TIMEOUT_MS || '90000', 10);
-        this.log(`Using enhanced features timeout: ${enhancedFeaturesTimeout/1000}s`);
-        
         try {
-          await this._ensureTrueNASClient();
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`TrueNAS enhanced features timeout after ${enhancedFeaturesTimeout/1000} seconds - your TrueNAS middleware may be slow or unresponsive`)), enhancedFeaturesTimeout)
-          );
-          
-          const enhancedData = await Promise.race([
-            this._collectEnhancedFeatures(),
-            timeoutPromise
-          ]);
+          const enhancedData = await this._collectEnhancedWithinDeadline();
+          const failures = enhancedData.failures || [];
+          results.enhancedFeaturesStatus = {
+            state: failures.length ? "degraded" : "ready",
+            failedMethods: failures,
+          };
           
           if (enhancedData.systemInfo) {
             results.systemInfo = {
@@ -1641,7 +1629,7 @@ class TrueNASCollector extends BaseCollector {
             results.vms.push(...lxcContainers);
             this.log(`Collected ${lxcContainers.length} TrueNAS LXC containers`);
           }
-          this.logInfo("Enhanced features collection completed successfully");
+          if (!failures.length) this.logInfo("Enhanced features collection completed successfully");
           
           const enhancedCollectionDuration = Date.now() - perf.operations.get("enhanced-features-collection")?.startTime || 0;
           if (enhancedCollectionDuration > 10000) {
@@ -1649,28 +1637,16 @@ class TrueNASCollector extends BaseCollector {
             this.logInfo("Consider: reducing number of apps, checking system resources (CPU/RAM/disk), or increasing TRUENAS_TIMEOUT_MS");
           }
         } catch (err) {
+          results.enhancedFeaturesStatus = {
+            state: "degraded",
+            code: err.code || "TRUENAS_UNAVAILABLE",
+            message: err.message,
+          };
           this.logWarn("TrueNAS enhanced features collection failed:", err.message);
           this.logInfo("Continuing with Docker and system port data only");
-          
-          if (err.message.includes('timeout')) {
-            this.logInfo("TrueNAS middleware timeout - your system may be slow or under load");
-            this.logInfo("Troubleshooting steps:");
-            this.logInfo("  1. Check TrueNAS system resources: CPU, RAM, disk I/O");
-            this.logInfo("  2. Restart TrueNAS middleware: systemctl restart middlewared");
-            this.logInfo("  3. Increase overall timeout: TRUENAS_TIMEOUT_MS=120000 (2 minutes)");
-            this.logInfo("  4. Or adjust specific API timeouts:");
-            this.logInfo("     - TRUENAS_SYSTEM_INFO_TIMEOUT_MS=60000 (system info)");
-            this.logInfo("     - TRUENAS_APP_QUERY_TIMEOUT_MS=45000 (apps - slow with many apps)");
-            this.logInfo("     - TRUENAS_VM_QUERY_TIMEOUT_MS=30000 (VMs)");
-            this.logInfo("     - TRUENAS_CONTAINER_QUERY_TIMEOUT_MS=30000 (containers)");
-            this.logInfo("  5. Check middleware logs: journalctl -u middlewared -n 100");
-            this.logInfo("  6. See troubleshooting guide: https://github.com/mostafa-wahied/portracker#truenas-troubleshooting");
-          }
-          
           if (this.client) {
             try {
               this.client.close();
-              this.client = null;
             } catch (closeErr) {
               this.logWarn("Error closing TrueNAS client after failure:", closeErr.message);
             }
@@ -2164,7 +2140,7 @@ class TrueNASCollector extends BaseCollector {
   /**
    * Collect enhanced features using API key
    */
-  async _collectEnhancedFeatures() {
+  async _collectEnhancedFeatures(signal) {
     const results = {
       systemInfo: null,
       apps: [],
@@ -2184,25 +2160,21 @@ class TrueNASCollector extends BaseCollector {
       {
         name: 'system.info',
         timeout: systemInfoTimeout,
-        call: () => this.client.call("system.info"),
         resultKey: 'systemInfo',
       },
       {
         name: 'app.query',
         timeout: appQueryTimeout,
-        call: () => this.client.call("app.query"),
         resultKey: 'apps',
       },
       {
         name: 'vm.query',
         timeout: vmQueryTimeout,
-        call: () => this.client.call("vm.query"),
         resultKey: 'vms',
       },
       {
         name: 'virt.instance.query',
         timeout: containerQueryTimeout,
-        call: () => this.client.call("virt.instance.query"),
         resultKey: 'containers',
       },
     ];
@@ -2211,11 +2183,7 @@ class TrueNASCollector extends BaseCollector {
       const startTime = Date.now();
       
       try {
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`${apiCall.name} timeout after ${apiCall.timeout/1000}s`)), apiCall.timeout)
-        );
-        
-        const data = await Promise.race([apiCall.call(), timeoutPromise]);
+        const data = await this.client.call(apiCall.name, [], { signal, timeoutMs: apiCall.timeout });
         const duration = Date.now() - startTime;
         
         this.log(`${apiCall.name} completed in ${duration}ms`);

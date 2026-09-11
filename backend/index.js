@@ -13,14 +13,16 @@ const { createCollector, detectCollector } = require('./collectors');
 const net = require('net');
 const db = require('./db');
 const https = require("https");
-const { requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
+const { getConfiguredCorsOrigins, requireAllowedOrigin, requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
+const settingsManager = require('./lib/settings-manager');
 const { registerServerRoutes } = require('./routes/servers');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 const { getDockerHostIP } = require('./lib/docker-host');
+const { buildContainerPortDetails, sanitizeDockerInspection, sanitizeInternalPortRows, sanitizeScanPayload } = require('./lib/docker/internal-ports');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
 const BASE_DEBUG = process.env.DEBUG === 'true';
@@ -476,12 +478,18 @@ try {
   logger.debug("Stack trace:", error.stack || "");
 }
 
+if (!settingsManager.initializeSettingsStorage()) {
+  logger.fatal("Settings storage initialization failed");
+  process.exit(1);
+}
+
 const app = express();
 
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
+const corsOrigins = getConfiguredCorsOrigins();
+if (corsOrigins.length) {
+  app.use(cors({ origin: corsOrigins, credentials: true }));
+}
+app.use(requireAllowedOrigin);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -515,8 +523,8 @@ if (isAuthEnabled()) {
 app.use(checkAuthEnabled);
 
 app.use('/api/auth', authRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/autoxpose', autoxposeRoutes);
+app.use('/api/settings', requireAuth, settingsRoutes);
+app.use('/api/autoxpose', requireAuth, autoxposeRoutes);
 registerServerRoutes(app, { db, logger, requireAuth, validateServerInput });
 
 const PORT = process.env.PORT || 3000;
@@ -545,7 +553,8 @@ app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
     const systemPorts = await systemCollector.getPorts();
     entries.push(...systemPorts);
 
-    const normalized = entries
+    const sanitizedEntries = sanitizeInternalPortRows(entries, logger.warn.bind(logger));
+    const normalized = sanitizedEntries
       .filter((e) => e.host_port && e.host_ip)
       .reduce((acc, entry) => {
         const key = `${entry.host_ip}:${entry.host_port}:${entry.protocol}`;
@@ -567,9 +576,9 @@ app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
       }, {});
 
     const payload = Object.values(normalized).map((e) => ({
-      ...e,
-      owner: e.owners.join(", "),
-    }));
+        ...e,
+        owner: e.owners.join(", "),
+      }));
     if (!debug && process.env.DISABLE_CACHE !== 'true') {
       responseCache.set(cacheKey, payload, RESP_TTL_PORTS);
     }
@@ -654,7 +663,7 @@ async function getLocalPortsUsingCollectors(options = {}) {
     const collector = await detectCollector({ debug: currentDebug });
     logger.debug(`[getLocalPortsUsingCollectors] Detected collector: ${collector?.platform}`);
 
-    const ports = await collector.getPorts();
+    const ports = sanitizeInternalPortRows(await collector.getPorts(), logger.warn.bind(logger));
     logger.debug(`[getLocalPortsUsingCollectors] Collected ${ports?.length || 0} ports.`);
 
     await enrichComposeLabelsOnPorts(ports);
@@ -867,7 +876,7 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
         collector = createCollector(platformType, { debug: currentDebug });
       }
 
-      const collectData = await collector.collectAll();
+      const collectData = sanitizeScanPayload(await collector.collectAll(), logger.warn.bind(logger));
 
       if (collectData.ports && Array.isArray(collectData.ports)) {
         await enrichComposeLabelsOnPorts(collectData.ports);
@@ -950,7 +959,7 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
             });
           }
 
-          const peerScanData = await peerResponse.json();
+          const peerScanData = sanitizeScanPayload(await peerResponse.json(), logger.warn.bind(logger));
           
           logger.debug(`Peer scan complete: ${server.label} (${serverId})`);
           return res.json(peerScanData);
@@ -1047,7 +1056,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
             const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal, headers: peerHeaders });
 
             if (scanResponse.ok) {
-              const scanData = await scanResponse.json();
+              const scanData = sanitizeScanPayload(await scanResponse.json(), logger.warn.bind(logger));
               const suggestion = await generateUnusedPortFromPortList(scanData?.ports || [], { bindCheck: false, method: "scan-only-peer-fallback" });
               return res.json({
                 port: suggestion.port,
@@ -2367,6 +2376,15 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => 
         const text = await remoteResp.text();
         let body;
         try { body = JSON.parse(text); } catch { body = text; }
+        if (body && Array.isArray(body.ports)) {
+          body.ports = sanitizeInternalPortRows(body.ports, logger.warn.bind(logger));
+          body.exposedUnmapped = body.ports
+            .filter((port) => port && port.internal === true)
+            .map((port) => ({ port: port.container_port, protocol: port.protocol }));
+        }
+        if (body && body.raw) {
+          body.raw = sanitizeDockerInspection(body.raw, logger.warn.bind(logger));
+        }
         return res.status(remoteResp.status).send(body);
       } catch (proxyErr) {
         logger.error(`Proxy to peer ${serverId} for container ${containerId} failed:`, proxyErr.message);
@@ -2395,33 +2413,13 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => 
     }
   }
 
-    const portsObj = insp.NetworkSettings?.Ports || {};
-    const portMappings = [];
-    const exposedUnmapped = [];
-    for (const [containerPort, hostBindings] of Object.entries(portsObj)) {
-      if (hostBindings && Array.isArray(hostBindings) && hostBindings.length) {
-        for (const hb of hostBindings) {
-          portMappings.push({
-            host_ip: hb.HostIp || '0.0.0.0',
-            host_port: parseInt(hb.HostPort, 10),
-            container_port: parseInt(containerPort.split('/')[0], 10),
-            protocol: containerPort.split('/')[1] || 'tcp'
-          });
-        }
-      } else {
-        const [p, proto] = containerPort.split('/');
-        const portNum = parseInt(p, 10);
-        const entry = {
-          host_ip: '0.0.0.0',
-          host_port: portNum,
-          container_port: portNum,
-          protocol: proto || 'tcp',
-          internal: true
-        };
-        portMappings.push(entry);
-        exposedUnmapped.push({ port: portNum, protocol: proto || 'tcp' });
-      }
-    }
+    const { portMappings, exposedUnmapped } = buildContainerPortDetails({
+      exposedPorts: insp.Config?.ExposedPorts || {},
+      portBindings: insp.NetworkSettings?.Ports || {},
+      configuredBindings: insp.HostConfig?.PortBindings || {},
+      containerName: (insp.Name || containerId).replace(/^\//, ''),
+      logWarn: (message) => logger.warn(message),
+    });
 
   const rawRestartPolicy = insp.HostConfig?.RestartPolicy?.Name;
   const normalizedRestartPolicy = rawRestartPolicy && rawRestartPolicy !== '' ? rawRestartPolicy : 'none';
@@ -2470,7 +2468,7 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => 
       exportedAt: exportJson ? new Date().toISOString() : undefined
     };
     if (includeRaw) {
-      response.raw = insp;
+      response.raw = sanitizeDockerInspection(insp, logger.warn.bind(logger));
     }
     if (exportJson) {
       res.setHeader('Content-Type', 'application/json');

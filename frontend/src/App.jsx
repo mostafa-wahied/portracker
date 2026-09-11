@@ -271,8 +271,14 @@ export default function App() {
   const [autoxposePorts, setAutoxposePorts] = useState(null);
 
   useEffect(() => {
+    if (auth.loading || (auth.authEnabled && !auth.authenticated)) {
+      return undefined;
+    }
+
+    let active = true;
     getAutoxposeStatus()
       .then((status) => {
+        if (!active) return;
         setAutoxposeStatus(status);
         if (status.displayMode) {
           setAutoxposeDisplayModeState(status.displayMode);
@@ -282,7 +288,10 @@ export default function App() {
         }
       })
       .catch(() => {});
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [auth.loading, auth.authEnabled, auth.authenticated]);
 
   useEffect(() => {
     if (!autoxposeStatus.connected) {
@@ -637,21 +646,8 @@ export default function App() {
       groupMap.forEach((portsInGroup) => {
         portsInGroup.sort((a, b) => a.host_port - b.host_port);
 
-        portsInGroup.forEach((port, index) => {
-          portsWithGroupInfo.push({
-            ...port,
-            groupId:
-              port.source === "docker"
-                ? port.container_id || port.app_id || port.owner
-                : `${port.source}-${port.host_ip}-${port.host_port}-${
-                    port.owner
-                  }-${port.pid || Math.random()}`,
-            groupIndex: index,
-            groupCount: portsInGroup.length,
-            groupSiblings: portsInGroup.map(
-              (p) => `${p.host_ip}:${p.host_port}`
-            ),
-          });
+        portsInGroup.forEach((port) => {
+          portsWithGroupInfo.push(port);
         });
       });
 
@@ -712,7 +708,6 @@ export default function App() {
                   platformName: scanData.platformName,
                   data: transformedPorts,
                   systemInfo: scanData.systemInfo,
-                  applications: scanData.applications,
                   vms: scanData.vms,
                   parentId: server.parentId,
                   platform_type: server.platform_type || scanData.platform,
@@ -772,7 +767,6 @@ export default function App() {
                   platformName: scanData.platformName,
                   data: transformedPorts,
                   systemInfo: scanData.systemInfo,
-                  applications: scanData.applications,
                   vms: scanData.vms,
                   parentId: server.parentId,
                   platform_type: server.platform_type || scanData.platform,
@@ -1634,7 +1628,6 @@ export default function App() {
               platformName: scanData.platformName,
               data: transformedPorts,
               systemInfo: scanData.systemInfo,
-              applications: scanData.applications,
               vms: scanData.vms,
               parentId: serverData.parentId,
               platform_type: serverData.platform_type || scanData.platform,
@@ -1779,8 +1772,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (auth.loading || (auth.authEnabled && !auth.authenticated)) {
+      return;
+    }
     fetchServers();
-  }, [fetchServers]);
+  }, [fetchServers, auth.loading, auth.authEnabled, auth.authenticated]);
 
   const selectedServerData = useMemo(() => {
     if (!selectedServer) return null;

@@ -4,6 +4,7 @@ const { Logger } = require('../lib/logger');
 const { requireAuth, isAuthEnabled } = require('../middleware/auth');
 const settingsManager = require('../lib/settings-manager');
 const apiKeyManager = require('../lib/api-key-manager');
+const { validateUserSettings } = require('../lib/settings-schema');
 
 const router = express.Router();
 const logger = new Logger('SettingsRoutes', { debug: process.env.DEBUG === 'true' });
@@ -24,9 +25,10 @@ router.put('/', (req, res) => {
   try {
     const userId = isAuthEnabled() && req.session?.userId ? req.session.userId : null;
     const settings = req.body;
+    const validation = validateUserSettings(settings);
 
-    if (!settings || typeof settings !== 'object') {
-      return res.status(400).json({ error: 'Invalid settings data' });
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
     }
 
     settingsManager.updateUserSettings(userId, settings);

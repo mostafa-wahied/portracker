@@ -4,6 +4,35 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.11] - 2026-09-11
+
+### Security
+
+<!-- whatsnew:title=Authentication now protects settings and integrations -->
+<!-- whatsnew:description=When authentication is enabled, settings and autoxpose controls now require a signed-in session. Existing autoxpose connections must be reconnected once after upgrading. Reported by Mirko Benacci. -->
+- **[Authentication Boundary]**: Protected settings and autoxpose routes when `ENABLE_AUTH=true`, preventing unauthenticated configuration changes, integration inventory access, and server-side URL requests. autoxpose requests are pinned to validated addresses, time/size bounded, and prevented from reaching loopback, link-local, reserved, or redirect destinations; intended private LAN destinations remain supported. Browser access is same-origin by default, and generic settings writes cannot change connection state. Existing saved autoxpose connections are intentionally cleared and must be reconnected once by a signed-in user. Reported by Mirko Benacci.
+
+### Fixed
+
+<!-- whatsnew:title=Fixed a crash caused by containers exposing thousands of ports -->
+<!-- whatsnew:description=Some apps (like the Ubikron stack) expose thousands of unpublished internal ports on a single container, which could make the dashboard run out of memory. Portracker now filters oversized internal-port sets before they reach the dashboard. -->
+- **[Large Port Count Crash]**: Oversized unpublished/internal port sets are filtered before they reach the dashboard. The limit (`MAX_INTERNAL_PORTS_PER_CONTAINER`, default 100) applies to Docker and TrueNAS collection, local API responses, peer scan responses, and local or remote container details (#108).
+
+<!-- whatsnew:title=Faster recovery when TrueNAS is unavailable -->
+<!-- whatsnew:description=Failed TrueNAS API connections no longer hold the dashboard on its loading screen for minutes. Available Docker and system port data is retained. -->
+- **[TrueNAS Connection Recovery]**: Bounded discovery, connection, and authentication attempts; cancelled timed-out requests; preserved Docker and system port data when TrueNAS enrichment fails; and reported degraded enrichment instead of empty success.
+
+### Changed
+
+<!-- whatsnew:hide -->
+- **[Dependency Security]**: Updated frontend, backend, and build dependencies to versions without known npm audit findings, including Dockerode 5 and React Router 7.18.2.
+
+<!-- whatsnew:hide -->
+- **[Node 22 Base Image]**: Updated the Docker base image from Node 20 to Node 22 LTS.
+
+<!-- whatsnew:hide -->
+- **[Release Pipeline]**: Added required tests before Docker tags are published, tested the exact built image, kept release jobs from cancelling each other, used the root version consistently, and created GitHub Releases only after verification.
+
 ## [1.3.10] - 2026-05-05
 
 ### Fixed

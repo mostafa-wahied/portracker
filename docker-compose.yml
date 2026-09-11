@@ -60,6 +60,9 @@ services:
       # Optional: Set a custom session secret (recommended for production)
       # If not set, a random secret is generated (sessions won't persist across restarts)
       # - SESSION_SECRET=your-random-secret-here-change-this
+      # Optional: Allow a separately hosted frontend origin (comma-separated)
+      # Same-origin access is allowed by default; wildcard origins are rejected
+      # - CORS_ORIGIN=https://portracker.example.com
       
       # REVERSE PROXY SUPPORT (Optional)
       # When running behind a reverse proxy, port links will use the proxy hostname
@@ -77,6 +80,8 @@ services:
       # ADVANCED PORT SCANNING (Optional)
       # Include UDP ports in scans (may increase noise and impact performance)
       # - INCLUDE_UDP=true
+      # Omit unpublished internal rows when one container exceeds this count
+      # - MAX_INTERNAL_PORTS_PER_CONTAINER=100
       
       # DEVELOPMENT & DEBUGGING (Optional)
       # Enable verbose logging for troubleshooting

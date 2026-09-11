@@ -14,6 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const ProcParser = require("../lib/proc-parser");
 const DockerAPIClient = require("../lib/docker-api");
+const { buildInternalPorts } = require("../lib/docker/internal-ports");
 
 class DockerCollector extends BaseCollector {
   /**
@@ -499,32 +500,15 @@ class DockerCollector extends BaseCollector {
           const exposedPorts = inspection.Config?.ExposedPorts || {};
           const portBindings = inspection.NetworkSettings?.Ports || {};
 
-          const internalPorts = [];
-          if (exposedPorts && typeof exposedPorts === 'object') {
-            Object.keys(exposedPorts).forEach(portDef => {
-              if (portBindings[portDef] && portBindings[portDef] !== null) {
-                return;
-              }
-              const [port, protocol] = portDef.split('/');
-              const portNum = parseInt(port, 10);
-              if (!isNaN(portNum)) {
-                const internalPort = {
-                  source: "docker",
-                  owner: containerName,
-                  protocol: protocol || "tcp",
-                  host_ip: "0.0.0.0",
-                  host_port: portNum,
-                  target: `${containerId.substring(0, 12)}:${portNum}(internal)`,
-                  container_id: containerId,
-                  app_id: containerName,
-                  compose_project: composeProject,
-                  compose_service: composeService,
-                  internal: true
-                };
-                internalPorts.push(internalPort);
-              }
-            });
-          }
+          const internalPorts = buildInternalPorts({
+            exposedPorts,
+            portBindings,
+            containerId,
+            containerName,
+            composeProject,
+            composeService,
+            logWarn: this.logWarn.bind(this),
+          });
 
           return {
             id: containerId,
