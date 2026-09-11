@@ -35,6 +35,7 @@ jobs:
       - name: Validate source
         run: |
           npm ci
+          npm ci --prefix backend
           npm run lint
           npm test -- --runInBand
 
