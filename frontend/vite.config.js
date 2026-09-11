@@ -7,7 +7,7 @@ import { readFileSync } from 'fs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'))
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8'))
 
 export default defineConfig({
   plugins: [
@@ -25,7 +25,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
-        changeOrigin: true,
+        changeOrigin: false,
         secure: false,
       },
     },

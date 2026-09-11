@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+concurrency:
+  group: docker-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref_type, github.ref_name) }}
+  cancel-in-progress: false
+
 env:
   IMAGE_NAME: portracker
 
@@ -14,50 +18,133 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write
+      contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Validate source
+        run: |
+          npm ci
+          npm run lint
+          npm test -- --runInBand
+
+      - name: Determine release metadata
+        id: release
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const { appendFileSync } = require('node:fs');
+
+          const output = process.env.GITHUB_OUTPUT;
+          if (process.env.REF_TYPE !== 'tag' || !/^v\d+\.\d+\.\d+$/.test(process.env.REF_NAME)) {
+            appendFileSync(output, 'is_release=false\nis_latest=false\n');
+            process.exit(0);
+          }
+
+          const current = process.env.REF_NAME.slice(1);
+          const parse = (version) => version.split('.').map(Number);
+          const compare = (left, right) => {
+            const a = parse(left);
+            const b = parse(right);
+            for (let index = 0; index < 3; index += 1) {
+              if (a[index] !== b[index]) return a[index] - b[index];
+            }
+            return 0;
+          };
+          const versions = execFileSync(
+            'git',
+            ['ls-remote', '--tags', '--refs', 'origin', 'v*'],
+            { encoding: 'utf8' }
+          )
+            .trim()
+            .split('\n')
+            .map((line) => line.split('\t')[1] || '')
+            .map((ref) => ref.replace('refs/tags/v', ''))
+            .filter((version) => /^\d+\.\d+\.\d+$/.test(version));
+          if (!versions.includes(current)) versions.push(current);
+          versions
+            .sort(compare);
+          const lower = versions.filter((version) => compare(version, current) < 0);
+          const highest = versions.at(-1) || current;
+          const previous = lower.at(-1) || '';
+
+          appendFileSync(output, `is_release=true\nis_latest=${current === highest}\nversion=${current}\nprevious_version=${previous}\n`);
+          NODE
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/${{ env.IMAGE_NAME }}
+          images: ${{ github.event_name == 'pull_request' && env.IMAGE_NAME || format('{0}/{1}', secrets.DOCKERHUB_USERNAME, env.IMAGE_NAME) }}
           tags: |
+            type=raw,value=ci,enable=${{ github.event_name == 'pull_request' }}
             type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.release.outputs.is_latest == 'true' }}
+            type=raw,value=latest,enable=${{ steps.release.outputs.is_latest == 'true' }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Build pull request image
+        if: github.event_name == 'pull_request'
+        id: build_pr
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Build and push Docker candidate
+        if: github.event_name != 'pull_request'
+        id: build_publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
       - name: Test Docker image
-        if: github.event_name != 'pull_request'
+        env:
+          REGISTRY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          IMAGE_DIGEST: ${{ github.event_name == 'pull_request' && steps.build_pr.outputs.digest || steps.build_publish.outputs.digest }}
         run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TEST_IMAGE="portracker:ci"
+          else
+            TEST_IMAGE="${REGISTRY_IMAGE}@${IMAGE_DIGEST}"
+          fi
+
           mkdir -p $RUNNER_TEMP/portracker-test-data
           chmod 777 $RUNNER_TEMP/portracker-test-data
 
@@ -67,24 +154,63 @@ jobs:
             -v $RUNNER_TEMP/portracker-test-data:/data \
             -e PORT=4999 \
             -e DATABASE_PATH=/data/test.db \
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            "$TEST_IMAGE"
 
-          sleep 15
+          for attempt in $(seq 1 30); do
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' test-portracker 2>/dev/null || true)
+            [ "$STATUS" = "healthy" ] && break
+            [ "$STATUS" = "unhealthy" ] && exit 1
+            sleep 2
+          done
 
-          if ! docker ps | grep test-portracker; then
-            echo "❌ Container failed to start or crashed"
-            echo "📋 Container logs:"
-            docker logs test-portracker 2>/dev/null || echo "No logs available"
-            exit 1
-          fi
-
-          if curl -f http://localhost:4999/api/health; then
-            echo "✅ Health check passed"
-          else
-            echo "❌ Health check failed"
+          if [ "$(docker inspect --format '{{.State.Health.Status}}' test-portracker)" != "healthy" ]; then
             docker logs test-portracker
             exit 1
           fi
 
-          docker stop test-portracker
+          curl --fail --silent --show-error http://localhost:4999/api/health
+          curl --fail --silent --show-error --max-time 60 \
+            http://localhost:4999/api/servers/local/scan?disableCache=true \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=JSON.parse(s);if(!Array.isArray(v.ports))process.exit(1)})'
+
+      - name: Publish verified Docker tags
+        if: github.event_name != 'pull_request'
+        env:
+          REGISTRY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          IMAGE_DIGEST: ${{ steps.build_publish.outputs.digest }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          TAG_ARGS=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS+=(--tag "$tag")
+          done <<< "$IMAGE_TAGS"
+          [ "${#TAG_ARGS[@]}" -gt 0 ]
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${REGISTRY_IMAGE}@${IMAGE_DIGEST}"
+          while IFS= read -r tag; do
+            [ -z "$tag" ] || docker buildx imagetools inspect "$tag" >/dev/null
+          done <<< "$IMAGE_TAGS"
+
+      - name: Generate release notes
+        if: steps.release.outputs.is_release == 'true'
+        run: |
+          node scripts/generate-release-notes.mjs \
+            "${{ steps.release.outputs.version }}" \
+            "${{ steps.release.outputs.previous_version }}" \
+            > release-notes.md
+          test -s release-notes.md
+
+      - name: Create GitHub Release
+        if: steps.release.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ steps.release.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+
+      - name: Clean up test container
+        if: always()
+        run: |
+          docker rm -f test-portracker 2>/dev/null || true
 

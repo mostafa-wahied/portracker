@@ -1,5 +1,5 @@
 # Frontend Build Stage
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:22-bookworm-slim AS frontend-build
 WORKDIR /app/frontend
 
 # Copy package files
@@ -9,13 +9,14 @@ COPY frontend/package*.json ./
 RUN npm ci --include=dev && npm cache clean --force && rm -rf ~/.npm
 
 # Copy source and build
+COPY package.json /app/package.json
 COPY frontend/ ./
 
 # Build the frontend
 RUN npm run build
 
 # Backend Build Stage
-FROM node:20-bookworm-slim AS backend-build
+FROM node:22-bookworm-slim AS backend-build
 WORKDIR /app/backend
 
 # Install build dependencies for native modules
@@ -38,7 +39,7 @@ RUN npm ci --omit=dev
 COPY backend/ ./
 
 # Final Runtime Stage
-FROM node:20-slim AS production
+FROM node:22-slim AS production
 
 # Install only runtime dependencies
 RUN apt-get clean && \

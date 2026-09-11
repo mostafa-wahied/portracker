@@ -5,19 +5,27 @@ on:
     branches: [ main ]
     paths: [ 'package.json' ]
 
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
 jobs:
   auto-tag:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 2
-        token: ${{ secrets.PAT_TOKEN || github.token }}
+        token: ${{ github.token }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
     
     - name: Get current version
       id: current-version
@@ -50,47 +58,37 @@ jobs:
           echo "changed=false" >> $GITHUB_OUTPUT
         fi
     
-    - name: Create and push tag
-      if: steps.version-check.outputs.changed == 'true' || contains(github.event.head_commit.message, '[force tag]')
-      env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
-      run: |
-        TAG="${{ steps.version-check.outputs.tag }}"
-        
-        # Check if tag already exists
-        if git rev-parse "$TAG" >/dev/null 2>&1; then
-          echo "Tag $TAG already exists, skipping"
-          exit 0
-        fi
-        
-        # Create and push the tag
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        
-        git tag -a "$TAG" -m "Release version ${{ steps.current-version.outputs.version }}"
-        git push https://x-access-token:$GITHUB_TOKEN@github.com/${{ github.repository }}.git "$TAG"
-        
-        echo "Created and pushed tag: $TAG"
-    
-    - name: Generate release notes
+    - name: Validate release notes
       if: steps.version-check.outputs.changed == 'true'
-      id: release-notes
       run: |
         node scripts/generate-release-notes.mjs \
           "${{ steps.current-version.outputs.version }}" \
           "${{ steps.previous-version.outputs.previous }}" \
           > release-notes.md
-        echo "Generated release notes:"
+        test -s release-notes.md
         cat release-notes.md
 
-    - name: Create GitHub Release
+    - name: Create and push tag
       if: steps.version-check.outputs.changed == 'true'
-      uses: softprops/action-gh-release@v2
       env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.version-check.outputs.tag }}
-        name: Release ${{ steps.current-version.outputs.version }}
-        body_path: release-notes.md
-        draft: false
-        prerelease: false
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      run: |
+        TAG="${{ steps.version-check.outputs.tag }}"
+
+        if [ -z "$PAT_TOKEN" ]; then
+          echo "PAT_TOKEN is required so the tag push can trigger the Docker release workflow"
+          exit 1
+        fi
+        
+        if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists, skipping"
+          exit 0
+        fi
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git tag -a "$TAG" -m "Release version ${{ steps.current-version.outputs.version }}"
+        git push https://x-access-token:$PAT_TOKEN@github.com/${{ github.repository }}.git "$TAG"
+        
+        echo "Created and pushed tag: $TAG"

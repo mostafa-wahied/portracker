@@ -19,6 +19,7 @@ backend/api-docs/
 Thumbs.db
 .idea/
 .vscode/
+.github/context-mode/
 *.suo
 *.ntvs*
 *.njsproj
