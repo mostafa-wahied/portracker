@@ -6,9 +6,19 @@ on:
     tags: [ "v*.*.*" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
+      expected_sha:
+        description: Exact commit SHA already referenced by the tag
+        required: true
+        type: string
 
 concurrency:
-  group: docker-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref_type, github.ref_name) }}
+  group: docker-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.event_name == 'workflow_dispatch' && 'tag' || github.ref_type, inputs.release_tag || github.ref_name) }}
   cancel-in-progress: false
 
 env:
@@ -21,16 +31,55 @@ jobs:
       contents: write
 
     steps:
+      - name: Validate recovery request
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(process.env.WORKFLOW_REF, 'refs/heads/main', 'Run recovery from main');
+          assert.match(process.env.RELEASE_TAG, /^v\d+\.\d+\.\d+$/, 'An existing version tag is required');
+          assert.match(process.env.EXPECTED_SHA, /^[0-9a-f]{40}$/, 'An exact commit SHA is required');
+          NODE
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
+
+      - name: Verify release source
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          REF_TYPE: ${{ github.event_name == 'workflow_dispatch' && 'tag' || github.ref_type }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const { appendFileSync, readFileSync } = require('node:fs');
+          const git = (args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const sha = git(['rev-parse', 'HEAD']);
+          appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
+          if (process.env.REF_TYPE !== 'tag') process.exit(0);
+          assert.match(process.env.REF_NAME, /^v\d+\.\d+\.\d+$/);
+          assert.equal(git(['rev-parse', `refs/tags/${process.env.REF_NAME}^{commit}`]), sha, 'Checkout must match the tag');
+          assert.equal(JSON.parse(readFileSync('package.json', 'utf8')).version, process.env.REF_NAME.slice(1), 'Version must match the tag');
+          if (process.env.EVENT_NAME === 'workflow_dispatch') {
+            assert.equal(sha, process.env.EXPECTED_SHA, 'Tag does not match the approved commit');
+          }
+          NODE
 
       - name: Validate source
         run: |
@@ -42,8 +91,8 @@ jobs:
       - name: Determine release metadata
         id: release
         env:
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          REF_TYPE: ${{ github.event_name == 'workflow_dispatch' && 'tag' || github.ref_type }}
         run: |
           node <<'NODE'
           const { execFileSync } = require('node:child_process');
@@ -82,7 +131,7 @@ jobs:
           const highest = versions.at(-1) || current;
           const previous = lower.at(-1) || '';
 
-          appendFileSync(output, `is_release=true\nis_latest=${current === highest}\nversion=${current}\nprevious_version=${previous}\n`);
+          appendFileSync(output, `is_release=true\nis_latest=${current === highest}\ntag=${process.env.REF_NAME}\nversion=${current}\nprevious_version=${previous}\n`);
           NODE
 
       - name: Set up Docker Buildx
@@ -102,10 +151,12 @@ jobs:
           images: ${{ github.event_name == 'pull_request' && env.IMAGE_NAME || format('{0}/{1}', secrets.DOCKERHUB_USERNAME, env.IMAGE_NAME) }}
           tags: |
             type=raw,value=ci,enable=${{ github.event_name == 'pull_request' }}
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.release.outputs.is_latest == 'true' }}
+            type=ref,event=branch,enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ steps.release.outputs.version }},enable=${{ steps.release.outputs.is_release == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.version }},enable=${{ steps.release.outputs.is_latest == 'true' }}
             type=raw,value=latest,enable=${{ steps.release.outputs.is_latest == 'true' }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
 
       - name: Build pull request image
         if: github.event_name == 'pull_request'
@@ -180,7 +231,22 @@ jobs:
           REGISTRY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           IMAGE_DIGEST: ${{ steps.build_publish.outputs.digest }}
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            node <<'NODE'
+          const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
+          const ref = `refs/tags/${process.env.RELEASE_TAG}`;
+          const refs = Object.fromEntries(execFileSync('git', ['ls-remote', '--tags', 'origin', ref, `${ref}^{}`], { encoding: 'utf8' }).trim().split('\n').filter(Boolean).map((line) => {
+            const [sha, name] = line.split('\t');
+            return [name, sha];
+          }));
+          assert.equal(refs[`${ref}^{}`] || refs[ref], process.env.SOURCE_SHA, 'Remote tag changed during the build');
+          NODE
+          fi
+
           TAG_ARGS=()
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS+=(--tag "$tag")
@@ -204,7 +270,7 @@ jobs:
         if: steps.release.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release.outputs.tag }}
           name: Release ${{ steps.release.outputs.version }}
           body_path: release-notes.md
           draft: false

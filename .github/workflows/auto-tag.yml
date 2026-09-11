@@ -21,6 +21,7 @@ jobs:
       with:
         fetch-depth: 2
         token: ${{ github.token }}
+        persist-credentials: false
 
     - name: Setup Node.js
       uses: actions/setup-node@v5
