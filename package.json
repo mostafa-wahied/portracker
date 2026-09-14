@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node backend/index.js",
     "test": "jest",
+    "test:release": "node --test scripts/release-contracts.test.cjs",
+    "test:image": "node scripts/image-contracts.mjs",
+    "test:context": "node scripts/check-build-context.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:strict": "eslint --config .eslint.local.cjs ."
@@ -27,6 +30,8 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.1.0",
     "globals": "^15.11.0",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "js-yaml": "3.15.2",
+    "playwright": "1.63.0"
   }
 }

@@ -27,6 +27,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
@@ -87,6 +88,13 @@ jobs:
           npm ci --prefix backend
           npm run lint
           npm test -- --runInBand
+          npm run test:release
+          npx playwright install --with-deps chromium
+
+      - name: Set up CPU emulation
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
 
       - name: Determine release metadata
         id: release
@@ -137,6 +145,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Verify build context isolation
+        run: npm run test:context
+
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -173,6 +184,20 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
+      - name: Build ARM64 pull request image
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: portracker:ci-arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/arm64
+
       - name: Build and push Docker candidate
         if: github.event_name != 'pull_request'
         id: build_publish
@@ -190,40 +215,39 @@ jobs:
         env:
           REGISTRY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           IMAGE_DIGEST: ${{ github.event_name == 'pull_request' && steps.build_pr.outputs.digest || steps.build_publish.outputs.digest }}
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            TEST_IMAGE="portracker:ci"
-          else
-            TEST_IMAGE="${REGISTRY_IMAGE}@${IMAGE_DIGEST}"
-          fi
-
-          mkdir -p $RUNNER_TEMP/portracker-test-data
-          chmod 777 $RUNNER_TEMP/portracker-test-data
-
-          docker run -d --name test-portracker --user root \
-            -p 4999:4999 \
-            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-            -v $RUNNER_TEMP/portracker-test-data:/data \
-            -e PORT=4999 \
-            -e DATABASE_PATH=/data/test.db \
-            "$TEST_IMAGE"
-
-          for attempt in $(seq 1 30); do
-            STATUS=$(docker inspect --format '{{.State.Health.Status}}' test-portracker 2>/dev/null || true)
-            [ "$STATUS" = "healthy" ] && break
-            [ "$STATUS" = "unhealthy" ] && exit 1
-            sleep 2
+          set -euo pipefail
+          for architecture in amd64 arm64; do
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              TEST_IMAGE="portracker:ci"
+              [ "$architecture" != arm64 ] || TEST_IMAGE="portracker:ci-arm64"
+            else
+              TEST_IMAGE="${REGISTRY_IMAGE}@${IMAGE_DIGEST}"
+            fi
+            export CONTRACT_ARTIFACTS="test-results/$architecture"
+            mkdir -p "$CONTRACT_ARTIFACTS"
+            npm run test:image -- "$TEST_IMAGE" "linux/$architecture" 2>&1 | tee "$CONTRACT_ARTIFACTS/checks.log"
           done
 
-          if [ "$(docker inspect --format '{{.State.Health.Status}}' test-portracker)" != "healthy" ]; then
-            docker logs test-portracker
-            exit 1
-          fi
+      - name: Retain regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: error
 
-          curl --fail --silent --show-error http://localhost:4999/api/health
-          curl --fail --silent --show-error --max-time 60 \
-            http://localhost:4999/api/servers/local/scan?disableCache=true \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const v=JSON.parse(s);if(!Array.isArray(v.ports))process.exit(1)})'
+      - name: Generate release notes
+        if: steps.release.outputs.is_release == 'true'
+        run: |
+          node scripts/generate-release-notes.mjs \
+            "${{ steps.release.outputs.version }}" \
+            "${{ steps.release.outputs.previous_version }}" \
+            > release-notes.md
+          test -s release-notes.md
 
       - name: Publish verified Docker tags
         if: github.event_name != 'pull_request'
@@ -257,15 +281,6 @@ jobs:
             [ -z "$tag" ] || docker buildx imagetools inspect "$tag" >/dev/null
           done <<< "$IMAGE_TAGS"
 
-      - name: Generate release notes
-        if: steps.release.outputs.is_release == 'true'
-        run: |
-          node scripts/generate-release-notes.mjs \
-            "${{ steps.release.outputs.version }}" \
-            "${{ steps.release.outputs.previous_version }}" \
-            > release-notes.md
-          test -s release-notes.md
-
       - name: Create GitHub Release
         if: steps.release.outputs.is_release == 'true'
         uses: softprops/action-gh-release@v3
@@ -275,9 +290,3 @@ jobs:
           body_path: release-notes.md
           draft: false
           prerelease: false
-
-      - name: Clean up test container
-        if: always()
-        run: |
-          docker rm -f test-portracker 2>/dev/null || true
-
