@@ -38,6 +38,8 @@ RUN npm ci --omit=dev
 # Copy backend source
 COPY backend/ ./
 
+RUN node -e "const Database = require('better-sqlite3'); const database = new Database(':memory:'); database.exec('CREATE TABLE native_check (value INTEGER)'); database.close();"
+
 # Final Runtime Stage
 FROM node:22-slim AS production
 

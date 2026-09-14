@@ -13,6 +13,7 @@ backend/data/*
 # Test results and API testing artifacts
 backend/api-tests/
 backend/api-docs/
+test-results/
 
 # Ignore OS specific files and common editor/IDE directories
 .DS_Store
@@ -64,7 +65,6 @@ validate-*.sh
 .tmp
 
 # Docker
-.dockerignore
 docker-compose-*.yml
 docker-compose.*.yml
 *docker-compose.dev.yml

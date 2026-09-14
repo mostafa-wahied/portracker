@@ -4,6 +4,14 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.12] - 2026-09-13
+
+### Fixed
+
+<!-- whatsnew:title=Fixed startup on ARM64 Docker hosts -->
+<!-- whatsnew:description=Portracker starts correctly again on ARM64 Docker hosts, including Apple Silicon and ARM Linux systems. -->
+- **[ARM64 Startup]**: Prevent host-installed dependencies from overwriting target-platform dependencies during Docker builds, preserving the correct SQLite native binding in ARM64 images (#115).
+
 ## [1.3.11] - 2026-09-11
 
 ### Security
