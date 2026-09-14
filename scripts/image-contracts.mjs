@@ -6,8 +6,9 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const [image, platform] = process.argv.slice(2);
-assert(image && ['linux/amd64', 'linux/arm64'].includes(platform), 'Provide image and explicit Linux platform');
+const [imageReference, platform] = process.argv.slice(2);
+assert(imageReference && ['linux/amd64', 'linux/arm64'].includes(platform), 'Provide image and explicit Linux platform');
+let image = imageReference;
 const prefix = `portracker-contract-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const network = prefix;
 const accessNetwork = `${prefix}-access`;
@@ -17,7 +18,7 @@ const fixture = `${prefix}-fixture`;
 const relay = `${prefix}-relay`;
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 const credentials = { username: 'contract-user', password: crypto.randomBytes(24).toString('hex') };
-const baseline = 'mostafawahied/portracker@sha256:c7b4143ae32da4642a339d49ef5559c8408862eb1d1aacd9052df46e8ae225cb';
+let baseline = 'mostafawahied/portracker@sha256:c7b4143ae32da4642a339d49ef5559c8408862eb1d1aacd9052df46e8ae225cb';
 const containers = new Set();
 let networkCreated = false;
 let accessNetworkCreated = false;
@@ -30,6 +31,15 @@ function docker(args, timeout = 90000, input) {
   const result = spawnSync('docker', args, { encoding: 'utf8', timeout, input, maxBuffer: 5000000 });
   assert.equal(result.status, 0, `Docker ${args[0]} failed (${result.error?.code || result.status}); no container logs emitted`);
   return result.stdout.trim();
+}
+function resolvePlatformImage(reference) {
+  if (!reference.includes('@sha256:')) return reference;
+  const manifest = JSON.parse(docker(['buildx', 'imagetools', 'inspect', '--raw', reference]));
+  if (!Array.isArray(manifest.manifests)) return reference;
+  const matches = manifest.manifests.filter(item => `${item.platform?.os}/${item.platform?.architecture}` === platform);
+  assert.equal(matches.length, 1, 'Pinned image must contain exactly one requested platform');
+  assert.match(matches[0].digest, /^sha256:[a-f0-9]{64}$/);
+  return reference.split('@')[0] + '@' + matches[0].digest;
 }
 async function request(route, options = {}) {
   const response = await fetch(baseUrl + route, {
@@ -191,6 +201,8 @@ async function failureContract() {
   await discoveryContracts(); record('bounded-enrichment-failure-and-recovery');
 }
 try {
+  image = resolvePlatformImage(image);
+  baseline = resolvePlatformImage(baseline);
   const nativeCode = fs.readFileSync(new URL('./native-contract.cjs', import.meta.url), 'utf8');
   const nativeArgs = ['run', '--rm', '--network', 'none', '--platform', platform, '-e', `EXPECTED_ARCH=${platform === 'linux/arm64' ? 'arm64' : 'x64'}`, '--entrypoint', 'node', image, '-e'];
   const native = docker([...nativeArgs, nativeCode]);

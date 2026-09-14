@@ -105,3 +105,34 @@ test('validation and failure evidence cannot silently disappear', () => {
 test('every workflow shell block parses without executing network operations', () => {
   for (const document of [workflow, tagger]) for (const job of Object.values(document.jobs)) for (const step of job.steps.filter(step => step.run)) execFileSync('bash', ['-n'], { input: step.run.replace(/\$\{\{[\s\S]*?\}\}/g, 'placeholder') });
 });
+
+const runner = fs.readFileSync(path.join(root, 'scripts/image-contracts.mjs'), 'utf8');
+const resolver = runner.match(/function resolvePlatformImage\(reference\) \{[\s\S]*?\n\}/)[0];
+const indexReference = 'registry.invalid/portracker@sha256:' + 'a'.repeat(64);
+const manifests = ['amd64', 'arm64'].map((architecture, index) => ({ platform: { os: 'linux', architecture }, digest: 'sha256:' + String(index + 1).repeat(64) }));
+function resolveImage(reference, platform, index) {
+  return vm.runInNewContext(resolver + '\nresolvePlatformImage(reference);', {
+    reference, platform, assert,
+    docker: args => {
+      assert.equal(args.join(' '), `buildx imagetools inspect --raw ${reference}`);
+      assert(index, 'Local tags must not be queried in a registry');
+      return JSON.stringify(index);
+    },
+  }, { timeout: 1000 });
+}
+test('immutable indexes resolve to distinct child digests for classic image stores', () => {
+  for (const entry of manifests) {
+    assert.equal(resolveImage(indexReference, `linux/${entry.platform.architecture}`, { manifests }), 'registry.invalid/portracker@' + entry.digest);
+  }
+  assert(runner.indexOf('image = resolvePlatformImage(image);') < runner.indexOf('const nativeCode ='));
+  assert(runner.indexOf('baseline = resolvePlatformImage(baseline);') < runner.indexOf('const nativeCode ='));
+});
+test('local PR tags and single-platform digests retain their exact identity', () => {
+  assert.equal(resolveImage('portracker:ci-arm64', 'linux/arm64'), 'portracker:ci-arm64');
+  assert.equal(resolveImage(indexReference, 'linux/arm64', { schemaVersion: 2, config: {} }), indexReference);
+});
+test('missing, ambiguous and malformed platform manifests are rejected', () => {
+  for (const entries of [[], [manifests[0]], [manifests[1], manifests[1]], [{ ...manifests[1], digest: 'mutable-tag' }]]) {
+    assert.throws(() => resolveImage(indexReference, 'linux/arm64', { manifests: entries }), { code: 'ERR_ASSERTION' });
+  }
+});
