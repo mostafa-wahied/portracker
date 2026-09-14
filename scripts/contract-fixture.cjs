@@ -52,6 +52,10 @@ new WebSocket.Server({ server: tls }).on('connection', socket => {
     else if (message.method === 'system.info') result = { hostname: 'contract-truenas', version: 'TrueNAS-25.10.4', cores: 4, physmem: 8589934592 };
     else if (message.method === 'app.query') result = [{ id: 'native-app', name: 'native-app', state: 'RUNNING', active_workloads: { used_ports: [] } }];
     else if (message.method === 'vm.query') result = [{ id: 1, name: 'contract-vm', status: { state: 'RUNNING' }, vcpus: 2, memory: 1024 }];
+    else if (message.method === 'virt.instance.query') result = [
+      { id: 'contract-lxc-4g', name: 'contract-lxc-4g', status: 'RUNNING', cpu: 2, memory: 4294967296 },
+      { id: 'contract-lxc-8g', name: 'contract-lxc-8g', status: 'RUNNING', cpu: 2, memory: 8589934592 },
+    ];
     else result = [];
     socket.send(JSON.stringify({ msg: 'result', id: message.id, result }));
   });

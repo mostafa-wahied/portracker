@@ -103,4 +103,36 @@ describe("bounded TrueNAS enrichment", () => {
     expect(result.systemInfo.hostname).toBe("enriched");
     expect(result.ports).toHaveLength(1);
   });
+
+  test.each([4294967296, 8589934592])("preserves container memory bytes (%i) while converting VM MiB", async containerMemory => {
+    const collector = fixture();
+    const virtualMachine = { id: "memory-vm", name: "memory-vm", memory: 4096, status: "RUNNING" };
+    const container = { id: "memory-container", name: "memory-container", memory: containerMemory, status: "RUNNING" };
+    collector._ensureTrueNASClient = async () => {};
+    collector._collectEnhancedFeatures = async () => ({ vms: [virtualMachine], containers: [container], failures: [] });
+
+    const result = await collector.collectAll();
+    expect(result.enhancedFeaturesStatus.state).toBe("ready");
+    expect(result.vms.find(item => item.id === virtualMachine.id).memory).toBe(4294967296);
+    expect(result.vms.find(item => item.id === container.id)).toEqual(expect.objectContaining({
+      memory: containerMemory,
+      platform_data: expect.objectContaining({ container_type: "lxc", orig_data: container }),
+    }));
+    expect(virtualMachine.memory).toBe(4096);
+    expect(container.memory).toBe(containerMemory);
+  });
+
+  test.each([undefined, null, 0])("keeps unavailable VM and container memory (%s) as null", async memory => {
+    const collector = fixture();
+    collector._ensureTrueNASClient = async () => {};
+    collector._collectEnhancedFeatures = async () => ({
+      vms: [{ id: "memory-vm", memory, status: "RUNNING" }],
+      containers: [{ id: "memory-container", memory, status: "RUNNING" }],
+      failures: [],
+    });
+
+    const result = await collector.collectAll();
+    expect(result.vms).toHaveLength(2);
+    expect(result.vms.every(item => item.memory === null)).toBe(true);
+  });
 });

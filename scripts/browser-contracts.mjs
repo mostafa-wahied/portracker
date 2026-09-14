@@ -53,6 +53,19 @@ async function settings(page) {
   await page.keyboard.press('Escape');
 }
 
+async function memoryLabels(page, options) {
+  for (const [name, memory] of [['contract-vm', '1 GB'], ['contract-lxc-4g', '4 GB'], ['contract-lxc-8g', '8 GB']]) {
+    const heading = page.getByRole('heading', { name, exact: true });
+    await heading.waitFor();
+    const card = heading.locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]');
+    await card.getByText(memory, { exact: true }).waitFor();
+    await card.scrollIntoViewIfNeeded();
+    const bounds = await card.boundingBox();
+    assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= options.viewport.width, 'Memory card is clipped');
+    await card.screenshot({ path: path.join(options.artifacts, `${options.viewport.width}-${name}.png`), animations: 'disabled' });
+  }
+}
+
 async function viewportContract(browser, options) {
   const context = await browser.newContext({ viewport: options.viewport, reducedMotion: 'reduce' });
   const page = await context.newPage();
@@ -72,6 +85,7 @@ async function viewportContract(browser, options) {
     await search.fill('18080');
     await page.getByText('18080', { exact: true }).first().waitFor();
     await search.fill('');
+    await memoryLabels(page, options);
     await releaseNotice(page, options.version);
     await settings(page);
     await page.reload({ waitUntil: 'domcontentloaded' });

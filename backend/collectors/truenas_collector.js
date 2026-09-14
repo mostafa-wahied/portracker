@@ -1607,13 +1607,13 @@ class TrueNASCollector extends BaseCollector {
             this.log(`Collected ${realVMs.length} TrueNAS virtual machines`);
           }
           if (enhancedData.containers && enhancedData.containers.length > 0) {
-            const lxcContainers = enhancedData.containers.map((vm) => ({
+            results.vms.push(...enhancedData.containers.map((vm) => ({
               type: "vm",
               id: vm.id,
               name: vm.name,
               status: this._mapVMStatus(vm.status),
               vcpus: vm.cpu,
-              memory: vm.memory ? vm.memory * 1024 * 1024 : null,
+              memory: vm.memory || null,
               autostart: vm.autostart,
               platform: "truenas",
               platform_data: {
@@ -1625,9 +1625,8 @@ class TrueNASCollector extends BaseCollector {
                 storage_pool: vm.storage_pool,
                 orig_data: vm,
               },
-            }));
-            results.vms.push(...lxcContainers);
-            this.log(`Collected ${lxcContainers.length} TrueNAS LXC containers`);
+            })));
+            this.log(`Collected ${enhancedData.containers.length} TrueNAS LXC containers`);
           }
           if (!failures.length) this.logInfo("Enhanced features collection completed successfully");
           

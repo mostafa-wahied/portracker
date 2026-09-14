@@ -185,6 +185,12 @@ async function discoveryContracts() {
   assert(!scan.body.ports.some(port => Number(port.host_port) >= 20000 && Number(port.host_port) <= 20100), 'Excess internal ports leaked');
   assert.equal(scan.body.enhancedFeaturesStatus.state, 'ready'); assert.equal(scan.body.systemInfo.enhanced, true);
   assert(scan.body.applications.some(item => item.platform_data?.type === 'truenas_app')); assert(scan.body.vms.length > 0);
+  assert.equal(scan.body.vms.find(item => item.id === 1).memory, 1073741824, 'VM memory must convert MiB to bytes');
+  for (const [id, memory] of [['contract-lxc-4g', 4294967296], ['contract-lxc-8g', 8589934592]]) {
+    const container = scan.body.vms.find(item => item.id === id);
+    assert.equal(container?.memory, memory, 'Container memory must stay in bytes');
+    assert.equal(container.platform_data.orig_data.memory, memory, 'Raw container memory must be preserved');
+  }
   const peer = await request('/api/servers/contract-a/scan'); assert.equal(peer.status, 200); assert(peer.body.ports.some(port => Number(port.host_port) === 8088));
   const cycle = await request('/api/servers/order', { method: 'PUT', body: { items: [{ id: 'contract-a', parentId: 'contract-b', position: 1 }, { id: 'contract-b', parentId: 'contract-a', position: 0 }] } }); assert.equal(cycle.status, 400);
   record('docker-ports-peer-scan-truenas-and-order-integrity');

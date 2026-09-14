@@ -4,6 +4,14 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.13] - 2026-09-14
+
+### Fixed
+
+<!-- whatsnew:title=Correct memory sizes for TrueNAS containers -->
+<!-- whatsnew:description=Container memory now shows the correct amount instead of unrealistically large values. -->
+- **[TrueNAS Container Memory]**: Preserve byte-valued container memory from the TrueNAS API instead of applying the MiB conversion used for virtual machines. Ordinary VM memory conversion is unchanged.
+
 ## [1.3.12] - 2026-09-13
 
 ### Fixed
