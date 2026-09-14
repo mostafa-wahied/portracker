@@ -8,22 +8,22 @@ All notable changes to portracker will be documented in this file.
 
 ### Fixed
 
-<!-- whatsnew:title=Fixed startup on ARM64 Docker hosts -->
-<!-- whatsnew:description=Portracker starts correctly again on ARM64 Docker hosts, including Apple Silicon and ARM Linux systems. -->
+<!-- whatsnew:title=Fixed startup on Apple Silicon Macs -->
+<!-- whatsnew:description=Portracker now starts correctly in Docker on Apple Silicon Macs and other ARM-based devices. -->
 - **[ARM64 Startup]**: Prevent host-installed dependencies from overwriting target-platform dependencies during Docker builds, preserving the correct SQLite native binding in ARM64 images (#115).
 
 ## [1.3.11] - 2026-09-11
 
 ### Security
 
-<!-- whatsnew:title=Authentication now protects settings and integrations -->
-<!-- whatsnew:description=When authentication is enabled, settings and autoxpose controls now require a signed-in session. Existing autoxpose connections must be reconnected once after upgrading. Reported by Mirko Benacci. -->
+<!-- whatsnew:title=Sign-in protection for settings and autoxpose -->
+<!-- whatsnew:description=With sign-in enabled, you must be signed in to access settings and autoxpose controls. Reconnect autoxpose once after upgrading. Reported by Mirko Benacci. -->
 - **[Authentication Boundary]**: Protected settings and autoxpose routes when `ENABLE_AUTH=true`, preventing unauthenticated configuration changes, integration inventory access, and server-side URL requests. autoxpose requests are pinned to validated addresses, time/size bounded, and prevented from reaching loopback, link-local, reserved, or redirect destinations; intended private LAN destinations remain supported. Browser access is same-origin by default, and generic settings writes cannot change connection state. Existing saved autoxpose connections are intentionally cleared and must be reconnected once by a signed-in user. Reported by Mirko Benacci.
 
 ### Fixed
 
-<!-- whatsnew:title=Fixed a crash caused by containers exposing thousands of ports -->
-<!-- whatsnew:description=Some apps (like the Ubikron stack) expose thousands of unpublished internal ports on a single container, which could make the dashboard run out of memory. Portracker now filters oversized internal-port sets before they reach the dashboard. -->
+<!-- whatsnew:title=Fixed dashboard crashes with some apps -->
+<!-- whatsnew:description=Apps that list thousands of internal ports no longer overwhelm the dashboard. Published ports remain visible. -->
 - **[Large Port Count Crash]**: Oversized unpublished/internal port sets are filtered before they reach the dashboard. The limit (`MAX_INTERNAL_PORTS_PER_CONTAINER`, default 100) applies to Docker and TrueNAS collection, local API responses, peer scan responses, and local or remote container details (#108).
 
 <!-- whatsnew:title=Faster recovery when TrueNAS is unavailable -->
@@ -45,9 +45,11 @@ All notable changes to portracker will be documented in this file.
 
 ### Fixed
 
-<!-- whatsnew:title=Service status & sidebar shortcut fixes -->
-<!-- whatsnew:description=Probes use the Docker host gateway for 0.0.0.0 ports so status no longer flips to yellow/red on default-bridge installs. The sidebar tip now shows the correct keyboard shortcut for your OS. -->
+<!-- whatsnew:title=More reliable service status -->
+<!-- whatsnew:description=Services using Docker's default network no longer incorrectly appear yellow or red because Portracker checked the wrong address. -->
 - **[Probe Host Resolution]**: Service status probes fall back to the Docker host gateway for `0.0.0.0`/`::` ports instead of `127.0.0.1`, fixing false yellow/red statuses on default-bridge installs without `HOST_OVERRIDE`.
+<!-- whatsnew:title=Correct keyboard shortcuts for your computer -->
+<!-- whatsnew:description=The sidebar tip now shows the appropriate shortcuts for your operating system, without awkward line wrapping. -->
 - **[Sidebar Shortcut Label]**: The "sidebar has knobs" tip now shows the correct keyboard shortcut for your OS (`⌘B`/`⌘K` on macOS, `Ctrl+B`/`Ctrl+K` elsewhere) instead of a combined string that could wrap mid-pair on narrow sidebars.
 
 ## [1.3.8] - 2026-05-04
