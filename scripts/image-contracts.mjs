@@ -19,6 +19,7 @@ const relay = `${prefix}-relay`;
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 const credentials = { username: 'contract-user', password: crypto.randomBytes(24).toString('hex') };
 let baseline = 'mostafawahied/portracker@sha256:c7b4143ae32da4642a339d49ef5559c8408862eb1d1aacd9052df46e8ae225cb';
+let securityBaseline = process.env.SECURITY_BASELINE_IMAGE || null;
 const containers = new Set();
 let networkCreated = false;
 let accessNetworkCreated = false;
@@ -96,7 +97,7 @@ async function seedPreviousRelease() {
   assert.equal((await request('/api/custom-service-names', { method: 'POST', body: { ...annotation, custom_name: 'preserved-service' } })).status, 200);
   assert.equal((await request(`/api/services/contract-service/components/${'c'.repeat(64)}/role`, { method: 'PUT', body: { role: 'support' } })).status, 200);
   for (const [id, label] of [['contract-a', 'Alpha'], ['contract-b', 'Beta']]) {
-    assert.equal((await request('/api/servers', { method: 'POST', body: { id, label, type: 'peer', url: 'http://fixture:8080', platform_type: 'docker' } })).status, 201);
+    assert.equal((await request('/api/servers', { method: 'POST', body: { id, label, type: 'peer', url: 'http://fixture:8080', platform_type: 'docker', apiKey: id === 'contract-a' ? 'contract-legacy-peer-value' : null } })).status, 201);
   }
   assert.equal((await request('/api/servers/order', { method: 'PUT', body: { items: [{ id: 'contract-b', position: 0 }, { id: 'local', position: 1 }, { id: 'contract-a', position: 2 }] } })).status, 200);
   assert.equal((await request('/api/settings', { method: 'PUT', body: { autoxposeUrl: 'http://fixture:8080', autoxposeEnabled: true } })).status, 200);
@@ -111,16 +112,19 @@ async function assertPreserved() {
   const servers = (await request('/api/servers')).body;
   assert.deepEqual(servers.map(server => server.id), ['contract-b', 'local', 'contract-a']);
   assert.equal(servers.find(server => server.id === 'contract-a').label, 'Alpha');
+  const encrypted = docker(['exec', app, 'node', '-e', "console.log=console.info=console.warn=console.error=()=>{};const fs=require('fs'),db=require('./db');const row=db.prepare(\"SELECT * FROM servers WHERE id='contract-a'\").get();process.stdout.write(JSON.stringify({encrypted:row.remote_api_key.startsWith('pkey:v1:'),roundtrip:db.peerKeys.open(row)==='contract-legacy-peer-value',mode:fs.statSync('/data/peer-keys.key').mode&511}));"]);
+  assert.deepEqual(JSON.parse(encrypted), { encrypted: true, roundtrip: true, mode: 384 });
   const result = docker(['exec', app, 'node', '-e', "const db=new(require('better-sqlite3'))('/data/contract.db',{readonly:true});const count=db.prepare(\"SELECT COUNT(*) AS count FROM user_settings WHERE setting_key IN ('autoxposeUrl','autoxposeEnabled')\").get().count;const migration=db.prepare(\"SELECT COUNT(*) AS count FROM settings_migrations WHERE id='autoxpose-connection-trust-v1'\").get().count;console.log(JSON.stringify({count,migration,integrity:db.pragma('quick_check',{simple:true})}));db.close();"]);
   assert.deepEqual(JSON.parse(result), { count: 0, migration: 1, integrity: 'ok' });
 }
 async function securityContracts() {
-  const routes = [['GET', '/api/settings'], ['PUT', '/api/settings'], ['GET', '/api/servers'], ['GET', '/api/ports'], ['GET', '/api/all-ports'], ['GET', '/api/notes?server_id=local'], ['GET', '/api/autoxpose/status'], ['POST', '/api/autoxpose/connect'], ['POST', '/api/autoxpose/disconnect'], ['GET', '/api/autoxpose/services'], ['GET', '/api/autoxpose/domain'], ['PUT', '/api/autoxpose/display-mode'], ['PUT', '/api/autoxpose/url-style']];
+  const routes = [['POST', '/api/servers/local/generate-port'], ['POST', '/api/servers/contract-a/generate-port'], ['GET', '/api/ping?host_ip=127.0.0.1&host_port=8088'], ['GET', `/api/containers/${'c'.repeat(64)}/details?raw=true`], ['GET', '/api/settings'], ['PUT', '/api/settings'], ['GET', '/api/servers'], ['GET', '/api/ports'], ['GET', '/api/all-ports'], ['GET', '/api/notes?server_id=local'], ['GET', '/api/autoxpose/status'], ['POST', '/api/autoxpose/connect'], ['POST', '/api/autoxpose/disconnect'], ['GET', '/api/autoxpose/services'], ['GET', '/api/autoxpose/domain'], ['PUT', '/api/autoxpose/display-mode'], ['PUT', '/api/autoxpose/url-style']];
   for (const [method, route] of routes) assert.equal((await request(route, { method, cookie: false, ...(method === 'GET' ? {} : { body: { url: 'http://fixture:8080' } }) })).status, 401, `${method} ${route}`);
   const counters = () => JSON.parse(docker(['exec', fixture, 'node', '-e', "fetch('http://localhost:8080/counters').then(response=>response.json()).then(value=>console.log(JSON.stringify(value)))"]));
   assert.equal(counters().requests, 0, 'Unauthorized outbound request reached fixture');
   assert.equal((await request('/api/auth/login', { method: 'POST', body: { ...credentials, password: 'incorrect' }, cookie: false })).status, 401);
   await login();
+  await confidentialDetails();
   assert.equal((await request('/api/settings', { method: 'PUT', headers: { Origin: 'https://untrusted.invalid' }, body: { theme: 'light' } })).status, 403);
   assert.equal((await request('/api/settings', { method: 'PUT', body: { autoxposeUrl: 'http://fixture:8080' } })).status, 400);
   assert.equal((await request('/api/autoxpose/connect', { method: 'POST', body: { url: 'http://fixture:8080' } })).body.success, true);
@@ -137,6 +141,11 @@ async function apiKeyContracts() {
     return result.body.apiKey;
   };
   const first = await createKey();
+  assert.equal((await request(`/api/containers/${'c'.repeat(64)}/details?raw=true`, { cookie: false, headers: { 'X-API-Key': first } })).status, 403);
+  const peerDetails = await request(`/api/containers/${'c'.repeat(64)}/details`, { cookie: false, headers: { 'X-API-Key': first } });
+  assert.equal(peerDetails.status, 200); assert(!peerDetails.body.raw);
+  await pingContracts({ cookie: false, headers: { 'X-API-Key': first } });
+  assert.equal((await request('/api/servers/local/generate-port', { method: 'POST', cookie: false, headers: { 'X-API-Key': first } })).status, 200);
   const keyRequest = key => request('/api/overrides', { cookie: false, headers: { 'X-API-Key': key } });
   assert.equal((await keyRequest(first)).status, 200);
   assert.equal((await keyRequest('invalid-contract-key')).status, 401);
@@ -148,6 +157,38 @@ async function apiKeyContracts() {
   assert.equal((await request(endpoint, { method: 'DELETE' })).status, 200);
   assert.equal((await keyRequest(replacement)).status, 401);
   record('api-key-permissions-rotation-revocation-and-redaction');
+}
+async function confidentialDetails(options = {}) {
+  for (const flags of ['raw=true', 'raw=true&export=true', 'raw=true&server_id=contract-a']) {
+    const response = await request(`/api/containers/${'c'.repeat(64)}/details?${flags}`, options);
+    assert.equal(response.status, 200);
+    assert(response.body.raw?.Config && !Object.hasOwn(response.body.raw.Config, 'Env'), 'Raw environment field leaked');
+    assert(!JSON.stringify(response.body).includes('contract-sensitive-marker'), 'Synthetic environment value leaked');
+    assert(!JSON.stringify(response.body).includes('contract-peer-marker'), 'Synthetic peer value leaked');
+    assert(!JSON.stringify(response.body).includes('contract-command-marker'), 'Command value leaked');
+    assert(!JSON.stringify(response.body).includes('contract-label-marker'), 'Custom label value leaked');
+  }
+}
+async function pingContracts(options = {}) {
+  assert.equal((await request('/api/servers/contract-a/scan', options)).status, 200);
+  const allowed = await request('/api/ping?server_id=contract-a&host_ip=0.0.0.0&host_port=8088', options);
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.reachable, true, 'Discovered private peer service must remain probeable');
+  for (const query of ['host_ip=169.254.169.254&host_port=80', 'host_ip=127.0.0.1&host_port=1', 'server_id=contract-a&host_ip=0.0.0.0&host_port=8089', 'server_id=contract-a&host_ip=0.0.0.0&host_port=8088&target_server_url=http://unconfigured.invalid']) {
+    assert.equal((await request(`/api/ping?${query}`, options)).status, 403, 'Undiscovered target accepted');
+  }
+  for (const host of ['fixture/probe#', 'user@fixture', '2130706433', '[::1]:80']) {
+    assert.equal((await request(`/api/ping?host_ip=${encodeURIComponent(host)}&host_port=8088`, options)).status, 400);
+  }
+}
+async function rateContracts() {
+  let denied = false;
+  for (let index = 0; index < 32; index += 1) {
+    const response = await request('/api/servers/does-not-exist/generate-port', { method: 'POST' });
+    assert([404, 429].includes(response.status));
+    if (response.status === 429) { denied = true; break; }
+  }
+  assert(denied, 'Generation rate limiter did not reject excess requests');
 }
 async function preservationNegativeControl() {
   const note = { server_id: 'local', host_ip: '0.0.0.0', host_port: 18080, protocol: 'tcp' };
@@ -192,6 +233,7 @@ async function discoveryContracts() {
     assert.equal(container.platform_data.orig_data.memory, memory, 'Raw container memory must be preserved');
   }
   const peer = await request('/api/servers/contract-a/scan'); assert.equal(peer.status, 200); assert(peer.body.ports.some(port => Number(port.host_port) === 8088));
+  await pingContracts();
   const cycle = await request('/api/servers/order', { method: 'PUT', body: { items: [{ id: 'contract-a', parentId: 'contract-b', position: 1 }, { id: 'contract-b', parentId: 'contract-a', position: 0 }] } }); assert.equal(cycle.status, 400);
   record('docker-ports-peer-scan-truenas-and-order-integrity');
 }
@@ -206,9 +248,24 @@ async function failureContract() {
   docker(['restart', app]); await waitReady(); await login();
   await discoveryContracts(); record('bounded-enrichment-failure-and-recovery');
 }
+async function verifyUnpatchedSecurityBaseline() {
+  await startApp(securityBaseline, false, false, '/data/security-baseline.db');
+  const details = await request(`/api/containers/${'c'.repeat(64)}/details?raw=true`, { cookie: false });
+  assert.equal(details.status, 200);
+  assert(details.body.raw.Config.Env.some(value => value === 'DATABASE_PASSWORD=contract-sensitive-marker'));
+  const probe = await request('/api/ping?host_ip=fixture&host_port=8088', { cookie: false });
+  assert.equal(probe.status, 200); assert.equal(probe.body.reachable, true);
+  stopApp();
+  await startApp(securityBaseline, true, false, '/data/security-baseline.db');
+  assert.equal((await request('/api/servers/local/scan', { cookie: false })).status, 401);
+  assert.equal((await request('/api/servers/local/generate-port', { method: 'POST', cookie: false })).status, 200);
+  stopApp();
+  record('unpatched-security-baseline-reproduced');
+}
 try {
   image = resolvePlatformImage(image);
   baseline = resolvePlatformImage(baseline);
+  if (securityBaseline) securityBaseline = resolvePlatformImage(securityBaseline);
   const nativeCode = fs.readFileSync(new URL('./native-contract.cjs', import.meta.url), 'utf8');
   const nativeArgs = ['run', '--rm', '--network', 'none', '--platform', platform, '-e', `EXPECTED_ARCH=${platform === 'linux/arm64' ? 'arm64' : 'x64'}`, '--entrypoint', 'node', image, '-e'];
   const native = docker([...nativeArgs, nativeCode]);
@@ -223,16 +280,21 @@ try {
   docker(['volume', 'create', volume]); volumeCreated = true;
   const openssl = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem'), '-subj', '/CN=fixture', '-days', '1'], { stdio: 'ignore', timeout: 15000 }); assert.equal(openssl.status, 0);
   const fixtureCode = fs.readFileSync(fileURLToPath(new URL('./contract-fixture.cjs', import.meta.url)), 'utf8');
-  containers.add(fixture); docker(['run', '-d', '--name', fixture, '--platform', platform, '--network', network, '--network-alias', 'fixture', '-v', `${directory}:/fixture:ro`, '--entrypoint', 'node', image, '-e', fixtureCode]);
+  containers.add(fixture); docker(['run', '-d', '--name', fixture, '--platform', platform, '--network', network, '--network-alias', 'fixture', '-v', `${directory}:/fixture:ro`, '-e', 'DATABASE_PASSWORD=contract-sensitive-marker', '-e', 'UNEXPECTED_NAME=contract-peer-marker', '--entrypoint', 'node', image, '-e', fixtureCode]);
+  const realEnvironment = JSON.parse(docker(['inspect', '--format', '{{json .Config.Env}}', fixture]));
+  assert(realEnvironment.includes('DATABASE_PASSWORD=contract-sensitive-marker'));
+  docker(['exec', fixture, 'node', '-e', "fetch('http://localhost:8080/inspection-env',{method:'POST',body:process.argv[1]}).then(response=>{if(!response.ok)process.exitCode=1;})", JSON.stringify(realEnvironment)]);
   startRelay();
+  if (securityBaseline) await verifyUnpatchedSecurityBaseline();
   await seedPreviousRelease(); await startApp(image, true, true); await securityContracts(); await assertPreserved(); record('upgrade-data-and-trust-migration');
   await apiKeyContracts(); await preservationNegativeControl(); await serviceContracts();
   await discoveryContracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
   await failureContract();
+  await rateContracts();
   const { browserContracts } = await import('./browser-contracts.mjs');
   await browserContracts(baseUrl, credentials, JSON.parse(native).version); record('desktop-mobile-browser-contracts');
   assert.equal((await request('/api/auth/logout', { method: 'POST', body: {} })).status, 200); assert.equal((await request('/api/settings')).status, 401); record('logout-invalidates-session');
-  stopApp(); await startApp(image, false, true); assert.equal((await request('/api/auth/status', { cookie: false })).body.authEnabled, false); assert.equal((await request('/api/settings', { cookie: false })).status, 200); record('explicit-auth-disabled-mode');
+  stopApp(); await startApp(image, false, true); assert.equal((await request('/api/auth/status', { cookie: false })).body.authEnabled, false); assert.equal((await request('/api/settings', { cookie: false })).status, 200); await confidentialDetails({ cookie: false }); await pingContracts({ cookie: false }); record('explicit-auth-disabled-mode');
   await assert.rejects(securityContracts, { code: 'ERR_ASSERTION' }); record('authentication-bypass-negative-control-rejected');
   stopApp(); await startApp(image, true, false, '/data/fresh.db');
   assert.equal((await request('/api/auth/status', { cookie: false })).body.setupRequired, true);

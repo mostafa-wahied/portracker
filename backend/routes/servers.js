@@ -1,3 +1,5 @@
+const { validatePeerUrl } = require("../lib/peer-http");
+
 function listHandler({ db, logger }) {
   return (req, res) => {
     logger.debug("GET /api/servers");
@@ -30,7 +32,7 @@ function updateExistingServer(db, payload) {
       type,
       dbUnreachable,
       platform_type,
-      apiKey || null,
+      db.peerKeys.seal(payload, apiKey),
       id
     );
     return;
@@ -58,27 +60,23 @@ function insertNewServer(db, payload) {
     type,
     dbUnreachable,
     platform_type,
-    apiKey || null,
+    db.peerKeys.seal(payload, apiKey),
     nextPosition
   );
 }
 
-function handleUpsertError(error, id, body, logger, res) {
-  logger.error(`Database error in POST /api/servers (ID: ${id}): ${error.message}`);
-  logger.debug("Stack trace:", error.stack || "");
+function handleUpsertError(error, id, logger, res) {
+  logger.error("Failed to persist server configuration");
   if (error.message.includes("UNIQUE constraint failed")) {
     return res.status(409).json({ error: `Server with ID '${id}' already exists.` });
   }
   const lower = error.message.toLowerCase();
   if (lower.includes("can only bind") || lower.includes("datatype mismatch")) {
-    logger.error(
-      `Possible data binding/type issue for server ID ${id}. Payload received: ${JSON.stringify(body)}`
-    );
     return res
       .status(500)
-      .json({ error: "Failed to save server due to data type issue.", details: error.message });
+      .json({ error: "Failed to save server due to data type issue." });
   }
-  return res.status(500).json({ error: "Failed to save server", details: error.message });
+  return res.status(500).json({ error: "Failed to save server" });
 }
 
 function upsertHandler({ db, logger }) {
@@ -95,10 +93,18 @@ function upsertHandler({ db, logger }) {
       });
     }
     const dbUnreachable = unreachable ? 1 : 0;
+    if (type === "peer" && url) {
+      try { validatePeerUrl(url); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
+    if (apiKey !== undefined && apiKey !== null && (typeof apiKey !== "string" || apiKey.length > 8192 || /[\r\n]/.test(apiKey))) {
+      return res.status(400).json({ error: "Invalid peer API key" });
+    }
     const payload = { id, label, url, parentId, type, dbUnreachable, platform_type, apiKey };
     try {
-      const existing = db.prepare("SELECT id FROM servers WHERE id = ?").get(id);
+      const existing = db.prepare("SELECT id, url, type FROM servers WHERE id = ?").get(id);
       if (existing) {
+        if (existing.url !== url || existing.type !== type) payload.apiKey = apiKey || null;
         updateExistingServer(db, payload);
         logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
         return res.status(200).json({ message: "Server updated successfully", id });
@@ -107,7 +113,7 @@ function upsertHandler({ db, logger }) {
       logger.info(`Server added successfully. ID: ${id}, Label: "${label}"`);
       return res.status(201).json({ message: "Server added successfully", id });
     } catch (error) {
-      return handleUpsertError(error, id, req.body, logger, res);
+      return handleUpsertError(error, id, logger, res);
     }
   };
 }

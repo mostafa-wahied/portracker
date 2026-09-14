@@ -204,7 +204,7 @@ describe("sanitizeDockerInspection", () => {
       Id: "abcdef1234567890",
       Name: "/test-container",
       Config: {
-        Labels: { test: "value" },
+        Labels: { "com.docker.compose.project": "value" },
         ExposedPorts: { "80/tcp": {}, ...makeExposedPorts(3, 1000) },
       },
       HostConfig: {
@@ -232,18 +232,18 @@ describe("sanitizeDockerInspection", () => {
     expect(result.NetworkSettings.Ports).toEqual({
       "80/tcp": [{ HostIp: "0.0.0.0", HostPort: "8080" }],
     });
-    expect(result.Config.Labels).toEqual({ test: "value" });
+    expect(result.Config.Labels).toEqual({ "com.docker.compose.project": "value" });
     expect(result.NetworkSettings.Networks.bridge.IPAddress).toBe("172.17.0.2");
   });
 
-  test("returns the original inspection at or below the limit", () => {
+  test("preserves safe inspection values at or below the limit", () => {
     process.env.MAX_INTERNAL_PORTS_PER_CONTAINER = "2";
     const inspection = {
       Config: { ExposedPorts: makeExposedPorts(2) },
       NetworkSettings: { Ports: {} },
     };
 
-    expect(sanitizeDockerInspection(inspection)).toBe(inspection);
+    expect(sanitizeDockerInspection(inspection)).toEqual(inspection);
   });
 });
 

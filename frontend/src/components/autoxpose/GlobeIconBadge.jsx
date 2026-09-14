@@ -7,14 +7,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SslIcon } from "./SslIcon";
+import { safeExternalUrl } from "@/lib/external-url";
 
 export function GlobeIconBadge({ url, hostname, sslStatus = "active" }) {
+  const href = safeExternalUrl(url);
+  if (!href) return null;
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <a
-            href={url}
+            href={href}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}

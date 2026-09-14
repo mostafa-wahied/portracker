@@ -72,8 +72,8 @@ async function requestAutoxposeJson(baseUrl, endpoint, options = {}) {
         );
 
         request = requestImplementation(target, {
-          method: "GET",
-          headers: { Accept: "application/json" },
+          method: options.method || "GET",
+          headers: { Accept: "application/json", ...options.headers },
           lookup: createPinnedLookup(resolution.addresses),
           agent: false,
         }, (response) => {
@@ -119,5 +119,6 @@ async function requestAutoxposeJson(baseUrl, endpoint, options = {}) {
 }
 
 module.exports = {
+  createPinnedLookup,
   requestAutoxposeJson,
 };

@@ -133,6 +133,13 @@ function requireAuthOrApiKey(req, res, next) {
  * Middleware to optionally check authentication
  * Passes through regardless, but sets req.isAuthenticated flag
  */
+function requireDiagnosticSession(req, res, next) {
+  if (req.query.raw === 'true' && isAuthEnabled() && !req.session?.userId) {
+    return res.status(403).json({ error: 'Raw diagnostics require a signed-in user' });
+  }
+  next();
+}
+
 function optionalAuth(req, res, next) {
   req.isAuthenticated = false;
   
@@ -160,6 +167,7 @@ module.exports = {
   checkAuthEnabled,
   requireAuth,
   requireAuthOrApiKey,
+  requireDiagnosticSession,
   optionalAuth,
   isLoggedIn,
   isAuthEnabled

@@ -9,7 +9,7 @@ ports.push({ PrivatePort: 80, PublicPort: 18080, IP: '0.0.0.0', Type: 'tcp' });
 const inspection = {
   Id: containerId, Name: '/contract-web', Created: '2026-01-01T00:00:00Z',
   State: { Running: true, Status: 'running', StartedAt: '2026-01-01T00:00:00Z' },
-  Config: { Image: 'contract-web:1', Labels: {}, Env: [], ExposedPorts: Object.fromEntries(ports.map(port => [`${port.PrivatePort}/tcp`, {}])) },
+  Config: { Image: 'contract-web:1', Cmd: ['contract-command-marker'], Labels: { custom: 'contract-label-marker' }, Env: ['DATABASE_PASSWORD=contract-sensitive-marker', 'UNEXPECTED_NAME=contract-peer-marker'], ExposedPorts: Object.fromEntries(ports.map(port => [`${port.PrivatePort}/tcp`, {}])) },
   HostConfig: { NetworkMode: 'bridge', PortBindings: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '18080' }] } },
   NetworkSettings: { Ports: Object.fromEntries(ports.map(port => [`${port.PrivatePort}/tcp`, port.PublicPort ? [{ HostIp: '0.0.0.0', HostPort: '18080' }] : null])), Networks: { bridge: { IPAddress: '172.20.0.10', Gateway: '172.20.0.1' } } },
   Mounts: [],
@@ -25,6 +25,14 @@ http.createServer((request, response) => {
     mode = url.searchParams.get('value');
     for (const socket of sockets) socket.close();
     body = { mode };
+  } else if (route === '/inspection-env' && request.method === 'POST') {
+    let text = '';
+    request.on('data', chunk => { text += chunk; });
+    request.on('end', () => {
+      inspection.Config.Env = JSON.parse(text);
+      response.setHeader('Content-Type', 'application/json'); response.end('{"updated":true}');
+    });
+    return;
   } else if (route === '/health') { requests += 1; body = { status: 'ok', version: 'contract' }; }
   else if (route === '/counters') body = { requests };
   else if (route === '/_ping') { response.end('OK'); return; }
@@ -33,6 +41,7 @@ http.createServer((request, response) => {
   else if (route === '/containers/json') body = [{ Id: containerId, Names: ['/contract-web'], Image: 'contract-web:1', State: 'running', Status: 'Up', Labels: {}, Ports: ports, NetworkSettings: inspection.NetworkSettings }];
   else if (route === `/containers/${containerId}/json` || route === `/containers/${containerId.slice(0, 12)}/json`) body = inspection;
   else if (route === '/api/servers/local/scan') body = { platform: 'docker', ports: [{ host_ip: '0.0.0.0', host_port: 8088, protocol: 'tcp', service_name: 'peer-web', source: 'docker', internal: false }], applications: [] };
+  else if (route.startsWith('/api/containers/') && route.endsWith('/details')) body = { id: containerId, ports: [], raw: inspection };
   else if (route === '/api/version') body = { version: '1.3.10' };
   else if (route === '/api/system-info') body = { hostname: 'contract-peer', platform: 'linux' };
   else if (route === '/api/services') body = { services: [] };
@@ -40,6 +49,7 @@ http.createServer((request, response) => {
   else { response.writeHead(404); response.end('{}'); return; }
   response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(body));
 }).listen(8080, '0.0.0.0');
+http.createServer((_request, response) => { response.end('discovered-peer-service'); }).listen(8088, '0.0.0.0');
 const tls = https.createServer({ key: fs.readFileSync('/fixture/key.pem'), cert: fs.readFileSync('/fixture/cert.pem') });
 new WebSocket.Server({ server: tls }).on('connection', socket => {
   sockets.add(socket); socket.on('close', () => sockets.delete(socket)); socket.on('error', () => {});

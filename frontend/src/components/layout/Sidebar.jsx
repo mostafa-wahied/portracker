@@ -238,7 +238,7 @@ export function Sidebar({
         type: form.type,
         unreachable: allowUnreachable,
         parentId: form.parentId || null,
-        apiKey: form.apiKey?.trim() || null,
+        ...(form.apiKey?.trim() ? { apiKey: form.apiKey.trim() } : form.hasExistingKey ? {} : { apiKey: null }),
       };
       await onAdd(serverData, mode !== "add");
       setValidationStatus({
@@ -491,11 +491,12 @@ export function Sidebar({
                   className="mt-1.5"
                   disabled={submitting}
                 />
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  {form.hasExistingKey && !form.apiKey
-                    ? "API key is saved. Enter a new key to replace it."
-                    : "Required if the remote server has authentication enabled"}
-                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{form.hasExistingKey && !form.apiKey
+                  ? "Key saved. Changing the server address requires a new key."
+                  : "Required if the remote server has authentication enabled"}</p>
+                {(form.apiKey || form.hasExistingKey) && !/^https:\/\//i.test(form.url) && (
+                  <p role="status" className="mt-1 text-xs text-amber-700 dark:text-amber-300">HTTP sends this key without encryption. Use HTTPS or an encrypted VPN on untrusted networks.</p>
+                )}
               </div>
             )}
             {availableParents.length > 0 && (

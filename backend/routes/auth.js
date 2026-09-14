@@ -10,7 +10,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('../db');
 const { Logger } = require('../lib/logger');
-const { isAuthEnabled } = require('../middleware/auth');
+const { isAuthEnabled, requireAuth } = require('../middleware/auth');
 const recoveryManager = require('../lib/recovery-manager');
 
 const router = express.Router();
@@ -246,7 +246,7 @@ router.post('/logout', (req, res) => {
   });
 });
 
-router.post('/change-password', async (req, res) => {
+router.post('/change-password', requireAuth, async (req, res) => {
   try {
     if (!isAuthEnabled()) {
       return res.status(400).json({ error: 'Authentication is not enabled' });

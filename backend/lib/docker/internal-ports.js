@@ -1,4 +1,5 @@
 const DEFAULT_MAX_UNPUBLISHED_EXPOSED_PORTS = 100;
+const { redactDiagnosticData } = require("../diagnostic-data");
 
 function getMaxUnpublishedExposedPorts() {
   const raw = Number(process.env.MAX_INTERNAL_PORTS_PER_CONTAINER || "");
@@ -175,6 +176,7 @@ function sanitizeDockerInspection(inspection, logWarn) {
   if (!inspection || typeof inspection !== "object") {
     return inspection;
   }
+  inspection = redactDiagnosticData(inspection);
   const config = inspection.Config || {};
   const networkSettings = inspection.NetworkSettings || {};
   const hostConfig = inspection.HostConfig || {};

@@ -6,14 +6,13 @@ const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
-const fetch = (...args) => (globalThis.fetch ? globalThis.fetch(...args) : import('node-fetch').then(m => m.default(...args)));
 const { Logger } = require('./lib/logger');
 const DockerAPIClient = require('./lib/docker-api');
 const { createCollector, detectCollector } = require('./collectors');
 const net = require('net');
 const db = require('./db');
-const https = require("https");
-const { getConfiguredCorsOrigins, requireAllowedOrigin, requireAuth, requireAuthOrApiKey, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
+const { getConfiguredCorsOrigins, requireAllowedOrigin, requireAuth, requireAuthOrApiKey, requireDiagnosticSession, checkAuthEnabled, isAuthEnabled } = require('./middleware/auth');
+const { sanitizeDiagnosticResponses } = require('./lib/diagnostic-data');
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
@@ -23,6 +22,11 @@ const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 const { getDockerHostIP } = require('./lib/docker-host');
 const { buildContainerPortDetails, sanitizeDockerInspection, sanitizeInternalPortRows, sanitizeScanPayload } = require('./lib/docker/internal-ports');
+const { PingTargets, probeFetch } = require('./lib/ping-policy');
+const pingTargets = new PingTargets();
+const { requestPeer } = require('./lib/peer-http');
+const peerRequest = (server, endpoint, options = {}) => requestPeer(server, endpoint, { ...options, openKey: db.peerKeys.open });
+const { generatePortLimit, pingRequestLimit } = require('./middleware/operation-limits');
 
 const logger = new Logger("Server", { debug: process.env.DEBUG === 'true' });
 const BASE_DEBUG = process.env.DEBUG === 'true';
@@ -121,18 +125,20 @@ function detectServiceType(port, owner) {
   return { name: 'Service', type: 'service', description: 'Application service' };
 }
 
-async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = false) {
+async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = false, allowLoopback = false) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PING_TIMEOUT);
   
-  const url = `${scheme}://${host_ip}:${port}${path}`;
+  const hostname = net.isIP(host_ip) === 6 ? `[${host_ip}]` : host_ip;
+  const url = `${scheme}://${hostname}:${port}${path}`;
   
   try {
     const startTime = Date.now();
     
     try {
-      const headResponse = await fetch(url, {
+      const headResponse = await probeFetch(url, {
         method: 'HEAD',
+        allowLoopback,
         signal: controller.signal,
         headers: {
           'User-Agent': 'PortTracker/1.0',
@@ -167,8 +173,9 @@ async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = 
     
     try {
       const getStartTime = Date.now();
-      const getResponse = await fetch(url, {
+      const getResponse = await probeFetch(url, {
         method: 'GET',
+        allowLoopback,
         signal: controller.signal,
         headers: {
           'User-Agent': 'PortTracker/1.0',
@@ -234,28 +241,8 @@ async function testProtocol(scheme, host_ip, port, path = "/", isDebugEnabled = 
       if (scheme === 'https') {
         try {
           const start = Date.now();
-          const permissiveStatus = await new Promise((resolve, reject) => {
-            const req = https.request(
-              {
-                hostname: host_ip,
-                port,
-                path,
-                method: 'GET',
-                rejectUnauthorized: false,
-                timeout: PING_TIMEOUT,
-              },
-              (res) => {
-                const code = res.statusCode || 200;
-                res.resume();
-                resolve({ statusCode: code });
-              }
-            );
-            req.on('error', reject);
-            req.on('timeout', () => {
-              req.destroy(new Error('timeout'));
-            });
-            req.end();
-          });
+          const fallback = await probeFetch(url, { method: 'GET', signal: controller.signal, allowLoopback, rejectUnauthorized: false });
+          const permissiveStatus = { statusCode: fallback.status };
           const duration = Date.now() - start;
           if (isDebugEnabled) {
             logPingDebug(`testProtocol HTTPS permissive GET ${url} -> ${permissiveStatus.statusCode} (${duration}ms)`);
@@ -521,6 +508,7 @@ if (isAuthEnabled()) {
 }
 
 app.use(checkAuthEnabled);
+app.use('/api', sanitizeDiagnosticResponses);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
@@ -579,6 +567,7 @@ app.get("/api/ports", requireAuthOrApiKey, async (req, res) => {
         ...e,
         owner: e.owners.join(", "),
       }));
+    pingTargets.record({ id: 'local' }, payload);
     if (!debug && process.env.DISABLE_CACHE !== 'true') {
       responseCache.set(cacheKey, payload, RESP_TTL_PORTS);
     }
@@ -664,6 +653,7 @@ async function getLocalPortsUsingCollectors(options = {}) {
     logger.debug(`[getLocalPortsUsingCollectors] Detected collector: ${collector?.platform}`);
 
     const ports = sanitizeInternalPortRows(await collector.getPorts(), logger.warn.bind(logger));
+    pingTargets.record({ id: 'local' }, ports);
     logger.debug(`[getLocalPortsUsingCollectors] Collected ${ports?.length || 0} ports.`);
 
     await enrichComposeLabelsOnPorts(ports);
@@ -918,6 +908,7 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
           collectData.ports?.length || 0
         }, VMs: ${collectData.vms?.length || 0}`
       );
+      pingTargets.record(server, collectData.ports);
       return res.json(collectData);
     }
 
@@ -931,16 +922,8 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         
-        const fetchHeaders = {};
-        if (server.remote_api_key) {
-          fetchHeaders['X-API-Key'] = server.remote_api_key;
-        }
-        
         try {
-          const peerResponse = await fetch(peerScanUrl, { 
-            signal: controller.signal,
-            headers: fetchHeaders
-          });
+          const peerResponse = await peerRequest(server, '/api/servers/local/scan');
           clearTimeout(timeoutId);
 
           if (!peerResponse.ok) {
@@ -960,7 +943,7 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
           }
 
           const peerScanData = sanitizeScanPayload(await peerResponse.json(), logger.warn.bind(logger));
-          
+          pingTargets.record(server, peerScanData.ports);
           logger.debug(`Peer scan complete: ${server.label} (${serverId})`);
           return res.json(peerScanData);
         } catch (fetchError) {
@@ -1011,11 +994,10 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
   }
 });
 
-app.post("/api/servers/:id/generate-port", async (req, res) => {
+app.post("/api/servers/:id/generate-port", requireAuthOrApiKey, generatePortLimit, async (req, res) => {
   const serverId = req.params.id;
   const currentDebug = req.query.debug === "true" || process.env.DEBUG === 'true';
   if (Object.prototype.hasOwnProperty.call(req.query, 'debug')) logger.setDebugEnabled(currentDebug);
-
   try {
     const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(serverId);
     if (!server) {
@@ -1031,17 +1013,11 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
     }
 
     if (server.type === "peer" && server.url) {
-      const peerUrl = new URL("/api/servers/local/generate-port", server.url).href;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const peerHeaders = {};
-      if (server.remote_api_key) {
-        peerHeaders['X-API-Key'] = server.remote_api_key;
-      }
-
       try {
-        const peerResponse = await fetch(peerUrl, { method: "POST", signal: controller.signal, headers: peerHeaders });
+        const peerResponse = await peerRequest(server, '/api/servers/local/generate-port', { method: 'POST' });
         clearTimeout(timeoutId);
 
         if (peerResponse.ok) {
@@ -1052,8 +1028,7 @@ app.post("/api/servers/:id/generate-port", async (req, res) => {
         if (peerResponse.status === 404 || peerResponse.status === 405 || peerResponse.status === 501) {
           logger.warn(`[generate-port] Peer ${server.label} missing generate endpoint, falling back to scan.`);
           try {
-            const scanUrl = new URL("/api/servers/local/scan", server.url).href;
-            const scanResponse = await fetch(scanUrl, { method: "GET", signal: controller.signal, headers: peerHeaders });
+            const scanResponse = await peerRequest(server, '/api/servers/local/scan');
 
             if (scanResponse.ok) {
               const scanData = sanitizeScanPayload(await scanResponse.json(), logger.warn.bind(logger));
@@ -2100,7 +2075,7 @@ app.post("/api/notes/batch", requireAuth, (req, res) => {
   }
 });
 
-app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
+app.get("/api/ping", requireAuthOrApiKey, pingRequestLimit, pingTargets.guard(db), async (req, res) => {
   const { host_ip, host_port, target_server_url, owner, internal, container_id, source } = req.query;
   const serverId = req.query.server_id;
   const currentDebug = req.query.debug === "true";
@@ -2126,7 +2101,6 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
         if (!row || !row.url) {
           return res.status(400).json({ error: 'server url not found for remote ping' });
         }
-        const base = row.url.replace(/\/$/, '');
         const params = new URLSearchParams();
         params.set('internal', 'true');
         params.set('container_id', container_id);
@@ -2135,10 +2109,8 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
         if (owner) params.set('owner', owner);
         if (source) params.set('source', source);
         if (currentDebug) params.set('debug', 'true');
-        const url = `${base}/api/ping?${params.toString()}`;
-        const resp = await fetch(url, { headers: { 'accept': 'application/json' } });
-        const text = await resp.text();
-        let body; try { body = JSON.parse(text); } catch { body = text; }
+        const resp = await peerRequest(req.pingServer, '/api/ping?' + params.toString());
+        const body = resp.ok ? await resp.json() : { error: 'Peer ping failed' };
         return res.status(resp.status).send(body);
       } catch (e) {
         logger.error(`[GET /api/ping] Remote proxy to ${serverId} failed:`, e.message);
@@ -2258,8 +2230,8 @@ app.get("/api/ping", requireAuthOrApiKey, async (req, res) => {
     logger.debug(`Testing ${serviceInfo.name} (${serviceInfo.type}) on ${pingable_host_ip}:${portNum}`);
   }
 
-  const httpsResponse = await testProtocol("https", pingable_host_ip, portNum, "/", currentDebug);
-  const httpResponse = await testProtocol("http", pingable_host_ip, portNum, "/", currentDebug);
+  const httpsResponse = await testProtocol("https", pingable_host_ip, portNum, "/", currentDebug, req.pingServer.id === "local");
+  const httpResponse = await testProtocol("http", pingable_host_ip, portNum, "/", currentDebug, req.pingServer.id === "local");
   
   const result = determineServiceStatus(serviceInfo, httpsResponse, httpResponse);
   
@@ -2346,7 +2318,7 @@ app.get('/api/version', (req, res) => {
   }
 });
 
-app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => {
+app.get("/api/containers/:id/details", requireAuthOrApiKey, requireDiagnosticSession, async (req, res) => {
   const containerId = req.params.id;
   const currentDebug = req.query.debug === 'true';
   const serverId = req.query.server_id;
@@ -2364,18 +2336,15 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, async (req, res) => 
   try {
     if (serverId && serverId !== 'local') {
       try {
-        const row = db.prepare('SELECT url FROM servers WHERE id = ?').get(serverId);
+        const row = db.prepare('SELECT * FROM servers WHERE id = ?').get(serverId);
         if (!row || !row.url) {
           return res.status(400).json({ error: 'server url not found for remote details' });
         }
-        const base = row.url.replace(/\/$/, '');
   const forwardable = ['raw','size','stats','export','debug'];
   const qsFlags = forwardable.filter(f => req.query[f] === 'true').map(f => `${f}=true`);
-  const url = `${base}/api/containers/${encodeURIComponent(containerId)}/details${qsFlags.length ? '?' + qsFlags.join('&') : ''}`;
-  const remoteResp = await fetch(url, { method: 'GET', headers: { 'accept': 'application/json' } });
-        const text = await remoteResp.text();
-        let body;
-        try { body = JSON.parse(text); } catch { body = text; }
+        const endpoint = `/api/containers/${encodeURIComponent(containerId)}/details${qsFlags.length ? '?' + qsFlags.join('&') : ''}`;
+        const remoteResp = await peerRequest(row, endpoint);
+          const body = remoteResp.ok ? await remoteResp.json() : { error: 'Peer container details failed' };
         if (body && Array.isArray(body.ports)) {
           body.ports = sanitizeInternalPortRows(body.ports, logger.warn.bind(logger));
           body.exposedUnmapped = body.ports

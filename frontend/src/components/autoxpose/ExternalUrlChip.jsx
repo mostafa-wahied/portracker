@@ -7,6 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SslIcon, getSslTooltip } from "./SslIcon";
+import { safeExternalUrl } from "@/lib/external-url";
 
 const bgClassesByStatus = {
   active: "bg-emerald-100 text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-200",
@@ -16,12 +17,14 @@ const bgClassesByStatus = {
 };
 
 export function ExternalUrlChip({ url, hostname, sslStatus = "active", compact = false }) {
+  const href = safeExternalUrl(url);
+  if (!href) return null;
   const bgClasses = bgClassesByStatus[sslStatus] || bgClassesByStatus.none;
   const displayName = compact ? hostname.split('.')[0] : hostname;
 
   return (
     <a
-      href={url}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}

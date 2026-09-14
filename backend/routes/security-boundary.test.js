@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const vm = require("node:vm");
 const { once } = require("node:events");
 const { createRequire } = require("node:module");
 const express = require("express");
@@ -13,12 +14,14 @@ const {
 
 const originalAuth = process.env.ENABLE_AUTH;
 const originalCorsOrigin = process.env.CORS_ORIGIN;
+const originalPortLimit = process.env.MAX_INTERNAL_PORTS_PER_CONTAINER;
 jestObject.mock("../lib/api-key-manager", () => ({
-  validateAnyApiKey: async () => ({ valid: false }),
+  validateAnyApiKey: async key => ({ valid: key === "synthetic-peer-key", serverId: "fixture" }),
 }));
-const { requireAllowedOrigin, requireAuth } = require("../middleware/auth");
+const { requireAllowedOrigin, requireAuth, requireAuthOrApiKey } = require("../middleware/auth");
 const expressRequire = createRequire(require.resolve("express"));
 const qs = expressRequire("qs");
+const { sanitizeDockerInspection } = require("../lib/docker/internal-ports");
 
 function runRequireAuth(pathname, session) {
   let statusCode = null;
@@ -47,6 +50,8 @@ function runRequireAuth(pathname, session) {
 }
 
 afterEach(() => {
+  if (originalPortLimit === undefined) delete process.env.MAX_INTERNAL_PORTS_PER_CONTAINER;
+  else process.env.MAX_INTERNAL_PORTS_PER_CONTAINER = originalPortLimit;
   if (originalAuth === undefined) {
     delete process.env.ENABLE_AUTH;
   } else {
@@ -138,6 +143,86 @@ describe("router authentication", () => {
       payload: null,
       nextCalled: true,
     });
+  });
+});
+
+describe("port generation authentication", () => {
+  test.each([
+    ["anonymous", "true", false, null, 401],
+    ["invalid key", "true", false, "invalid-fixture-key", 401],
+    ["peer key", "true", false, "synthetic-peer-key", 200],
+    ["session", "true", true, null, 200],
+    ["auth disabled", "false", false, null, 200],
+    ["auth unset", undefined, false, null, 200],
+  ])("checks %s before reading or contacting a peer", async (_label, auth, session, key, expected) => {
+    if (auth === undefined) delete process.env.ENABLE_AUTH;
+    else process.env.ENABLE_AUTH = auth;
+    const source = fs.readFileSync(path.join(__dirname, "../index.js"), "utf8");
+    const route = source.match(/app\.post\("\/api\/servers\/:id\/generate-port",[\s\S]+?\n\}\);/)[0];
+    const databaseReads = [];
+    const outbound = [];
+    const app = express();
+    app.use((request, _response, next) => {
+      if (session) request.session = { userId: "fixture-user" };
+      next();
+    });
+    vm.runInNewContext(route, {
+      app, requireAuthOrApiKey, process, URL, AbortController, setTimeout, clearTimeout,
+      generatePortLimit: (_request, _response, next) => next(),
+      BASE_DEBUG: false,
+      logger: { setDebugEnabled() {}, warn() {}, error() {}, debug() {} },
+      db: { peerKeys: { open: () => "synthetic-outbound-key" }, prepare: () => ({ get: id => {
+        databaseReads.push(id);
+        return { type: "peer", url: "http://peer.invalid", remote_api_key: "synthetic-outbound-key" };
+      } }) },
+      peerRequest: async (server, endpoint, options) => {
+        outbound.push({ url: new URL(endpoint, server.url).href, options: { ...options, headers: { 'X-API-Key': 'synthetic-outbound-key' } } });
+        return { ok: true, json: async () => ({ port: 12345 }) };
+      },
+    });
+    const server = app.listen(0, "127.0.0.1");
+    try {
+      await once(server, "listening");
+      const headers = { Connection: "close" };
+      if (key) headers["X-API-Key"] = key;
+      const response = await globalThis.fetch(`http://127.0.0.1:${server.address().port}/api/servers/fixture/generate-port`, {
+        method: "POST", headers,
+      });
+      expect(response.status).toBe(expected);
+      expect(databaseReads).toHaveLength(expected === 200 ? 1 : 0);
+      expect(outbound).toHaveLength(expected === 200 ? 1 : 0);
+      if (expected === 200) {
+        expect(await response.json()).toEqual({ port: 12345 });
+        expect(outbound[0].options.headers["X-API-Key"]).toBe("synthetic-outbound-key");
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
+describe("container inspection confidentiality", () => {
+  test.each([1, 101])("omits environment values with %i unpublished ports", count => {
+    delete process.env.MAX_INTERNAL_PORTS_PER_CONTAINER;
+    const inspection = {
+      Id: "fixture-container",
+      Config: {
+        Env: ["DATABASE_PASSWORD=synthetic-sensitive-value", "UNUSUAL_NAME=synthetic-peer-value"],
+        Image: "fixture:1",
+        ExposedPorts: Object.fromEntries(Array.from({ length: count }, (_, index) => [`${20000 + index}/tcp`, {}])),
+      },
+      HostConfig: { PortBindings: { "80/tcp": [{ HostPort: "18080", HostIp: "0.0.0.0" }] } },
+    };
+    const before = JSON.stringify(inspection);
+    const sanitized = sanitizeDockerInspection(inspection);
+    expect(sanitized.Config).not.toHaveProperty("Env");
+    expect(JSON.stringify(sanitized)).not.toContain("synthetic-sensitive-value");
+    expect(JSON.stringify(sanitized)).not.toContain("synthetic-peer-value");
+    expect(sanitized.Config.Image).toBe("fixture:1");
+    expect(sanitized.HostConfig.PortBindings["80/tcp"][0].HostPort).toBe("18080");
+    expect(JSON.stringify(inspection)).toBe(before);
+    expect(sanitizeDockerInspection(sanitized)).toEqual(sanitized);
   });
 });
 

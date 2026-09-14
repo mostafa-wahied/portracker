@@ -3,6 +3,7 @@ const path = require("path");
 const Database = require("better-sqlite3");
 const { Logger } = require("./lib/logger");
 const { migrateServersInPlace } = require("./lib/db/servers-migrations");
+const { createPeerKeyStore } = require("./lib/peer-key-store");
 
 const logger = new Logger("Database", { debug: process.env.DEBUG === 'true' });
 
@@ -530,11 +531,6 @@ if (!tableExists) {
 
 /**
  * Ensures that a local server record with the correct URL, type, and platform_type exists in the database.
- * 
- * If the local server entry does not exist, it is created with the specified port and default platform type. If it exists but its URL, type, or platform_type are incorrect, the entry is updated accordingly.
- * 
- * @param {number} [port=3000] - The port to use for the local server's URL.
- * @param {boolean} [appDebugEnabled=false] - Enables debug logging if set to true.
  * @returns {boolean} True if the local server entry exists or was successfully created/updated; false if an error occurred or the schema is incomplete.
  */
 function ensureLocalServer(port = 3000, appDebugEnabled = false) {
@@ -651,6 +647,9 @@ function updateLocalServerPlatformType(platformType, appDebugEnabled = false) {
   }
 }
 
+db.peerKeys = createPeerKeyStore(db, {
+  keyFile: dbPath === ":memory:" ? null : process.env.PEER_KEY_FILE || path.join(path.dirname(path.resolve(dbPath)), "peer-keys.key"),
+});
 module.exports = db;
 module.exports.ensureLocalServer = ensureLocalServer;
 module.exports.updateLocalServerPlatformType = updateLocalServerPlatformType;

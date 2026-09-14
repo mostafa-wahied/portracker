@@ -23,6 +23,7 @@
     "dockerode": "^5.0.1",
     "dotenv": "^17.2.3",
     "express": "^4.22.2",
+    "express-rate-limit": "8.7.0",
     "express-session": "^1.18.0",
     "node-fetch": "^3.3.2",
     "ws": "^8.21.3"

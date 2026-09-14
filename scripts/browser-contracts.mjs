@@ -66,6 +66,31 @@ async function memoryLabels(page, options) {
   }
 }
 
+async function peerWarning(page, options) {
+  await page.goto(options.baseUrl + '/?server=local', { waitUntil: 'domcontentloaded' });
+  await page.getByPlaceholder('Search ports, processes...').waitFor();
+  const add = page.getByRole('button', { name: 'Add Server', exact: true });
+  const tip = page.getByRole('button', { name: 'Not now', exact: true });
+  if (await tip.isVisible()) await tip.click();
+  if (options.viewport.width < 768) await page.getByRole('button', { name: 'Open sidebar', exact: true }).click();
+  await add.waitFor();
+  await add.click();
+  await page.locator('#label').fill('Security fixture');
+  await page.locator('#server-url').fill('http://fixture:8080');
+  await page.locator('#apiKey').fill('synthetic-ui-key');
+  const warning = page.getByText('HTTP sends this key without encryption. Use HTTPS or an encrypted VPN on untrusted networks.', { exact: true });
+  await warning.waitFor();
+  await warning.scrollIntoViewIfNeeded();
+  const bounds = await warning.boundingBox();
+  assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= options.viewport.width);
+  await page.screenshot({ path: path.join(options.artifacts, `${options.viewport.width}-peer-warning.png`), animations: 'disabled' });
+  await page.locator('#server-url').fill('https://fixture:9443');
+  await warning.waitFor({ state: 'hidden' });
+  assert.equal(await warning.count(), 0);
+  await page.goto(options.baseUrl + '/?server=local', { waitUntil: 'domcontentloaded' });
+  await page.getByPlaceholder('Search ports, processes...').waitFor();
+}
+
 async function viewportContract(browser, options) {
   const context = await browser.newContext({ viewport: options.viewport, reducedMotion: 'reduce' });
   const page = await context.newPage();
@@ -88,6 +113,7 @@ async function viewportContract(browser, options) {
     await memoryLabels(page, options);
     await releaseNotice(page, options.version);
     await settings(page);
+    await peerWarning(page, options);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await search.waitFor();
     await search.fill('18080');

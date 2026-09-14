@@ -64,14 +64,12 @@ export function PortStatusIndicator({
     let pingApiUrl = `/api/ping?host_ip=${encodeURIComponent(
       port.host_ip
     )}&host_port=${port.host_port}`;
+    if (serverId) pingApiUrl += `&server_id=${encodeURIComponent(serverId)}`;
 
     if (port.internal) {
       pingApiUrl += `&internal=true`;
       if (port.container_id) {
         pingApiUrl += `&container_id=${encodeURIComponent(port.container_id)}`;
-      }
-      if (serverId) {
-        pingApiUrl += `&server_id=${encodeURIComponent(serverId)}`;
       }
     }
     
