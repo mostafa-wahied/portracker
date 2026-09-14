@@ -8,16 +8,14 @@ All notable changes to portracker will be documented in this file.
 
 ### Security
 
-<!-- whatsnew:title=Safer container details and diagnostics -->
-<!-- whatsnew:description=Container details and exports now omit environment values and sensitive diagnostic fields. With sign-in enabled, raw diagnostics require a signed-in user. -->
+<!-- whatsnew:title=Better protection for your servers -->
+<!-- whatsnew:description=Container details now hide sensitive settings. If you use connected servers, include the encryption key file with your database backups. -->
 - **[Container Diagnostics]**: Omit environment values, commands, arbitrary labels, health-check output and raw application configuration from diagnostic responses and exports. Require a signed-in user for raw diagnostics when authentication is enabled, prevent submitted peer keys from reaching error logs, and validate external autoxpose links as HTTP(S). Reported privately through GitHub issue #116.
 
-<!-- whatsnew:title=Encrypted keys for connected servers -->
-<!-- whatsnew:description=Saved peer keys are encrypted automatically. Back up peer-keys.key (or the configured key file) with the database; restores need the matching key file or Portracker will not start. Changing a peer address requires re-entering its key. -->
+<!-- whatsnew:hide -->
 - **[Peer Credentials]**: Encrypt saved outbound peer API keys with authenticated encryption bound to the peer ID and URL, migrate legacy values, and fail closed when encrypted data has no matching key file. Preserve keys for unchanged peer edits and clear them when the destination changes. Back up the database and peer-keys.key, or the file selected by PEER_KEY_FILE, together; see SECURITY.md for recovery and old-backup limitations.
 
-<!-- whatsnew:title=Safer service checks and peer connections -->
-<!-- whatsnew:description=Service checks are limited to discovered ports, and port generation respects sign-in. Peer requests no longer follow redirects. HTTP peers remain supported, with a warning when a key is sent without encryption. -->
+<!-- whatsnew:hide -->
 - **[Request Boundaries]**: Require authentication or a valid peer key for port generation when authentication is enabled. Restrict ping to discovered server/port inventory, validate and pin outbound addresses, reject unsafe peer URLs and redirects, and bound request time, response size and request rates. Private HTTP peers remain supported; HTTPS peer certificate verification remains enabled. Peer loopback, link-local and reserved destinations are rejected. Add route-guard inventory and regression checks across both image architectures.
 
 ## [1.3.13] - 2026-09-14

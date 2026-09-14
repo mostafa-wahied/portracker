@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -38,6 +38,10 @@ export function ServiceCardGrid({
   autoxposePorts,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const hasDeepLink = !!deepLinkContainerId && ports.some(port => port.container_id === deepLinkContainerId);
+  useEffect(() => {
+    if (hasDeepLink) setIsExpanded(true);
+  }, [hasDeepLink]);
 
   const publishedPorts = ports.filter((p) => !p.internal);
   const internalPorts = ports.filter((p) => p.internal);

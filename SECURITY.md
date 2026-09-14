@@ -53,6 +53,16 @@ Raw container diagnostics are opt-in and, with authentication enabled, require a
 user rather than a peer key. Diagnostic APIs omit environment values, commands, arbitrary
 labels, health-check output and raw application configuration. Compose grouping and normal
 port/VM metadata remain available. Do not deliberately place secrets in display names.
+Known health reason codes remain visible; untrusted free-form diagnostic errors are hidden.
+For a remote peer that requires a session for raw diagnostics, the details drawer offers
+"Open remote server". Sign in there to view or export raw diagnostics. Browser sessions
+are not forwarded between instances, and peer keys retain access to standard details only.
+
+Peer responses have a separate default size limit of 8 MiB. `PEER_MAX_RESPONSE_BYTES` accepts
+a positive integer byte limit for trusted larger inventories. An oversized response reports
+this setting instead of suggesting a bad credential. Keep a finite budget appropriate to
+available memory; larger limits increase per-request memory exposure. The autoxpose response
+budget is separate and unchanged.
 
 Ping is restricted to the latest server-side discovered inventory, with validated destinations,
 bounded responses and no redirects. Refresh discovery after restarting or changing services.

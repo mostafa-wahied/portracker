@@ -9,7 +9,7 @@ import {
   DrawerOverlay,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { Copy, ChevronDown, ChevronUp, Check, Box, Activity, Globe2, Network, Terminal, Settings2, Tag, HardDrive, Info, Gauge, Cpu, FileJson, Download, RefreshCw } from "lucide-react";
+import { Copy, ChevronDown, ChevronUp, Check, Box, Activity, Globe2, Network, Terminal, Settings2, Tag, HardDrive, Info, Gauge, Cpu, FileJson, Download, RefreshCw, ExternalLink } from "lucide-react";
 import StatsSkeleton from './parts/StatsSkeleton';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,6 +18,7 @@ import { DetailsPanel } from './parts/DetailsPanel';
 import { useClipboard } from '@/lib/hooks/useClipboard';
 import { formatBytes, formatDuration } from '@/lib/utils';
 import { RESTART_POLICY_STYLES, isEphemeralContainer } from '@/lib/constants';
+import { safeExternalUrl } from '@/lib/external-url';
 
 export function InternalPortDetails({ open, onOpenChange, containerId, serverId }) {
   const [data, setData] = useState(null);
@@ -35,6 +36,7 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
   const liveRegionRef = useRef(null);
   const announceRef = useRef(null);
   const [rawState, setRawState] = useState({ loading: false, error: null, data: null });
+  const rawAbortRef = useRef(null);
   const statsAbortRef = useRef(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState(null);
@@ -45,24 +47,15 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
   const guessShell = (image) => {
     const img = (image || "").toLowerCase();
     if (img.includes("alpine")) return "/bin/ash";
-    if (
-      img.includes("ubuntu") ||
-      img.includes("debian") ||
-      img.includes("fedora") ||
-      img.includes("centos") ||
-      img.includes("rocky") ||
-      img.includes("rhel")
-    )
-      return "/bin/bash";
+    if (["ubuntu", "debian", "fedora", "centos", "rocky", "rhel"].some(name => img.includes(name))) return "/bin/bash";
     return "/bin/sh";
   };
-
-  
   useEffect(() => {
     if (!open || !containerId) return;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setRawState({ loading: false, error: null, data: null });
     const qs = serverId ? `?server_id=${encodeURIComponent(serverId)}` : "";
     fetch(`/api/containers/${encodeURIComponent(containerId)}/details${qs}`, { signal: controller.signal, priority: 'high' })
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
@@ -75,7 +68,7 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
       .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
       .finally(() => setLoading(false));
     drawerRef.current && (drawerRef.current._detailsAbort = controller);
-    return () => { controller.abort(); };
+    return () => { controller.abort(); rawAbortRef.current?.abort(); };
   }, [open, containerId, serverId]);
 
   const execTarget = data?.name || data?.id || containerId;
@@ -87,19 +80,19 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
 
   const loadRaw = () => {
     if (rawState.loading || rawState.data) return;
+    const controller = new AbortController();
+    rawAbortRef.current = controller;
     setRawState(prev => ({ ...prev, loading: true, error: null }));
-    const qsParts = [];
-    if (serverId) qsParts.push(`server_id=${encodeURIComponent(serverId)}`);
-    qsParts.push('raw=true');
-    const qs = qsParts.length ? `?${qsParts.join('&')}` : '';
-    fetch(`/api/containers/${encodeURIComponent(containerId)}/details${qs}`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    const query = new URLSearchParams({ raw: 'true', ...(serverId ? { server_id: serverId } : {}) });
+    fetch(`/api/containers/${encodeURIComponent(containerId)}/details?${query}`, { signal: controller.signal })
+      .then(async response => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.code === 'RAW_DIAGNOSTICS_REQUIRE_REMOTE_LOGIN' ? 'Sign in on the remote server to view raw diagnostics.' : `Raw diagnostics unavailable (HTTP ${response.status}).`);
+        return body;
+      })
       .then(json => setRawState({ loading: false, error: null, data: json.raw || json }))
-      .catch(e => setRawState({ loading: false, error: e.message, data: null }));
+      .catch(e => { if (e.name !== 'AbortError') setRawState({ loading: false, error: e.message, data: null }); });
   };
-
-  
-
   useEffect(() => {
     if (open) {
       document.body.style.overflowY = 'hidden';
@@ -681,7 +674,11 @@ export function InternalPortDetails({ open, onOpenChange, containerId, serverId 
                           )}
                           <DetailsPanel title="JSON (raw inspect)" icon={<FileJson className="w-4 h-4" />} defaultOpen={false}>
                             <div className="space-y-2">
-                              {!rawState.data && !rawState.loading && !rawState.error && (
+                              {data.rawDiagnostics?.available === false && <p className="text-xs text-slate-600 dark:text-slate-400">Raw diagnostics require signing in on this server directly. Peer keys allow standard details only.</p>}
+                              {safeExternalUrl(data.rawDiagnostics?.peerUrl) && (data.rawDiagnostics?.available === false || rawState.error) && (
+                                <a href={safeExternalUrl(data.rawDiagnostics.peerUrl)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs underline"><ExternalLink className="h-3.5 w-3.5" />Open remote server</a>
+                              )}
+                              {data.rawDiagnostics?.available !== false && !rawState.data && !rawState.loading && !rawState.error && (
                                 <Button type="button" variant="outline" size="sm" onClick={loadRaw} className="h-7 px-2 inline-flex items-center gap-1">
                                   <FileJson className="w-3.5 h-3.5" /> Load Raw
                                 </Button>

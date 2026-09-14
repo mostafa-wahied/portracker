@@ -16,6 +16,7 @@ const volume = `${prefix}-data`;
 const app = `${prefix}-app`;
 const fixture = `${prefix}-fixture`;
 const relay = `${prefix}-relay`;
+const authenticatedPeer = `${prefix}-authenticated-peer`;
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 const credentials = { username: 'contract-user', password: crypto.randomBytes(24).toString('hex') };
 let baseline = 'mostafawahied/portracker@sha256:c7b4143ae32da4642a339d49ef5559c8408862eb1d1aacd9052df46e8ae225cb';
@@ -160,14 +161,51 @@ async function apiKeyContracts() {
 }
 async function confidentialDetails(options = {}) {
   for (const flags of ['raw=true', 'raw=true&export=true', 'raw=true&server_id=contract-a']) {
-    const response = await request(`/api/containers/${'c'.repeat(64)}/details?${flags}`, options);
-    assert.equal(response.status, 200);
-    assert(response.body.raw?.Config && !Object.hasOwn(response.body.raw.Config, 'Env'), 'Raw environment field leaked');
-    assert(!JSON.stringify(response.body).includes('contract-sensitive-marker'), 'Synthetic environment value leaked');
-    assert(!JSON.stringify(response.body).includes('contract-peer-marker'), 'Synthetic peer value leaked');
-    assert(!JSON.stringify(response.body).includes('contract-command-marker'), 'Command value leaked');
-    assert(!JSON.stringify(response.body).includes('contract-label-marker'), 'Custom label value leaked');
+    for (const route of [`/api/containers/${'c'.repeat(64)}/details`, `/API/CONTAINERS/${'c'.repeat(64)}/DETAILS/`]) {
+      const response = await request(`${route}?${flags}`, options);
+      assert.equal(response.status, 200);
+      assert(response.body.raw?.Config && !Object.hasOwn(response.body.raw.Config, 'Env'), 'Raw environment field leaked');
+      assert(!JSON.stringify(response.body).includes('contract-sensitive-marker'), 'Synthetic environment value leaked');
+      assert(!JSON.stringify(response.body).includes('contract-peer-marker'), 'Synthetic peer value leaked');
+      assert(!JSON.stringify(response.body).includes('contract-command-marker'), 'Command value leaked');
+      assert(!JSON.stringify(response.body).includes('contract-label-marker'), 'Custom label value leaked');
+      assert(!Object.hasOwn(response.body, 'command') && Object.keys(response.body.labels || {}).every(label => label.startsWith('com.docker.compose.')));
+    }
   }
+}
+async function authenticatedPeerContracts() {
+  containers.add(authenticatedPeer);
+  docker(['run', '-d', '--name', authenticatedPeer, '--platform', platform, '--network', network, '--network-alias', 'auth-peer', '--tmpfs', '/data',
+    '-e', 'ENABLE_AUTH=true', '-e', 'DATABASE_PATH=/data/peer.db', '-e', 'DOCKER_HOST=tcp://fixture:8080', '-e', 'PORT=4999', image]);
+  const setup = "const fs=require('fs');const credentials=JSON.parse(fs.readFileSync(0,'utf8'));(async()=>{const until=Date.now()+60000;let ready=false;while(Date.now()<until){try{const response=await fetch('http://localhost:4999/api/health',{signal:AbortSignal.timeout(1000)});if(response.ok){ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,300));}if(!ready)throw new Error('readiness');const response=await fetch('http://localhost:4999/api/auth/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credentials)});if(!response.ok)throw new Error('setup');const cookie=response.headers.get('set-cookie').split(';')[0];const key=await fetch('http://localhost:4999/api/settings/servers/local/api-key',{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json'},body:'{}'});if(!key.ok)throw new Error('key');process.stdout.write(JSON.stringify(await key.json()));})().catch(()=>{process.exitCode=1;});";
+  const generated = JSON.parse(docker(['exec', '-i', authenticatedPeer, 'node', '-e', setup], 90000, JSON.stringify(credentials)));
+  assert(typeof generated.apiKey === 'string');
+  assert.equal((await request('/api/servers', { method: 'POST', body: { id: 'auth-peer', label: 'Authenticated Peer', type: 'peer', url: 'http://auth-peer:4999', apiKey: generated.apiKey } })).status, 201);
+  const base = `/api/containers/${'c'.repeat(64)}/details?server_id=auth-peer`;
+  const details = await request(base);
+  assert.equal(details.status, 200);
+  assert.equal(details.body.rawDiagnostics.available, false);
+  const link = `http://auth-peer:4999/?server=local&container=${'c'.repeat(64)}`;
+  assert.equal(details.body.rawDiagnostics.peerUrl, link);
+  for (const flags of ['&raw=true', '&raw=true&export=true']) {
+    const result = await request(base + flags);
+    assert.equal(result.status, 403);
+    assert.equal(result.body.code, 'RAW_DIAGNOSTICS_REQUIRE_REMOTE_LOGIN');
+    assert.equal(result.body.peerUrl, link);
+    assert(!result.body.raw);
+  }
+  record('authenticated-peer-standard-details-and-raw-permissions');
+}
+
+async function largeInventoryContracts() {
+  const mode = enabled => docker(['exec', fixture, 'node', '-e', `fetch('http://localhost:8080/large-inventory?enabled=${enabled}',{method:'POST'}).then(response=>{if(!response.ok)process.exitCode=1;})`]);
+  mode(true);
+  try {
+    const response = await request('/api/servers/contract-a/scan');
+    assert.equal(response.status, 200, 'Valid large peer inventory rejected');
+    assert.equal(response.body.ports.length, 9600);
+  } finally { mode(false); }
+  record('large-peer-inventory-within-bounded-budget');
 }
 async function pingContracts(options = {}) {
   assert.equal((await request('/api/servers/contract-a/scan', options)).status, 200);
@@ -290,9 +328,14 @@ try {
   await apiKeyContracts(); await preservationNegativeControl(); await serviceContracts();
   await discoveryContracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
   await failureContract();
+  await largeInventoryContracts();
+  await authenticatedPeerContracts();
   await rateContracts();
   const { browserContracts } = await import('./browser-contracts.mjs');
   await browserContracts(baseUrl, credentials, JSON.parse(native).version); record('desktop-mobile-browser-contracts');
+  assert.equal((await request('/api/servers/auth-peer', { method: 'DELETE' })).status, 200);
+  docker(['rm', '-f', authenticatedPeer]); containers.delete(authenticatedPeer);
+  await assertPreserved();
   assert.equal((await request('/api/auth/logout', { method: 'POST', body: {} })).status, 200); assert.equal((await request('/api/settings')).status, 401); record('logout-invalidates-session');
   stopApp(); await startApp(image, false, true); assert.equal((await request('/api/auth/status', { cookie: false })).body.authEnabled, false); assert.equal((await request('/api/settings', { cookie: false })).status, 200); await confidentialDetails({ cookie: false }); await pingContracts({ cookie: false }); record('explicit-auth-disabled-mode');
   await assert.rejects(securityContracts, { code: 'ERR_ASSERTION' }); record('authentication-bypass-negative-control-rejected');

@@ -508,7 +508,7 @@ if (isAuthEnabled()) {
 }
 
 app.use(checkAuthEnabled);
-app.use('/api', sanitizeDiagnosticResponses);
+app.use(['/api/ports', '/api/all-ports', '/api/services', '/api/servers/:id/scan', '/api/containers/:id/details'], sanitizeDiagnosticResponses);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
@@ -919,12 +919,8 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
         const peerScanUrl = new URL("/api/servers/local/scan", server.url).href;
         logger.debug(`[GET /api/servers/${serverId}/scan] Fetching from peer URL: ${peerScanUrl}`);
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        
         try {
           const peerResponse = await peerRequest(server, '/api/servers/local/scan');
-          clearTimeout(timeoutId);
 
           if (!peerResponse.ok) {
             let errorBody = "Peer responded with an error.";
@@ -947,7 +943,6 @@ app.get("/api/servers/:id/scan", requireAuthOrApiKey, async (req, res) => {
           logger.debug(`Peer scan complete: ${server.label} (${serverId})`);
           return res.json(peerScanData);
         } catch (fetchError) {
-          clearTimeout(timeoutId);
           if (fetchError.name === 'AbortError') {
             logger.error(
               `[GET /api/servers/${serverId}/scan] Timeout after 15s communicating with peer ${server.label} at ${server.url}`
@@ -1013,12 +1008,8 @@ app.post("/api/servers/:id/generate-port", requireAuthOrApiKey, generatePortLimi
     }
 
     if (server.type === "peer" && server.url) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
       try {
         const peerResponse = await peerRequest(server, '/api/servers/local/generate-port', { method: 'POST' });
-        clearTimeout(timeoutId);
 
         if (peerResponse.ok) {
           const payload = await peerResponse.json();
@@ -1053,7 +1044,6 @@ app.post("/api/servers/:id/generate-port", requireAuthOrApiKey, generatePortLimi
           details: body || `Status ${peerResponse.status}`,
         });
       } catch (err) {
-        clearTimeout(timeoutId);
         const errMsg = err.name === "AbortError" ? "Peer request timed out" : err.message;
         logger.error(`[generate-port] Failed to reach peer ${server.label} (${server.url}): ${errMsg}`);
         return res.status(502).json({
@@ -2344,7 +2334,15 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, requireDiagnosticSes
   const qsFlags = forwardable.filter(f => req.query[f] === 'true').map(f => `${f}=true`);
         const endpoint = `/api/containers/${encodeURIComponent(containerId)}/details${qsFlags.length ? '?' + qsFlags.join('&') : ''}`;
         const remoteResp = await peerRequest(row, endpoint);
-          const body = remoteResp.ok ? await remoteResp.json() : { error: 'Peer container details failed' };
+        const peerPage = new URL('/', row.url);
+        peerPage.search = new URLSearchParams({ server: 'local', container: containerId }).toString();
+        if (includeRaw && [401, 403].includes(remoteResp.status)) {
+          return res.status(403).json({ code: 'RAW_DIAGNOSTICS_REQUIRE_REMOTE_LOGIN', error: 'Sign in on the remote server to view raw diagnostics.', peerUrl: peerPage.href });
+        }
+        const body = remoteResp.ok ? await remoteResp.json() : { error: 'Peer container details failed' };
+        if (remoteResp.ok && body && typeof body === 'object' && !Array.isArray(body)) {
+          body.rawDiagnostics = { available: body.rawDiagnostics?.available !== false, peerUrl: peerPage.href };
+        }
         if (body && Array.isArray(body.ports)) {
           body.ports = sanitizeInternalPortRows(body.ports, logger.warn.bind(logger));
           body.exposedUnmapped = body.ports
@@ -2358,7 +2356,7 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, requireDiagnosticSes
       } catch (proxyErr) {
         logger.error(`Proxy to peer ${serverId} for container ${containerId} failed:`, proxyErr.message);
         logger.debug('Stack trace:', proxyErr.stack || '');
-        return res.status(502).json({ error: 'failed to proxy remote container details' });
+        return res.status(502).json({ error: proxyErr.code === 'PEER_RESPONSE_TOO_LARGE' ? proxyErr.message : 'failed to proxy remote container details' });
       }
     }
 
@@ -2402,6 +2400,7 @@ app.get("/api/containers/:id/details", requireAuthOrApiKey, requireDiagnosticSes
   const ephemeral = normalizedRestartPolicy === 'none' && (uptimeSeconds != null) && uptimeSeconds < 300;
 
     const response = {
+      rawDiagnostics: { available: !isAuthEnabled() || !!req.session?.userId },
       id: insp.Id?.substring(0, 12) || containerId,
       name: (insp.Name || '').replace(/^\//, ''),
       image: insp.Config?.Image,

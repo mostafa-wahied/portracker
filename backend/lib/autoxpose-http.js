@@ -92,6 +92,7 @@ async function requestAutoxposeJson(baseUrl, endpoint, options = {}) {
             size += buffer.length;
             if (size > maxResponseBytes) {
               const error = new Error("Autoxpose response exceeds the size limit");
+              error.code = "RESPONSE_TOO_LARGE";
               fail(error);
               response.destroy();
               request?.destroy();

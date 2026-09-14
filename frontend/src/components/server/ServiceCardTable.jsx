@@ -13,6 +13,7 @@ import { ClickablePortBadge } from "./service-card-utils";
 import { GlobeIconBadge, ExternalUrlChip } from "@/components/autoxpose";
 import { InlinePortRow } from "./ExpandedPortViews";
 import { AggregatedHealthDot } from "./AggregatedHealthDot";
+import { InternalPortDetails } from "./InternalPortDetails";
 
 export function ServiceCardTableRow({
   serviceName,
@@ -25,6 +26,8 @@ export function ServiceCardTableRow({
   onNote,
   onToggleIgnore,
   onRename,
+  deepLinkContainerId,
+  onCloseContainerDetails,
   selectionMode,
   selectedPorts,
   onToggleSelection,
@@ -67,6 +70,12 @@ export function ServiceCardTableRow({
 
   return (
     <>
+      <InternalPortDetails
+        open={!!deepLinkContainerId && ports.some(port => port.container_id === deepLinkContainerId)}
+        containerId={deepLinkContainerId}
+        serverId={serverId}
+        onOpenChange={open => { if (!open) onCloseContainerDetails?.(); }}
+      />
       <tr
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
