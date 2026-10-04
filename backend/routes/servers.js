@@ -195,11 +195,53 @@ function reorderHandler({ db, logger }) {
   };
 }
 
+const PEER_CHECK_TIMEOUT_MS = 5000;
+
+function buildPeerHealthUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  let parsed;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return null;
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) return null;
+  if (parsed.username || parsed.password) return null;
+  return new URL("/api/health", parsed.origin).href;
+}
+
+function checkUrlHandler({ logger, fetchImpl = globalThis.fetch, timeoutMs = PEER_CHECK_TIMEOUT_MS }) {
+  return async (req, res) => {
+    const healthUrl = buildPeerHealthUrl(req.body?.url);
+    if (!healthUrl) {
+      return res.status(400).json({ error: "A valid http or https URL is required", field: "url" });
+    }
+    try {
+      const response = await fetchImpl(healthUrl, {
+        method: "GET",
+        redirect: "manual",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      await response.body?.cancel?.().catch(() => {});
+      return res.json({ reachable: response.ok, status: response.status });
+    } catch (error) {
+      const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
+      const reason = timedOut ? "Connection timeout" : error.cause?.code || error.message;
+      logger.debug(`POST /api/servers/check-url: ${healthUrl} unreachable: ${reason}`);
+      return res.json({ reachable: false, error: reason });
+    }
+  };
+}
+
 function registerServerRoutes(app, deps) {
   const { requireAuth, validateServerInput } = deps;
   app.get("/api/servers", requireAuth, listHandler(deps));
   app.post("/api/servers", requireAuth, validateServerInput, upsertHandler(deps));
   app.put("/api/servers/order", requireAuth, reorderHandler(deps));
+  app.post("/api/servers/check-url", requireAuth, checkUrlHandler(deps));
 }
 
-module.exports = { registerServerRoutes };
+module.exports = { registerServerRoutes, buildPeerHealthUrl };

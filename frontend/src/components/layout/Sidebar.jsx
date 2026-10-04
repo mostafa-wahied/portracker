@@ -162,16 +162,18 @@ export function Sidebar({
         return;
       }
       try {
-        const healthCheckUrl = `${urlForCheck.replace(/\/+$/, "")}/api/health`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(healthCheckUrl, {
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch("/api/servers/check-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: urlForCheck }),
           signal: controller.signal,
-          mode: "cors",
         });
         clearTimeout(timeoutId);
+        const result = await response.json().catch(() => ({}));
         if (currentValidation === latestValidationRef.current) {
-          if (response.ok) {
+          if (response.ok && result.reachable) {
             setUrlValid(true);
             setValidationStatus({
               type: "success",
@@ -179,10 +181,15 @@ export function Sidebar({
             });
           } else {
             setUrlValid(false);
-            setValidationStatus({
-              type: "error",
-              message: `Server responded with ${response.status}`,
-            });
+            let message;
+            if (!response.ok) {
+              message = result.error || `Check failed with ${response.status}`;
+            } else if (result.status) {
+              message = `Server responded with ${result.status}`;
+            } else {
+              message = `Cannot reach server: ${result.error || "unknown error"}`;
+            }
+            setValidationStatus({ type: "error", message });
           }
           setValidating(false);
         }
