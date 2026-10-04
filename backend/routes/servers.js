@@ -65,6 +65,21 @@ function insertNewServer(db, payload) {
   );
 }
 
+function mergeWithExistingServer(existing, payload) {
+  if (existing.id === "local") {
+    // url, type and platform_type of the local server are managed by ensureLocalServer,
+    // so an edit from the UI may only change its label, parent and API key.
+    return {
+      ...payload,
+      url: existing.url,
+      type: "local",
+      dbUnreachable: existing.unreachable ? 1 : 0,
+      platform_type: existing.platform_type,
+    };
+  }
+  return { ...payload, url: payload.url || existing.url };
+}
+
 function handleUpsertError(error, id, logger, res) {
   logger.error("Failed to persist server configuration");
   if (error.message.includes("UNIQUE constraint failed")) {
@@ -102,10 +117,13 @@ function upsertHandler({ db, logger }) {
     }
     const payload = { id, label, url, parentId, type, dbUnreachable, platform_type, apiKey };
     try {
-      const existing = db.prepare("SELECT id, url, type FROM servers WHERE id = ?").get(id);
+      const existing = db
+        .prepare("SELECT id, url, type, unreachable, platform_type FROM servers WHERE id = ?")
+        .get(id);
       if (existing) {
-        if (existing.url !== url || existing.type !== type) payload.apiKey = apiKey || null;
-        updateExistingServer(db, payload);
+        const merged = mergeWithExistingServer(existing, payload);
+        if (existing.url !== merged.url || existing.type !== merged.type) merged.apiKey = apiKey || null;
+        updateExistingServer(db, merged);
         logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
         return res.status(200).json({ message: "Server updated successfully", id });
       }

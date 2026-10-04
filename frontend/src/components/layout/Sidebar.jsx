@@ -83,6 +83,7 @@ export function Sidebar({
   );
 
   const { sortMode, setSortMode, undoState, undoToPrevious } = useSidebarSortMode();
+  const isLocalServer = mode === "local";
 
   useEffect(() => {
     if (!requestedMode) {
@@ -118,7 +119,7 @@ export function Sidebar({
 
   useEffect(() => {
     const originalUrl = form.url.trim();
-    if (!originalUrl) {
+    if (isLocalServer || !originalUrl) {
       setUrlValid(false);
       setError("");
       setValidating(false);
@@ -200,7 +201,7 @@ export function Sidebar({
     };
     const debounce = setTimeout(validateUrl, 1200);
     return () => clearTimeout(debounce);
-  }, [form.url, allowUnreachable]);
+  }, [form.url, allowUnreachable, isLocalServer]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -225,15 +226,22 @@ export function Sidebar({
       ) {
         finalUrl = `http://${finalUrl}`;
       }
-      const serverData = {
-        id: mode === "add" ? generateServerId(form.label.trim()) : mode,
-        label: form.label.trim(),
-        url: finalUrl,
-        type: form.type,
-        unreachable: allowUnreachable,
-        parentId: form.parentId || null,
-        ...(form.apiKey?.trim() ? { apiKey: form.apiKey.trim() } : form.hasExistingKey ? {} : { apiKey: null }),
-      };
+      const serverData = isLocalServer
+        ? {
+            id: mode,
+            label: form.label.trim(),
+            type: "local",
+            parentId: form.parentId || null,
+          }
+        : {
+            id: mode === "add" ? generateServerId(form.label.trim()) : mode,
+            label: form.label.trim(),
+            url: finalUrl,
+            type: form.type,
+            unreachable: allowUnreachable,
+            parentId: form.parentId || null,
+            ...(form.apiKey?.trim() ? { apiKey: form.apiKey.trim() } : form.hasExistingKey ? {} : { apiKey: null }),
+          };
       await onAdd(serverData, mode !== "add");
       setValidationStatus({
         type: "success",
@@ -438,7 +446,9 @@ export function Sidebar({
                 className="mt-1.5"
                 disabled={submitting}
               />
+              {isLocalServer && <ValidationStatus />}
             </div>
+            {!isLocalServer && (
             <div>
               <Label htmlFor="url">Server URL</Label>
               <div className="relative">
@@ -473,7 +483,8 @@ export function Sidebar({
               </div>
               <ValidationStatus />
             </div>
-            {form.url && (
+            )}
+            {!isLocalServer && form.url && (
               <div>
                 <Label htmlFor="apiKey">API Key (Optional)</Label>
                 <Input
@@ -514,6 +525,7 @@ export function Sidebar({
                 </select>
               </div>
             )}
+            {!isLocalServer && (
             <div className="flex items-center justify-between pt-2">
               <div className="flex items-center">
                 <input
@@ -532,6 +544,7 @@ export function Sidebar({
                 </Label>
               </div>
             </div>
+            )}
             {error && (
               <p className="mt-4 text-sm text-red-600 dark:text-red-500 bg-red-100 dark:bg-red-900/20 p-3 rounded-md">
                 {error}
