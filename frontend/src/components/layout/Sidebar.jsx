@@ -117,10 +117,13 @@ export function Sidebar({
       });
       setAllowUnreachable(false);
     }
+  }, [mode, servers]);
+
+  useEffect(() => {
     setError("");
     setValidationStatus(null);
     setUrlValid(false);
-  }, [mode, servers]);
+  }, [mode]);
 
   useEffect(() => {
     const originalUrl = form.url.trim();
