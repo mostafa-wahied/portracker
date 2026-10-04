@@ -63,6 +63,21 @@ function insertNewServer(db, payload) {
   );
 }
 
+function mergeWithExistingServer(existing, payload) {
+  if (existing.type === "local") {
+    // url, type and platform_type of the local server are managed by ensureLocalServer,
+    // so an edit from the UI may only change its label, parent and API key.
+    return {
+      ...payload,
+      url: existing.url,
+      type: "local",
+      dbUnreachable: existing.unreachable ? 1 : 0,
+      platform_type: existing.platform_type,
+    };
+  }
+  return { ...payload, url: payload.url || existing.url };
+}
+
 function handleUpsertError(error, id, body, logger, res) {
   logger.error(`Database error in POST /api/servers (ID: ${id}): ${error.message}`);
   logger.debug("Stack trace:", error.stack || "");
@@ -97,9 +112,11 @@ function upsertHandler({ db, logger }) {
     const dbUnreachable = unreachable ? 1 : 0;
     const payload = { id, label, url, parentId, type, dbUnreachable, platform_type, apiKey };
     try {
-      const existing = db.prepare("SELECT id FROM servers WHERE id = ?").get(id);
+      const existing = db
+        .prepare("SELECT id, url, type, unreachable, platform_type FROM servers WHERE id = ?")
+        .get(id);
       if (existing) {
-        updateExistingServer(db, payload);
+        updateExistingServer(db, mergeWithExistingServer(existing, payload));
         logger.info(`Server updated successfully. ID: ${id}, Label: "${label}"`);
         return res.status(200).json({ message: "Server updated successfully", id });
       }
