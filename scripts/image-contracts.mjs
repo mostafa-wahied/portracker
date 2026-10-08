@@ -47,7 +47,7 @@ async function request(route, options = {}) {
   const started = Date.now();
   try {
     const response = await fetch(baseUrl + route, {
-      method: options.method || 'GET', headers: { ...(options.cookie === false || !cookie ? {} : { Cookie: cookie }), ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
+      method: options.method || 'GET', headers: { ...(options.cookie === false || !cookie ? {} : { Cookie: cookie }), ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers, Connection: 'close' },
       body: options.body ? JSON.stringify(options.body) : undefined, signal: AbortSignal.timeout(options.timeout || 30000),
     });
     const assignedCookie = response.headers.get('set-cookie');
