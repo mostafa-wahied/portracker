@@ -44,16 +44,27 @@ function resolvePlatformImage(reference) {
   return reference.split('@')[0] + '@' + matches[0].digest;
 }
 async function request(route, options = {}) {
-  const response = await fetch(baseUrl + route, {
-    method: options.method || 'GET', headers: { ...(options.cookie === false || !cookie ? {} : { Cookie: cookie }), ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
-    body: options.body ? JSON.stringify(options.body) : undefined, signal: AbortSignal.timeout(options.timeout || 30000),
-  });
-  const assignedCookie = response.headers.get('set-cookie');
-  if (assignedCookie && options.captureCookie) cookie = assignedCookie.split(';')[0];
-  const content = await response.text();
-  let body;
-  try { body = JSON.parse(content); } catch { body = content; }
-  return { status: response.status, body };
+  const started = Date.now();
+  try {
+    const response = await fetch(baseUrl + route, {
+      method: options.method || 'GET', headers: { ...(options.cookie === false || !cookie ? {} : { Cookie: cookie }), ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
+      body: options.body ? JSON.stringify(options.body) : undefined, signal: AbortSignal.timeout(options.timeout || 30000),
+    });
+    const assignedCookie = response.headers.get('set-cookie');
+    if (assignedCookie && options.captureCookie) cookie = assignedCookie.split(';')[0];
+    const content = await response.text();
+    let body;
+    try { body = JSON.parse(content); } catch { body = content; }
+    return { status: response.status, body };
+  } catch (error) {
+    const allowedCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'ABORT_ERR']);
+    const cause = error.cause?.code || error.code;
+    const code = allowedCodes.has(cause) ? cause : error.name === 'TimeoutError' ? 'TIMEOUT' : 'UNKNOWN';
+    const requestedMethod = options.method || 'GET';
+    const method = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'].includes(requestedMethod) ? requestedMethod : 'OTHER';
+    const pathname = new URL(route, 'http://contract.invalid').pathname;
+    throw new Error(`Image contract ${method} ${pathname} failed after ${Date.now() - started}ms (${code})`);
+  }
 }
 async function waitReady() {
   const deadline = Date.now() + 90000;
