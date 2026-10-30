@@ -60,15 +60,17 @@ class DockerAPIClient {
   protocol: (u.protocol || 'http:').slice(0, -1)
     };
 
-    if (tlsVerify && certPath) {
+    if (tlsVerify) {
+      if (!certPath) {
+        throw new Error('DOCKER_CERT_PATH is required when DOCKER_TLS_VERIFY=1');
+      }
       try {
         dockerOpts.protocol = 'https';
         dockerOpts.ca = fs.readFileSync(path.join(certPath, 'ca.pem'));
         dockerOpts.cert = fs.readFileSync(path.join(certPath, 'cert.pem'));
         dockerOpts.key = fs.readFileSync(path.join(certPath, 'key.pem'));
-      } catch (certError) {
-        this.logger.warn('Failed to load TLS certificates, falling back to HTTP:', certError.message);
-        dockerOpts.protocol = 'http';
+      } catch {
+        throw new Error('Unable to load Docker TLS certificates; check ca.pem, cert.pem and key.pem in DOCKER_CERT_PATH');
       }
     }
 

@@ -75,6 +75,7 @@ export function Sidebar({
   const [submitting, setSubmitting] = useState(false);
   const [validationStatus, setValidationStatus] = useState(null);
   const latestValidationRef = useRef(0);
+  const initializedModeRef = useRef(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -93,33 +94,26 @@ export function Sidebar({
   }, [requestedMode, onRequestedModeHandled]);
 
   useEffect(() => {
-    if (mode !== "add" && mode !== "list") {
-      const srv = servers.find((s) => s.id === mode);
-      if (srv) {
-        setForm({
-          label: srv.label || srv.server,
-          url: srv.url || "",
-          parentId: srv.parentId || "",
-          type: srv.type || "peer",
-          apiKey: "",
-          hasExistingKey: srv.hasApiKey || false,
-        });
-        setAllowUnreachable(srv.unreachable || false);
-      }
-    } else {
-      setForm({
-        label: "",
-        url: "",
-        parentId: "",
-        type: "peer",
-        apiKey: "",
-        hasExistingKey: false,
-      });
-      setAllowUnreachable(false);
-    }
+    if (initializedModeRef.current === mode) return;
+    const editing = mode !== "add" && mode !== "list";
+    const server = editing ? servers.find((item) => item.id === mode) : null;
     setError("");
     setValidationStatus(null);
     setUrlValid(false);
+    if (editing && !server) {
+      initializedModeRef.current = null;
+      return;
+    }
+    setForm({
+      label: server?.label || server?.server || "",
+      url: server?.url || "",
+      parentId: server?.parentId || "",
+      type: server?.type || "peer",
+      apiKey: "",
+      hasExistingKey: server?.hasApiKey || false,
+    });
+    setAllowUnreachable(server?.unreachable || false);
+    initializedModeRef.current = mode;
   }, [mode, servers]);
 
   useEffect(() => {

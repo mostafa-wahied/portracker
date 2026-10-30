@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import whatsNewConfig from '../frontend/src/lib/whats-new-config.js';
 import { chromium } from 'playwright';
 
 async function assertLayout(page) {
@@ -24,12 +27,54 @@ async function signIn(page, credentials) {
   await page.getByPlaceholder('Search ports, processes...').waitFor();
 }
 
-async function releaseNotice(page, version) {
-  await page.getByRole('banner').locator('button').filter({ has: page.locator('svg.lucide-sparkles') }).click();
+export function releaseNoticePlan(changelog, version, generateNotes, config = whatsNewConfig) {
+  const versions = [...changelog.matchAll(/^##\s+\[(\d+\.\d+\.\d+)\]/gm)].map(match => match[1]);
+  versions.sort((first, second) => second.localeCompare(first, undefined, { numeric: true }));
+  assert.equal(versions[0], version, 'Current release must be the newest changelog version');
+  assert.equal(new Set(versions).size, versions.length, 'Duplicate changelog version');
+  const visible = versions.filter(candidate => !config.ignoreVersions?.includes(candidate) &&
+    generateNotes(candidate).split('\n').some(line => line.startsWith('- **')));
+  const initial = visible.slice(0, Math.max(1, config.maxVersionsOnFirstOpen || 1));
+  const freshVersion = initial.length > 1 ? `${initial.at(-1)} - ${initial[0]}` : initial[0] || null;
+  return { freshVersion, previousVersion: versions[1] || null, currentVisible: visible.includes(version) };
+}
+
+export async function releaseNotice(page, version) {
+  const button = page.getByRole('banner').locator('button').filter({ has: page.locator('svg.lucide-sparkles') });
+  if (!version) {
+    assert.equal(await button.count(), 0, 'No visible releases should expose a notice button');
+    assert.equal(await page.getByRole('dialog').count(), 0, 'No visible releases should open a notice');
+    return;
+  }
+  await button.click();
   await page.getByRole('heading', { name: `What's New in portracker ${version}`, exact: true }).waitFor();
   await page.getByRole('button', { name: 'Back to dashboard', exact: true }).waitFor();
   await assertLayout(page);
   await page.getByRole('button', { name: 'Back to dashboard', exact: true }).click();
+}
+
+export async function upgradeNotice(page, options) {
+  if (!options.noticePlan.previousVersion) return;
+  await page.evaluate(previous => {
+    localStorage.setItem('portracker_last_seen_version', previous);
+    localStorage.removeItem('portracker_whats_new_dismissed');
+  }, options.noticePlan.previousVersion);
+  await page.clock.install();
+  const changelog = page.waitForResponse(response => new URL(response.url()).pathname === '/api/changelog');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  assert.equal((await changelog).status(), 200);
+  await page.getByPlaceholder('Search ports, processes...').waitFor();
+  await page.clock.runFor(2000);
+  if (options.noticePlan.currentVisible) {
+    await page.getByRole('heading', { name: `What's New in portracker ${options.version}`, exact: true }).waitFor();
+    await assertLayout(page);
+    await page.getByRole('button', { name: "Don't show again", exact: true }).click();
+    assert.equal(await page.evaluate(() => localStorage.getItem('portracker_last_seen_version')), options.version);
+  } else {
+    assert.equal(await page.getByRole('dialog').count(), 0, 'A hidden release must not open an empty notice');
+    assert.equal(await page.getByRole('banner').locator('button').filter({ has: page.locator('svg.lucide-sparkles') }).count(), 0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('portracker_last_seen_version')), options.noticePlan.previousVersion);
+  }
 }
 
 async function settings(page) {
@@ -80,6 +125,15 @@ async function peerWarning(page, options) {
   await page.locator('#apiKey').fill('synthetic-ui-key');
   const warning = page.getByText('HTTP sends this key without encryption. Use HTTPS or an encrypted VPN on untrusted networks.', { exact: true });
   await warning.waitFor();
+  const refresh = page.getByRole('banner').locator('button').filter({ has: page.locator('svg.lucide-refresh-cw') });
+  await refresh.waitFor();
+  const scan = page.waitForResponse(response => new URL(response.url()).pathname === '/api/servers/local/scan');
+  await refresh.evaluate(button => button.click());
+  assert.equal((await scan).status(), 200);
+  await refresh.waitFor();
+  assert.equal(await page.locator('#label').inputValue(), 'Security fixture');
+  assert.equal(await page.locator('#server-url').inputValue(), 'http://fixture:8080');
+  assert.equal(await page.locator('#apiKey').inputValue(), 'synthetic-ui-key');
   await warning.scrollIntoViewIfNeeded();
   const bounds = await warning.boundingBox();
   assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= options.viewport.width);
@@ -133,6 +187,9 @@ async function viewportContract(browser, options) {
   try {
     await page.goto(options.baseUrl + '/?server=local', { waitUntil: 'domcontentloaded' });
     await signIn(page, options.credentials);
+    const changelog = await context.request.get(options.baseUrl + '/api/changelog');
+    assert.equal(changelog.status(), 200);
+    assert.equal((await changelog.json()).content.replace(/\r\n/g, '\n'), options.changelog.replace(/\r\n/g, '\n'));
     const notice = page.getByRole('button', { name: 'Back to dashboard', exact: true });
     if (await notice.isVisible()) await notice.click();
     const search = page.getByPlaceholder('Search ports, processes...');
@@ -140,7 +197,7 @@ async function viewportContract(browser, options) {
     await page.getByText('18080', { exact: true }).first().waitFor();
     await search.fill('');
     await memoryLabels(page, options);
-    await releaseNotice(page, options.version);
+    await releaseNotice(page, options.noticePlan.freshVersion);
     await settings(page);
     await peerWarning(page, options);
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -156,6 +213,7 @@ async function viewportContract(browser, options) {
     assert(portBounds && portBounds.x >= 0 && portBounds.x + portBounds.width <= options.viewport.width, 'Port result is clipped');
     await page.screenshot({ path: path.join(options.artifacts, `${options.viewport.width}-ports.png`), fullPage: true, animations: 'disabled' });
     await remoteDiagnostics(page, options);
+    await upgradeNotice(page, options);
     await page.locator('button').filter({ has: page.locator('svg.lucide-user') }).click();
     await page.getByRole('menuitem', { name: 'Logout', exact: true }).click();
     await page.getByRole('button', { name: 'Sign In', exact: true }).waitFor();
@@ -170,12 +228,16 @@ async function viewportContract(browser, options) {
 }
 
 export async function browserContracts(baseUrl, credentials, version) {
+  const changelog = fs.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const generator = fileURLToPath(new URL('./generate-release-notes.mjs', import.meta.url));
+  const noticePlan = releaseNoticePlan(changelog, version, candidate =>
+    execFileSync(process.execPath, [generator, candidate], { encoding: 'utf8' }));
   const artifacts = process.env.CONTRACT_ARTIFACTS || path.resolve('test-results');
   fs.mkdirSync(artifacts, { recursive: true });
   const browser = await chromium.launch({ headless: true });
   try {
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-      await viewportContract(browser, { baseUrl, credentials, version, viewport, artifacts });
+      await viewportContract(browser, { baseUrl, credentials, version, viewport, artifacts, changelog, noticePlan });
     }
   } finally {
     await browser.close();

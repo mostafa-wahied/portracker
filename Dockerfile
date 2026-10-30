@@ -1,5 +1,5 @@
 # Frontend Build Stage
-FROM node:22-bookworm-slim AS frontend-build
+FROM node:22.23.4-bookworm-slim AS frontend-build
 WORKDIR /app/frontend
 
 # Copy package files
@@ -16,7 +16,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Backend Build Stage
-FROM node:22-bookworm-slim AS backend-build
+FROM node:22.23.4-bookworm-slim AS backend-build
 WORKDIR /app/backend
 
 # Install build dependencies for native modules
@@ -41,7 +41,7 @@ COPY backend/ ./
 RUN node -e "const Database = require('better-sqlite3'); const database = new Database(':memory:'); database.exec('CREATE TABLE native_check (value INTEGER)'); database.close();"
 
 # Final Runtime Stage
-FROM node:22-slim AS production
+FROM node:22.23.4-slim AS production
 
 # Install only runtime dependencies
 RUN apt-get clean && \

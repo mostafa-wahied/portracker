@@ -136,3 +136,32 @@ test('missing, ambiguous and malformed platform manifests are rejected', () => {
     assert.throws(() => resolveImage(indexReference, 'linux/arm64', { manifests: entries }), { code: 'ERR_ASSERTION' });
   }
 });
+
+const noticeChangelog = '## [1.3.15] - 2026-10-30\n## [1.3.14] - 2026-09-14\n';
+const noticeConfig = { ignoreVersions: [], maxVersionsOnFirstOpen: 1 };
+async function noticePlan(changelog, version, visible, config = noticeConfig) {
+  const { pathToFileURL } = require('node:url');
+  const { releaseNoticePlan } = await import(pathToFileURL(path.join(root, 'scripts/browser-contracts.mjs')).href);
+  return releaseNoticePlan(changelog, version, candidate => visible.includes(candidate) ? '- **Visible**: User-facing change.\n' : '## Release\n', config);
+}
+test('visible current releases keep the current-version notice assertion', async () => {
+  assert.deepEqual(await noticePlan(noticeChangelog, '1.3.15', ['1.3.15', '1.3.14']), { freshVersion: '1.3.15', previousVersion: '1.3.14', currentVisible: true });
+});
+test('hidden current releases select the latest curated history for fresh browsers', async () => {
+  assert.deepEqual(await noticePlan(noticeChangelog, '1.3.15', ['1.3.14']), { freshVersion: '1.3.14', previousVersion: '1.3.14', currentVisible: false });
+});
+test('fully hidden histories require no notice and preserve upgrade checks', async () => {
+  assert.deepEqual(await noticePlan(noticeChangelog, '1.3.15', []), { freshVersion: null, previousVersion: '1.3.14', currentVisible: false });
+});
+test('notice expectations honor ignored versions and first-open limits', async () => {
+  assert.equal((await noticePlan(noticeChangelog, '1.3.15', ['1.3.15', '1.3.14'], { ignoreVersions: ['1.3.15'], maxVersionsOnFirstOpen: 1 })).freshVersion, '1.3.14');
+  assert.equal((await noticePlan(noticeChangelog, '1.3.15', ['1.3.15', '1.3.14'], { ignoreVersions: [], maxVersionsOnFirstOpen: 2 })).freshVersion, '1.3.14 - 1.3.15');
+});
+test('notice expectations reject missing current versions and duplicate sections', async () => {
+  await assert.rejects(noticePlan(noticeChangelog, '1.3.16', []), /newest changelog version/);
+  await assert.rejects(noticePlan(noticeChangelog + '## [1.3.15] - 2026-10-30\n', '1.3.15', []), /Duplicate changelog version/);
+});
+test('notice expectations order numeric versions and support an initial release', async () => {
+  assert.equal((await noticePlan('## [1.3.9]\n## [1.3.10]\n', '1.3.10', ['1.3.9', '1.3.10'])).freshVersion, '1.3.10');
+  assert.deepEqual(await noticePlan('## [1.0.0]\n', '1.0.0', ['1.0.0']), { freshVersion: '1.0.0', previousVersion: null, currentVisible: true });
+});
