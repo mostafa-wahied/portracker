@@ -42,6 +42,13 @@ By auto-discovering services on your systems, portracker provides a live, accura
 
 Deployment is designed to be simple using Docker.
 
+**Docker Desktop on macOS and Windows:** Docker containers run inside a Linux VM.
+portracker can discover Docker container metadata and ports visible in that Linux
+environment, but its Linux namespace tools cannot enumerate native macOS or Windows
+process listeners, such as a Node server started directly on the desktop host.
+`pid: host`, `SYS_ADMIN`, and `INCLUDE_UDP` do not remove that boundary. This
+limitation is not specific to IPv6. See [Docker Desktop networking](https://docs.docker.com/desktop/features/networking/).
+
 ### Quick Get Started
 
 **Using Docker Compose:**
@@ -58,7 +65,7 @@ services:
     # Required permissions for system ports service namespace access
     cap_add:
       - SYS_PTRACE     # Linux hosts: read other PIDs' /proc entries
-      - SYS_ADMIN      # Docker Desktop: allow namespace access for host ports (required for MacOS)
+      - SYS_ADMIN      # Linux namespace access, including the Docker Desktop VM
     security_opt:
       - apparmor:unconfined # Required for system ports
     volumes:
@@ -141,11 +148,13 @@ services:
 **Using Docker Run:**
 
 ```sh
+docker network create portracker-network
+
 # Start the Docker proxy
 docker run -d \
   --name portracker-docker-proxy \
   --restart unless-stopped \
-  -p 2375:2375 \
+  --network portracker-network \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CONTAINERS=1 \
   -e IMAGES=1 \
@@ -158,15 +167,57 @@ docker run -d \
 docker run -d \
   --name portracker \
   --restart unless-stopped \
+  --network portracker-network \
   --pid host \
   --cap-add SYS_PTRACE \
   --cap-add SYS_ADMIN \
   --security-opt apparmor=unconfined \
   -p 4999:4999 \
   -v ./portracker-data:/data \
-  -e DOCKER_HOST=tcp://localhost:2375 \
+  -e DOCKER_HOST=tcp://portracker-docker-proxy:2375 \
   mostafawahied/portracker:latest
 ```
+
+### Remote Docker API over TLS
+
+For a single Docker API endpoint protected by mutual TLS, add these fields to the
+portracker service, retaining its data volume and other deployment settings:
+
+```yaml
+environment:
+  - DOCKER_HOST=tcp://docker-api.example:2376
+  - DOCKER_TLS_VERIFY=1
+  - DOCKER_CERT_PATH=/run/docker-certs
+volumes:
+  - ./docker-certs:/run/docker-certs:ro
+```
+
+The mounted directory must contain `ca.pem`, `cert.pem`, and `key.pem`, readable
+by portracker. Use a server certificate valid for the hostname in `DOCKER_HOST`;
+keep the client private key out of source control. The TLS port can be changed
+to match your Docker API proxy.
+
+With TLS verification enabled, a missing certificate directory or unreadable file
+rejects the configuration instead of falling back to unencrypted HTTP.
+This setting selects one Docker endpoint. It does not configure multiple remote
+Docker hosts or collect the remote machine's system-process ports. For Docker
+and system visibility on multiple machines, use [portracker peers](#connecting-another-portracker-instance).
+
+### Unpublished Docker Ports
+
+portracker lists unpublished ports declared in Docker container metadata, such as
+Dockerfile `EXPOSE` or Compose `expose` entries, as internal ports. A host
+`ports` mapping is not required for these entries to appear.
+
+This is metadata discovery, not an active scan of every port inside Docker networks.
+Attaching portracker to additional networks does not discover undeclared listeners,
+and an internal-port entry does not prove that the service is reachable from your
+browser or that a process is listening on it. Do not publish a private service just
+to make its declared internal ports visible.
+
+The default limit is 100 unpublished ports per container. Above that limit, the
+container's internal rows are omitted while published mappings are retained.
+Set `MAX_INTERNAL_PORTS_PER_CONTAINER` to a positive integer to change the limit.
 
 ## Configuration
 
@@ -178,7 +229,7 @@ Configure `portracker` using environment variables.
 | `DATABASE_PATH`\*  | Path inside the container to the SQLite database file. | `/data/portracker.db` |
 | `TRUENAS_API_KEY`  | Optional API key for enhanced TrueNAS data collection. | ` `                   |
 | `ENABLE_AUTH`      | Set to `true` to enable authentication (v1.2.0+).      | `false`               |
-| `SESSION_SECRET`   | Only needed with auth enabled. Prevents logout on container restart. | _random_  |
+| `SESSION_SECRET`   | Signing secret for browser-session cookies. Does not preserve sessions across app restarts. | _random_  |
 | `CORS_ORIGIN`      | Comma-separated browser origins for a separately hosted frontend or a reverse proxy that rewrites `Host`. Same-origin access needs no setting. | _disabled_ |
 | `CACHE_TIMEOUT_MS` | Duration in milliseconds to cache scan results.        | `60000`               |
 | `DISABLE_CACHE`    | Set to `true` to disable all caching.                  | `false`               |
@@ -231,7 +282,7 @@ portracker includes optional authentication to secure dashboard access:
 1. **Enable Authentication**: Set `ENABLE_AUTH=true` in your environment variables
 2. **First-Time Setup**: On first access, you'll see a setup wizard to create the admin account
 3. **Login**: Use your admin credentials to access the dashboard
-4. **Stay Logged In** (optional): Set `SESSION_SECRET` to avoid being logged out on container restart
+4. **Session Secret** (optional): Set `SESSION_SECRET` to keep the cookie-signing secret stable. Sessions are held in memory, so you must sign in again after an application restart.
 
 **Example with Authentication:**
 
@@ -251,6 +302,32 @@ services:
 - Peer data endpoints accept API key authentication for instance-to-instance communication
 - API key authentication for peer-to-peer communication is available in v1.3.0
 - Reverse proxies should preserve the public `Host` header; otherwise set `CORS_ORIGIN` to the exact public origin, including `https://`
+
+### Connecting Another portracker Instance
+
+Each monitored machine runs its own portracker instance. To view server B from
+server A, add B as a peer on A; you do not need to expose B's Docker API.
+
+1. If **B** has `ENABLE_AUTH=true`, sign in to B and open **API Key** from the
+   account menu. Use your saved key, or select **Generate API Key** if no key exists.
+   Copy a newly generated key immediately; it is shown once. If authentication is
+   disabled on B, skip this step; the API Key menu is hidden in that mode.
+2. On **A**, select **Add Server**, enter a label and B's full HTTP(S) URL,
+   including its port, for example `http://server-b:4999`.
+3. If B has authentication enabled, paste **B's key** into the API key field.
+   Otherwise, leave the field blank. Save the server; A's backend must be able to
+   reach B. To monitor A from B as well, repeat the steps using A's authentication
+   setting and key.
+
+This is a portracker key, not a TrueNAS key or `SESSION_SECRET`. Setting
+`SESSION_SECRET` does not create a peer key.
+Use **Regenerate Key** if B already has a key that you no longer have. Regenerating
+or revoking B's key invalidates the old key on every connected instance.
+Back up each database with its matching encryption key file; see [SECURITY.md](SECURITY.md).
+
+The current Add Server URL check runs in the browser. If it reports a CORS error
+despite A being able to reach B, **Save even if unreachable** bypasses that form
+check, not B's authentication. Do not disable authentication to work around it.
 
 ### Autoxpose Integration (v1.3.0+)
 

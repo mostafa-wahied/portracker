@@ -4,6 +4,29 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.15] - 2026-10-30
+
+### Security
+
+<!-- whatsnew:hide -->
+- **[Docker TLS]**: Reject missing certificate directories and unreadable CA, client certificate, or key files when Docker TLS verification is enabled, instead of falling back to unencrypted HTTP. Keep valid TLS configurations, local sockets, and explicitly configured plaintext connections supported.
+
+<!-- whatsnew:hide -->
+- **[Runtime Dependencies]**: Pin Docker build and runtime stages to Node.js 22.23.4 and update proxy-addr to 2.0.8, addressing CVE-2026-111497 and CVE-2026-90711 (#124).
+
+### Fixed
+
+<!-- whatsnew:hide -->
+- **[Server Forms]**: Preserve unsaved server names, URLs, and API keys during inventory refreshes. Reset the form when switching between adding and editing servers.
+
+### Documentation
+
+<!-- whatsnew:hide -->
+- **[Peer Setup]**: Explain authentication-dependent peer API-key generation and use, existing-key reuse and rotation, credential backups, and the browser-side URL-check workaround. Clarify that a session signing secret does not preserve in-memory sessions across restarts (#119).
+
+<!-- whatsnew:hide -->
+- **[Docker Discovery]**: Correct the socket-proxy Docker Run example to use private-network DNS without publishing the Docker API port. Document single-endpoint mTLS, unpublished-port metadata and limits, and Docker Desktop's native-host visibility boundary (#5, #64, #71, #110).
+
 ## [1.3.14] - 2026-09-14
 
 ### Security
