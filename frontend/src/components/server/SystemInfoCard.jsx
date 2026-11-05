@@ -15,7 +15,7 @@ function InfoItem({ icon, label, value, fullWidth = false }) {
   const Icon = icon;
   return (
     <div
-      className={`flex items-start justify-between text-sm ${
+      className={`flex min-w-0 items-start justify-between text-sm ${
         fullWidth ? "col-span-2" : ""
       }`}
     >
@@ -23,7 +23,7 @@ function InfoItem({ icon, label, value, fullWidth = false }) {
         <Icon className="h-4 w-4 mr-2 mt-0.5" />
         <span className="font-medium">{label}</span>
       </div>
-      <span className="font-semibold text-slate-700 dark:text-slate-200 text-right break-words ml-2">
+      <span className="min-w-0 font-semibold text-slate-700 dark:text-slate-200 text-right break-words ml-2">
         {value}
       </span>
     </div>
@@ -72,7 +72,7 @@ export function SystemInfoCard({ systemInfo, platformName }) {
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700/50 p-6 h-full">
+    <div className="@container bg-white dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700/50 p-6 h-full">
       <div className="space-y-3">
         
         <div className="space-y-2 border-b border-slate-200 dark:border-slate-700/50 pb-3">
@@ -103,7 +103,7 @@ export function SystemInfoCard({ systemInfo, platformName }) {
         </div>
 
         
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-1">
+        <div className="grid grid-cols-1 @[26rem]:grid-cols-2 gap-x-6 gap-y-2 pt-1">
           <InfoItem icon={Cpu} label="CPU Cores" value={info.cpuCores} />
           <InfoItem
             icon={MemoryStick}
@@ -111,7 +111,7 @@ export function SystemInfoCard({ systemInfo, platformName }) {
             value={info.memory ? `Total: ${formatBytes(info.memory)}` : "N/A"}
           />
           {memoryMessage && (
-            <div className="col-span-2 text-xs text-slate-500 dark:text-slate-400 italic">
+            <div className="col-span-full text-xs text-slate-500 dark:text-slate-400 italic">
               {memoryMessage}
             </div>
           )}

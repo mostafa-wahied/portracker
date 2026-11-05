@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { RefreshProgress } from "@/components/ui/RefreshProgress";
 import { useLongPress } from "@/lib/hooks/useLongPress";
 import { AutoxposeLogoBadge } from "@/components/autoxpose/AutoxposeLogoBadge";
+import { bindingOptions } from "@/lib/port-filters";
 
 export function AppHeader({
   loading,
@@ -50,6 +51,9 @@ export function AppHeader({
   searchInputRef,
 }) {
   const auth = useAuth();
+  const selectedBinding = bindingOptions.find(option => option.value === filters.binding) || bindingOptions[0];
+  const bindingActive = selectedBinding.value !== 'all';
+  const filterMenuLabel = bindingActive ? `Search & filters: ${selectedBinding.label}` : 'Search & filters';
   const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm);
   const [searching, setSearching] = useState(false);
   const isMac = useMemo(
@@ -215,18 +219,19 @@ export function AppHeader({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="hover:bg-gray-100 dark:hover:bg-gray-800"
-                    aria-label="Search options"
+                    className={`relative shrink-0 ${bindingActive ? "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+                    aria-label={filterMenuLabel}
                   >
                     <SlidersHorizontal className="h-5 w-5" />
+                    {bindingActive && <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-semibold leading-none text-white dark:bg-blue-400 dark:text-gray-950">1</span>}
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>Search options</TooltipContent>
+              <TooltipContent>{filterMenuLabel}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-56" onOpenAutoFocus={e => e.preventDefault()}>
               <TooltipProvider delayDuration={500} skipDelayDuration={0}>
-                <div className="px-2 pt-1 pb-2 text-xs text-slate-500">Scope</div>
+                <div className="px-2 pt-1 pb-2 text-xs text-slate-500">Search scope</div>
                 <DropdownMenuRadioGroup value={searchScope} onValueChange={onSearchScopeChange}>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -253,6 +258,17 @@ export function AppHeader({
                   </TooltipTrigger>
                   <TooltipContent>Highlight matching text in results</TooltipContent>
                 </Tooltip>
+                <DropdownMenuSeparator />
+                <div className="px-2 pt-1 pb-2 text-xs text-slate-500">Listening address</div>
+                <DropdownMenuRadioGroup
+                  aria-label="Listening address"
+                  value={selectedBinding.value}
+                  onValueChange={binding => onFilterChange(previous => ({ ...previous, binding }))}
+                >
+                  {bindingOptions.map(option => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
               </TooltipProvider>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -25,7 +25,7 @@ describe("encrypted outbound peer keys", () => {
     expect(store.open(saved)).toBe("synthetic-peer-secret");
     expect(createPeerKeyStore(db, { keyFile }).open(saved)).toBe("synthetic-peer-secret");
     expect(fs.readFileSync(file).includes(Buffer.from("synthetic-peer-secret"))).toBe(false);
-    expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600);
     const restoredKey = path.join(directory, "restored.key");
     fs.copyFileSync(keyFile, restoredKey); fs.chmodSync(restoredKey, 0o600);
     const restoredDb = path.join(directory, "restored.sqlite");
@@ -55,9 +55,11 @@ describe("encrypted outbound peer keys", () => {
     expect(() => createPeerKeyStore(db, { keyFile })).toThrow("cannot be decrypted");
   }));
 
-  test("rejects insecure permissions, symlinks and malformed keys", () => fixture(({ db, keyFile, peer, directory }) => {
+  test("enforces supported permissions and rejects symlinks and malformed keys", () => fixture(({ db, keyFile, peer, directory }) => {
     fs.writeFileSync(keyFile, Buffer.alloc(32), { mode: 0o644 });
-    expect(() => createPeerKeyStore(db, { keyFile }).seal(peer, "synthetic-key")).toThrow("mode-600");
+    const useKey = () => createPeerKeyStore(db, { keyFile }).seal(peer, "synthetic-key");
+    if (process.platform === "win32") expect(useKey).not.toThrow();
+    else expect(useKey).toThrow("mode-600");
     fs.chmodSync(keyFile, 0o600);
     const link = path.join(directory, "linked.key"); fs.symlinkSync(keyFile, link);
     expect(() => createPeerKeyStore(db, { keyFile: link }).seal(peer, "synthetic-key")).toThrow();
