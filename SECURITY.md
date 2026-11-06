@@ -47,6 +47,21 @@ external backups or storage snapshots. Protect or retire them and rotate credent
 exposure is suspected. Rolling back to a version without encrypted-key support requires a
 compatible, protected backup and explicit recovery planning.
 
+## Service Health Overrides
+
+With authentication enabled, changing or clearing saved service-role overrides requires a
+signed-in session. Peer API keys retain service and override read access but cannot change
+these settings. Authentication-disabled deployments still trust reachable clients as administrators.
+
+Versions 1.3.8 through 1.3.15 accepted peer keys for these writes. A key holder could alter
+reported service health without changing the underlying service. Upgrading preserves existing
+overrides; it does not identify or undo earlier unauthorized changes.
+
+If peer-key misuse is suspected, sign in and review saved roles in service-health details.
+Reset changes you do not recognize, regenerate the affected key, and update connected instances
+with the replacement key. Key rotation alone does not remove stored overrides. Neither an upgrade
+nor a passing test establishes whether misuse occurred.
+
 ## Diagnostics And Request Limits
 
 Raw container diagnostics are opt-in and, with authentication enabled, require a signed-in

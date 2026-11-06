@@ -42,6 +42,7 @@ import { useAuth } from "./contexts/AuthContext";
 import { buildAutoRefreshMessages } from "@/lib/autoRefreshMessages";
 import { ServiceHealthProvider } from "@/hooks/useServiceHealth";
 import { OverridesProvider } from "@/hooks/useOverrides";
+import { filterPortGroup, normalizePortFilters } from "./lib/port-filters";
 
 const keyOf = (srvId, p) => generatePortKey(srvId, p);
 
@@ -173,18 +174,9 @@ export default function App() {
   });
   const [filters, setFilters] = useState(() => {
     try {
-      const saved = localStorage.getItem("portFilters");
-      return saved
-        ? JSON.parse(saved)
-        : {
-            docker: true,
-            system: false,
-          };
+      return normalizePortFilters(JSON.parse(localStorage.getItem("portFilters")));
     } catch {
-      return {
-        docker: true,
-        system: false,
-      };
+      return normalizePortFilters();
     }
   });
 
@@ -1819,34 +1811,7 @@ export default function App() {
     return <ChangePasswordPage />;
   }
 
-  const filterPorts = (group) => {
-    if (!group.ok || !group.data) return group;
-
-    const filteredData = group.data.filter((port) => {
-      const matchesSourceFilter =
-        (port.source === "docker" && filters.docker) ||
-        (port.source === "system" && filters.system);
-
-      if (!matchesSourceFilter) return false;
-
-      if (!searchTerm) return true;
-
-      const searchLower = searchTerm.toLowerCase();
-      return (
-        port.host_port.toString().includes(searchLower) ||
-        (port.owner && port.owner.toLowerCase().includes(searchLower)) ||
-        (port.customServiceName && port.customServiceName.toLowerCase().includes(searchLower)) ||
-        (port.host_ip && port.host_ip.includes(searchLower)) ||
-        port.target?.includes?.(searchLower) ||
-        (port.note && port.note.toLowerCase().includes(searchLower))
-      );
-    });
-
-    return {
-      ...group,
-      data: filteredData,
-    };
-  };
+  const filterPorts = (group) => filterPortGroup(group, filters, searchTerm);
 
   function renderServer(server) {
     const filteredServer = filterPorts(server);

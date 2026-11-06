@@ -4,6 +4,25 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.16] - 2026-11-03
+
+### Security
+
+<!-- whatsnew:title=Better protection for service health -->
+<!-- whatsnew:description=Review saved service roles if you suspect misuse of a peer API key. -->
+- **[Health Overrides]**: Require a signed-in session to change or clear saved service-role overrides when authentication is enabled. Peer API keys retain read access but cannot modify these settings. Existing overrides are preserved; review unexpected roles if a key may have been misused. Found by Liam Giannini (@Liam-G), webcracy.ch.
+
+### Added
+
+<!-- whatsnew:title=Filter ports by listening address -->
+<!-- whatsnew:description=Show server-only or network-listening ports from Search & filters. -->
+- **[Listening Address Filters]**: Add All, Server-only, and Network-listening choices to Search & filters, with a saved selection and an active-filter indicator. Combine the choice with existing source, search, and Internal filters. Network-listening does not imply Internet exposure (#112).
+
+### Fixed
+
+<!-- whatsnew:hide -->
+- **[System Information Layout]**: Stack CPU, memory, uptime, and container fields when the panel is narrow, preserving two columns when space permits. Wrap values within their rows to prevent clipping.
+
 ## [1.3.15] - 2026-10-30
 
 ### Security

@@ -86,9 +86,11 @@ jobs:
         run: |
           npm ci
           npm ci --prefix backend
+          npm ci --prefix frontend
           npm run lint
           npm test -- --runInBand
           npm run test:release
+          npm run test:frontend
           npx playwright install --with-deps chromium
 
       - name: Set up CPU emulation

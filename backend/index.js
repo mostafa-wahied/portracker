@@ -635,13 +635,12 @@ app.get("/api/services", requireAuthOrApiKey, require('./routes/services').creat
   getLocalPortsUsingCollectors: (...a) => getLocalPortsUsingCollectors(...a),
   dockerApi, logger, baseDebug: BASE_DEBUG,
 }));
-
 const servicesRoutes = require('./routes/services');
 app.get("/api/overrides", requireAuthOrApiKey, servicesRoutes.createGetOverridesHandler({ logger }));
-app.put("/api/services/:serviceId/components/:componentId/role", requireAuthOrApiKey, servicesRoutes.createPutOverrideHandler({ logger }));
-app.delete("/api/services/:serviceId/components/:componentId/role", requireAuthOrApiKey, servicesRoutes.createDeleteOverrideHandler({ logger }));
-app.delete("/api/services/:serviceId/overrides", requireAuthOrApiKey, servicesRoutes.createDeleteServiceOverridesHandler({ logger }));
-app.delete("/api/overrides", requireAuthOrApiKey, servicesRoutes.createDeleteAllOverridesHandler({ logger }));
+app.put("/api/services/:serviceId/components/:componentId/role", requireAuth, servicesRoutes.createPutOverrideHandler({ logger }));
+app.delete("/api/services/:serviceId/components/:componentId/role", requireAuth, servicesRoutes.createDeleteOverrideHandler({ logger }));
+app.delete("/api/services/:serviceId/overrides", requireAuth, servicesRoutes.createDeleteServiceOverridesHandler({ logger }));
+app.delete("/api/overrides", requireAuth, servicesRoutes.createDeleteAllOverridesHandler({ logger }));
 
 async function getLocalPortsUsingCollectors(options = {}) {
   const currentDebug = options.debug || false;
