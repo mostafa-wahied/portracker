@@ -265,8 +265,11 @@ async function serviceContracts() {
   record('service-grouping-role-preservation-and-port-generation');
 }
 async function selectTrueNAS() {
-  const local = (await request('/api/servers')).body.find(server => server.id === 'local');
-  assert.equal((await request('/api/servers', { method: 'POST', body: { ...local, platform_type: 'truenas' } })).status, 200);
+  docker(['exec', app, 'node', '-e', "const db = require('./db'); db.updateLocalServerPlatformType('truenas'); db.close();"]);
+  const servers = await request('/api/servers');
+  assert.equal(servers.status, 200);
+  const local = servers.body.find(server => server.id === 'local');
+  assert.equal(local?.platform_type, 'truenas', 'TrueNAS fixture platform setup failed');
 }
 async function discoveryContracts() {
   await selectTrueNAS();
