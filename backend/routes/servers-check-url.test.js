@@ -1,13 +1,7 @@
-const http = require("http");
-const { once } = require("node:events");
-const {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} = require("@jest/globals");
-const { registerServerRoutes, buildPeerHealthUrl } = require("./servers");
+const { EventEmitter } = require("node:events");
+const { Readable } = require("node:stream");
+const { describe, expect, test, jest: jestObject } = require("@jest/globals");
+const { registerServerRoutes } = require("./servers");
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 const requireAuth = () => {};
@@ -27,8 +21,8 @@ function collectRoutes(deps = {}) {
   return routes;
 }
 
-async function checkUrl(body, deps) {
-  const handlers = collectRoutes(deps)["/api/servers/check-url"];
+async function checkUrl(body, peerRequestOptions) {
+  const handlers = collectRoutes({ peerRequestOptions })["/api/servers/check-url"];
   let statusCode = 200;
   let payload = null;
   const res = {
@@ -45,54 +39,23 @@ async function checkUrl(body, deps) {
   return { statusCode, payload };
 }
 
-let peer;
-let peerUrl;
-const peerRequests = [];
-
-beforeAll(async () => {
-  peer = http.createServer((req, res) => {
-    peerRequests.push(req.url);
-    if (req.url === "/api/health") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ status: "healthy", secret: "not-forwarded" }));
-      return;
-    }
-    res.writeHead(404);
-    res.end();
+function peerFixture({ status = 200, body = { status: "healthy", secret: "synthetic-not-forwarded" }, address = "192.168.1.20", respond = true } = {}) {
+  const calls = [];
+  const request = jestObject.fn((url, options, callback) => {
+    calls.push({ url, options });
+    const outgoing = new EventEmitter();
+    outgoing.destroy = () => {};
+    outgoing.end = () => {
+      if (!respond) return;
+      const response = Readable.from([JSON.stringify(body)]);
+      response.statusCode = status;
+      callback(response);
+    };
+    return outgoing;
   });
-  peer.listen(0, "127.0.0.1");
-  await once(peer, "listening");
-  peerUrl = `http://127.0.0.1:${peer.address().port}`;
-});
-
-afterAll(async () => {
-  peer.close();
-  await once(peer, "close");
-});
-
-describe("buildPeerHealthUrl", () => {
-  test("targets /api/health on the peer origin", () => {
-    expect(buildPeerHealthUrl("http://10.0.0.5:4999")).toBe("http://10.0.0.5:4999/api/health");
-    expect(buildPeerHealthUrl("https://peer.local/")).toBe("https://peer.local/api/health");
-    expect(buildPeerHealthUrl("10.0.0.5:4999")).toBe("http://10.0.0.5:4999/api/health");
-    expect(buildPeerHealthUrl("http://peer.local/other/path?x=1#y")).toBe(
-      "http://peer.local/api/health"
-    );
-  });
-
-  test.each([
-    "",
-    "   ",
-    null,
-    42,
-    "ftp://peer.local",
-    "file:///etc/hosts",
-    "http://user:pass@peer.local",
-    "http://",
-  ])("rejects %p", (value) => {
-    expect(buildPeerHealthUrl(value)).toBeNull();
-  });
-});
+  const lookup = async () => [{ address, family: address.includes(":") ? 6 : 4 }];
+  return { calls, options: { request, lookup } };
+}
 
 describe("POST /api/servers/check-url", () => {
   test("is registered behind requireAuth", () => {
@@ -100,64 +63,75 @@ describe("POST /api/servers/check-url", () => {
     expect(handlers[0]).toBe(requireAuth);
   });
 
-  test("reports a reachable peer without returning its body", async () => {
-    const result = await checkUrl({ url: peerUrl });
-    expect(result).toEqual({ statusCode: 200, payload: { reachable: true, status: 200 } });
-    expect(peerRequests).toContain("/api/health");
+  test("reports a reachable peer without returning its response body", async () => {
+    const peer = peerFixture();
+    const result = await checkUrl({ url: "http://peer.invalid:4999" }, peer.options);
+    expect(result.statusCode).toBe(200);
+    expect(result.payload).toEqual({ reachable: true, status: 200 });
+    expect(JSON.stringify(result.payload)).not.toContain("synthetic-not-forwarded");
   });
 
-  test("only requests /api/health even when the url has a path", async () => {
-    peerRequests.length = 0;
-    await checkUrl({ url: `${peerUrl}/api/servers/local/scan` });
-    expect(peerRequests).toEqual(["/api/health"]);
+  test("requests only /api/health on the peer origin", async () => {
+    const peer = peerFixture();
+    await checkUrl({ url: "http://peer.invalid:4999/some/base" }, peer.options);
+    expect(peer.calls).toHaveLength(1);
+    expect(peer.calls[0].url.origin).toBe("http://peer.invalid:4999");
+    expect(peer.calls[0].url.pathname).toBe("/api/health");
   });
 
-  test("reports a non-ok status from the peer", async () => {
-    const fetchImpl = async () => new Response("nope", { status: 503 });
-    const result = await checkUrl({ url: peerUrl }, { fetchImpl });
+  test("never sends a peer API key", async () => {
+    const peer = peerFixture();
+    await checkUrl({ url: "http://peer.invalid:4999" }, peer.options);
+    expect(peer.calls[0].options.headers["X-API-Key"]).toBeUndefined();
+  });
+
+  test("reports a non ok status as not reachable", async () => {
+    const peer = peerFixture({ status: 503 });
+    const result = await checkUrl({ url: "http://peer.invalid:4999" }, peer.options);
     expect(result.payload).toEqual({ reachable: false, status: 503 });
   });
 
-  test("does not follow redirects", async () => {
-    let options = null;
-    const fetchImpl = async (_url, opts) => {
-      options = opts;
-      return new Response(null, { status: 302, headers: { location: "http://elsewhere/" } });
-    };
-    const result = await checkUrl({ url: peerUrl }, { fetchImpl });
-    expect(options.redirect).toBe("manual");
-    expect(result.payload).toEqual({ reachable: false, status: 302 });
+  test.each([301, 302, 307, 308])("does not follow a %i redirect", async status => {
+    const peer = peerFixture({ status });
+    const result = await checkUrl({ url: "http://peer.invalid:4999" }, peer.options);
+    expect(result.payload).toEqual({ reachable: false, status });
+    expect(peer.calls).toHaveLength(1);
   });
 
-  test("reports a refused connection", async () => {
-    const closed = http.createServer();
-    closed.listen(0, "127.0.0.1");
-    await once(closed, "listening");
-    const { port } = closed.address();
-    closed.close();
-    await once(closed, "close");
+  test.each(["127.0.0.1", "169.254.169.254", "::1", "::ffff:169.254.169.254"])(
+    "refuses a peer that resolves to %s without sending a request",
+    async address => {
+      const peer = peerFixture({ address });
+      const result = await checkUrl({ url: "http://peer.invalid:4999" }, peer.options);
+      expect(result.statusCode).toBe(200);
+      expect(result.payload.reachable).toBe(false);
+      expect(result.payload.error).toContain("Peer request failed");
+      expect(peer.options.request).not.toHaveBeenCalled();
+    }
+  );
 
-    const result = await checkUrl({ url: `http://127.0.0.1:${port}` });
-    expect(result.statusCode).toBe(200);
-    expect(result.payload).toEqual({ reachable: false, error: "ECONNREFUSED" });
+  test("reports a timeout as not reachable", async () => {
+    const peer = peerFixture({ respond: false });
+    const result = await checkUrl({ url: "http://peer.invalid:4999" }, { ...peer.options, timeoutMs: 20 });
+    expect(result.payload.reachable).toBe(false);
+    expect(result.payload.error).toContain("Peer request failed");
   });
 
-  test("reports a timeout", async () => {
-    const fetchImpl = (_url, { signal }) =>
-      new Promise((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason));
-      });
-    const result = await checkUrl({ url: peerUrl }, { fetchImpl, timeoutMs: 20 });
-    expect(result.payload).toEqual({ reachable: false, error: "Connection timeout" });
-  });
-
-  test("rejects an invalid url without making a request", async () => {
-    let called = false;
-    const fetchImpl = async () => {
-      called = true;
-    };
-    const result = await checkUrl({ url: "ftp://peer.local" }, { fetchImpl });
+  test.each([
+    undefined,
+    "",
+    "not a url",
+    "peer.invalid:4999",
+    "ftp://peer.invalid",
+    "http://user:synthetic@peer.invalid",
+    "http://peer.invalid/?x=1",
+    "http://peer.invalid/#x",
+    "http://peer.invalid\\other",
+  ])("rejects %s with 400 the same way Save does, without making a request", async url => {
+    const peer = peerFixture();
+    const result = await checkUrl({ url }, peer.options);
     expect(result.statusCode).toBe(400);
-    expect(called).toBe(false);
+    expect(result.payload.field).toBe("url");
+    expect(peer.options.request).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-const { validatePeerUrl } = require("../lib/peer-http");
+const { requestPeer, validatePeerUrl } = require("../lib/peer-http");
 
 function listHandler({ db, logger }) {
   return (req, res) => {
@@ -203,41 +203,23 @@ function reorderHandler({ db, logger }) {
 
 const PEER_CHECK_TIMEOUT_MS = 5000;
 
-function buildPeerHealthUrl(value) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  const trimmed = value.trim();
-  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  let parsed;
-  try {
-    parsed = new URL(withScheme);
-  } catch {
-    return null;
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) return null;
-  if (parsed.username || parsed.password) return null;
-  return new URL("/api/health", parsed.origin).href;
-}
-
-function checkUrlHandler({ logger, fetchImpl = globalThis.fetch, timeoutMs = PEER_CHECK_TIMEOUT_MS }) {
+function checkUrlHandler({ logger, peerRequestOptions = {} }) {
   return async (req, res) => {
-    const healthUrl = buildPeerHealthUrl(req.body?.url);
-    if (!healthUrl) {
-      return res.status(400).json({ error: "A valid http or https URL is required", field: "url" });
+    let url;
+    try {
+      url = validatePeerUrl(req.body?.url);
+    } catch (error) {
+      return res.status(400).json({ error: error.message, field: "url" });
     }
     try {
-      const response = await fetchImpl(healthUrl, {
-        method: "GET",
-        redirect: "manual",
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(timeoutMs),
+      const response = await requestPeer({ url }, "/api/health", {
+        timeoutMs: PEER_CHECK_TIMEOUT_MS,
+        ...peerRequestOptions,
       });
-      await response.body?.cancel?.().catch(() => {});
       return res.json({ reachable: response.ok, status: response.status });
     } catch (error) {
-      const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
-      const reason = timedOut ? "Connection timeout" : error.cause?.code || error.message;
-      logger.debug(`POST /api/servers/check-url: ${healthUrl} unreachable: ${reason}`);
-      return res.json({ reachable: false, error: reason });
+      logger.debug(`POST /api/servers/check-url: peer unreachable: ${error.message}`);
+      return res.json({ reachable: false, error: error.message });
     }
   };
 }
@@ -250,4 +232,4 @@ function registerServerRoutes(app, deps) {
   app.post("/api/servers/check-url", requireAuth, checkUrlHandler(deps));
 }
 
-module.exports = { registerServerRoutes, buildPeerHealthUrl };
+module.exports = { registerServerRoutes };
