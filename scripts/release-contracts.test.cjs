@@ -107,6 +107,42 @@ test('every workflow shell block parses without executing network operations', (
 });
 
 const runner = fs.readFileSync(path.join(root, 'scripts/image-contracts.mjs'), 'utf8');
+const selectTrueNAS = runner.match(/async function selectTrueNAS\(\) \{[\s\S]*?\n\}/)[0];
+async function selectFixturePlatform({ writable = true, present = true } = {}) {
+  let platform = 'auto';
+  let closed = false;
+  const updates = [];
+  await vm.runInNewContext(selectTrueNAS + '\nselectTrueNAS();', {
+    app: 'contract-app', assert,
+    docker: args => {
+      assert.deepEqual(Array.from(args.slice(0, 4)), ['exec', 'contract-app', 'node', '-e']);
+      assert.equal(args.length, 5);
+      vm.runInNewContext(args[4], {
+        require: name => {
+          assert.equal(name, './db');
+          return {
+            updateLocalServerPlatformType: value => { updates.push(value); if (writable) platform = value; },
+            close: () => { closed = true; },
+          };
+        },
+      }, { timeout: 1000 });
+    },
+    request: async (route, options = {}) => {
+      assert.equal(route, '/api/servers');
+      assert.equal(options.method || 'GET', 'GET');
+      return { status: 200, body: present ? [{ id: 'local', platform_type: platform }] : [] };
+    },
+  }, { timeout: 1000 });
+  return { platform, closed, updates };
+}
+test('TrueNAS fixture uses the internal platform updater without changing the user edit contract', async () => {
+  assert.deepEqual(await selectFixturePlatform(), { platform: 'truenas', closed: true, updates: ['truenas'] });
+});
+test('TrueNAS fixture rejects an unchanged or missing local platform before scanning', async () => {
+  for (const options of [{ writable: false }, { present: false }]) {
+    await assert.rejects(selectFixturePlatform(options), /TrueNAS fixture platform setup failed/);
+  }
+});
 const resolver = runner.match(/function resolvePlatformImage\(reference\) \{[\s\S]*?\n\}/)[0];
 const indexReference = 'registry.invalid/portracker@sha256:' + 'a'.repeat(64);
 const manifests = ['amd64', 'arm64'].map((architecture, index) => ({ platform: { os: 'linux', architecture }, digest: 'sha256:' + String(index + 1).repeat(64) }));
