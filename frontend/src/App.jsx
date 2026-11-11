@@ -694,6 +694,7 @@ export default function App() {
                 );
                 return {
                   id: server.id,
+                  type: server.type,
                   server: server.label,
                   ok: true,
                   platform: scanData.platform,
@@ -717,6 +718,7 @@ export default function App() {
                 );
                 return {
                   id: server.id,
+                  type: server.type,
                   server: server.label,
                   ok: false,
                   error: errorData.error || "Local server data unavailable",
@@ -729,6 +731,7 @@ export default function App() {
               logger.error("Error scanning local server:", error);
               return {
                 id: server.id,
+                type: server.type,
                 server: server.label,
                 ok: false,
                 error: error.message,
