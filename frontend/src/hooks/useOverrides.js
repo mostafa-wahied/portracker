@@ -50,6 +50,7 @@ async function fetchJsonOk(input, init) {
 
 export function OverridesProvider({ children }) {
   const [overrides, setOverrides] = useState(() => readFromStorage());
+  const [mutationVersion, setMutationVersion] = useState(0);
   const overridesRef = useRef(overrides);
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export function OverridesProvider({ children }) {
       } else {
         await fetchJsonOk(url, { method: 'DELETE', credentials: 'include' });
       }
+      setMutationVersion((version) => version + 1);
     } catch {
       setOverrides(prev);
     }
@@ -118,6 +120,7 @@ export function OverridesProvider({ children }) {
       const fresh = await fetchJsonOk('/api/overrides', { credentials: 'include' });
       const map = fresh && fresh.overrides && typeof fresh.overrides === 'object' ? fresh.overrides : {};
       setOverrides(map);
+      setMutationVersion((version) => version + 1);
     } catch {
       setOverrides(prev);
     }
@@ -128,14 +131,15 @@ export function OverridesProvider({ children }) {
     setOverrides({});
     try {
       await fetchJsonOk('/api/overrides', { method: 'DELETE', credentials: 'include' });
+      setMutationVersion((version) => version + 1);
     } catch {
       setOverrides(prev);
     }
   }, []);
 
   const value = useMemo(
-    () => ({ overrides, getOverride, setOverride, clearOverride, clearAllForService, clearAll }),
-    [overrides, getOverride, setOverride, clearOverride, clearAllForService, clearAll]
+    () => ({ overrides, mutationVersion, getOverride, setOverride, clearOverride, clearAllForService, clearAll }),
+    [overrides, mutationVersion, getOverride, setOverride, clearOverride, clearAllForService, clearAll]
   );
 
   return React.createElement(OverridesContext.Provider, { value }, children);
@@ -146,6 +150,7 @@ export function useOverrides() {
   if (!ctx) {
     return {
       overrides: {},
+      mutationVersion: 0,
       getOverride: () => null,
       setOverride: () => {},
       clearOverride: () => {},

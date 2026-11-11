@@ -77,6 +77,21 @@ function extractDependsOn(inspection) {
     .filter((s) => s.length > 0);
 }
 
+function completionPrerequisites(containers) {
+  const expected = new Set();
+  for (const container of containers || []) {
+    const labels = container.Labels || container.Config?.Labels || {};
+    const project = labels['com.docker.compose.project'];
+    const dependencies = labels['com.docker.compose.depends_on'];
+    if (!project || typeof dependencies !== 'string') continue;
+    for (const dependency of dependencies.split(',')) {
+      const [service, condition] = dependency.split(':').map((part) => part.trim());
+      if (service && condition === 'service_completed_successfully') expected.add(`${project}::${service}`);
+    }
+  }
+  return expected;
+}
+
 function extractComposeLabels(port, inspection) {
   const labels = (inspection && inspection.Config && inspection.Config.Labels) || {};
   const project = (port && port.compose_project)
@@ -88,6 +103,7 @@ function extractComposeLabels(port, inspection) {
   return {
     project: project || null,
     service: service || null,
+    expectedCompletion: safeLower(labels['com.docker.compose.oneoff']) === 'true',
   };
 }
 
@@ -143,6 +159,7 @@ function extractSignals(port, inspection, servicePorts) {
     boundTo: bindCategory(safePort.host_ip),
     composeProject: compose.project,
     composeService: compose.service,
+    expectedCompletion: compose.expectedCompletion,
     dependsOn: extractDependsOn(inspection),
     imageHints: hints,
     owner: safePort.owner || null,
@@ -153,6 +170,7 @@ function extractSignals(port, inspection, servicePorts) {
 
 module.exports = {
   extractSignals,
+  completionPrerequisites,
   WEAK_SUPPORT_HINTS,
   WEAK_PROXY_HINTS,
 };

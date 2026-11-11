@@ -7,11 +7,12 @@ const CORE_ROLES = new Set([ROLES.CORE_RUNTIME, ROLES.CORE_ACCESS]);
 function componentSucceeded(entry) {
   const probe = entry && entry.probe;
   if (!probe) return null;
-  return probe.ok === true;
+  return typeof probe.ok === 'boolean' ? probe.ok : null;
 }
 
 function summarizeComponent(entry) {
   const classification = entry && entry.classification ? entry.classification : {};
+  const auto = entry && entry.autoClassification ? entry.autoClassification : classification;
   const probe = entry && entry.probe ? entry.probe : {};
   return {
     componentId: entry && entry.componentId ? entry.componentId : null,
@@ -19,8 +20,11 @@ function summarizeComponent(entry) {
     ruleId: classification.ruleId || null,
     confidence: classification.confidence || null,
     reason: classification.reason || null,
+    autoRole: auto.role || classification.role || ROLES.UNKNOWN,
+    autoRuleId: auto.ruleId || classification.ruleId || null,
+    autoReason: auto.reason ?? classification.reason ?? null,
     probe: {
-      ok: probe.ok === true,
+      ok: typeof probe.ok === 'boolean' ? probe.ok : null,
       severity: probe.severity || null,
       latencyMs: Number.isFinite(probe.latencyMs) ? probe.latencyMs : null,
       error: probe.error || null,
@@ -30,6 +34,18 @@ function summarizeComponent(entry) {
       ? entry.signals.containerId
       : (entry && entry.containerId) || null,
   };
+}
+
+function describeProbeError(error) {
+  if (typeof error !== 'string') return null;
+  const http = error.match(/^http-status-(5\d\d)$/);
+  if (http) return `Main service answers with HTTP ${http[1]}.`;
+  const closed = error.match(/^ports-closed-(\d+)$/);
+  if (closed) {
+    const n = Number(closed[1]);
+    return `Service is running, but ${n} published port${n === 1 ? " isn't" : "s aren't"} responding.`;
+  }
+  return error;
 }
 
 function aggregate(entries) {
@@ -58,10 +74,14 @@ function aggregate(entries) {
     else unknown.push(c);
   });
 
-  const coreFailures = core.filter((c) => c.probe.ok !== true);
+  const coreFailures = core.filter((c) => c.probe.ok === false);
+  const coreUnknown = core.filter((c) => c.probe.ok === null);
   const corePartial = core.filter((c) => c.probe.ok === true && c.probe.severity === 'yellow');
-  const supportFailures = support.filter((c) => c.probe.ok !== true);
-  const unknownFailures = unknown.filter((c) => c.probe.ok !== true);
+  const supportFailures = support.filter((c) => c.probe.ok === false);
+  const supportPartial = support.filter((c) => c.probe.ok === true && c.probe.severity === 'yellow');
+  const unknownFailures = unknown.filter((c) => c.probe.ok === false);
+  const unknownPartial = unknown.filter((c) => c.probe.ok === true && c.probe.severity === 'yellow');
+  const jobFailures = jobs.filter((component) => component.probe.ok === false);
 
   let color;
   let reason;
@@ -69,11 +89,14 @@ function aggregate(entries) {
   if (core.length > 0 && coreFailures.length > 0) {
     color = 'red';
     reason = 'Main service unreachable.';
+  } else if (coreUnknown.length > 0) {
+    color = 'gray';
+    reason = 'Main service health is not yet known.';
   } else if (core.length > 0 && corePartial.length > 0) {
     color = 'yellow';
-    const detail = corePartial.map((c) => c.probe.error).filter(Boolean).join('; ');
+    const detail = corePartial.map((c) => describeProbeError(c.probe.error)).filter(Boolean).join('; ');
     reason = detail || 'Service is partially reachable.';
-  } else if (core.length > 0 && (supportFailures.length > 0 || unknownFailures.length > 0)) {
+  } else if (core.length > 0 && (supportFailures.length > 0 || supportPartial.length > 0 || unknownFailures.length > 0 || unknownPartial.length > 0 || jobFailures.length > 0)) {
     color = 'yellow';
     reason = 'Main service reachable, but a helper has issues.';
   } else if (core.length > 0) {
@@ -82,13 +105,16 @@ function aggregate(entries) {
   } else if (unknown.length > 0) {
     color = 'gray';
     reason = 'No main service identified — set a role if needed.';
+  } else if (jobFailures.length > 0) {
+    color = 'yellow';
+    reason = 'A setup job failed.';
   } else if (jobs.length > 0 && support.length === 0) {
     color = 'gray';
-    reason = 'Only finished jobs observed.';
+    reason = jobs.every((component) => component.probe.ok === true) ? 'Only finished jobs observed.' : 'Setup job completion is not yet known.';
   } else if (support.length > 0 && supportFailures.length > 0) {
     color = 'gray';
     reason = 'No main service identified, and a helper is failing. Pick a role to get a verdict.';
-  } else if (support.length > 0 && supportFailures.length === 0) {
+  } else if (support.length > 0 && support.every((component) => component.probe.ok === true && component.probe.severity !== 'yellow')) {
     color = 'gray';
     reason = 'No main service identified; helper services are reachable.';
   } else {
@@ -99,6 +125,7 @@ function aggregate(entries) {
   const failingComponents = coreFailures
     .concat(supportFailures)
     .concat(unknownFailures)
+      .concat(jobFailures)
     .map((c) => c.componentId || c.role);
 
   const evidence = components.map((c) => ({
@@ -121,5 +148,6 @@ function aggregate(entries) {
 
 module.exports = {
   aggregate,
+  describeProbeError,
   componentSucceeded,
 };

@@ -7,7 +7,7 @@
     "start": "node backend/index.js",
     "test": "jest",
     "test:release": "node --test scripts/release-contracts.test.cjs",
-    "test:frontend": "node --test frontend/src/lib/port-filters.test.mjs",
+    "test:frontend": "node --test frontend/src/lib/port-filters.test.mjs frontend/src/lib/port-health.test.mjs",
     "test:image": "node scripts/image-contracts.mjs",
     "test:context": "node scripts/check-build-context.mjs",
     "lint": "eslint .",

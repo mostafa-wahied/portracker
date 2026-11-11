@@ -325,9 +325,11 @@ Use **Regenerate Key** if B already has a key that you no longer have. Regenerat
 or revoking B's key invalidates the old key on every connected instance.
 Back up each database with its matching encryption key file; see [SECURITY.md](SECURITY.md).
 
-The current Add Server URL check runs in the browser. If it reports a CORS error
-despite A being able to reach B, **Save even if unreachable** bypasses that form
-check, not B's authentication. Do not disable authentication to work around it.
+The Add Server URL check runs on A's backend, using the same destination checks
+as peer requests. `CORS_ORIGIN` is not needed on B for this check.
+**Save even if unreachable** skips the form's reachability check, not URL
+validation or B's authentication. Do not disable authentication to work around
+a connection failure.
 
 ### Autoxpose Integration (v1.3.0+)
 

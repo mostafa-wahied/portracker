@@ -6,7 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useServiceHealth } from "@/hooks/useServiceHealth";
-import { humanizeProbeError } from "@/lib/health-copy";
+import { portHealthStatus } from "@/lib/port-health";
 
 const FEAT_COLOR_CLASSES = {
   green: "bg-green-500",
@@ -14,28 +14,6 @@ const FEAT_COLOR_CLASSES = {
   red: "bg-red-500",
   gray: "bg-gray-400",
 };
-
-function samePort(a, b) {
-  return Number(a) === Number(b);
-}
-
-function failureForPort(port, failures) {
-  if (!Array.isArray(failures)) return null;
-  return failures.find((failure) => {
-    if (!samePort(failure.host_port, port.host_port)) return false;
-    if (!failure.host_ip || !port.host_ip) return true;
-    return failure.host_ip === port.host_ip;
-  }) || null;
-}
-
-function suppressedForPort(port, suppressed) {
-  if (!Array.isArray(suppressed)) return null;
-  return suppressed.find((entry) => {
-    if (!samePort(entry.host_port, port.host_port)) return false;
-    if (!entry.host_ip || !port.host_ip) return true;
-    return entry.host_ip === port.host_ip;
-  }) || null;
-}
 
 export function PortStatusIndicator({
   serverId,
@@ -58,6 +36,14 @@ export function PortStatusIndicator({
       setChecking(false);
       return undefined;
     }
+    if (String(port.protocol || 'tcp').toLowerCase() === 'udp') {
+      setChecking(false);
+      setStatusData({ color: 'gray', title: 'UDP port, not checked.', hasWebUI: false });
+      return undefined;
+    }
+    setChecking(true);
+    setStatusData(null);
+    let active = true;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -95,28 +81,30 @@ export function PortStatusIndicator({
         res.ok ? res.json() : Promise.reject(`API ping failed: ${res.status}`)
       )
       .then((data) => {
+        if (!active) return;
         setStatusData(data);
         if (onProtocolChange && data.protocol) {
           onProtocolChange(data.protocol);
         }
       })
-      .catch(() => setStatusData({ 
-        reachable: false, 
-        status: 'unreachable',
-        color: 'red',
-        title: 'Connection failed',
+      .catch(() => active && setStatusData({
+        reachable: null,
+        status: 'unknown',
+        color: 'gray',
+        title: 'Unable to check this port',
         hasWebUI: true
       }))
       .finally(() => {
         clearTimeout(timeoutId);
-        setChecking(false);
+        if (active) setChecking(false);
       });
 
     return () => {
+      active = false;
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [shHasVerdict, port.host_ip, port.host_port, port.owner, port.internal, port.container_id, port.source, serverId, serverUrl, onProtocolChange]);
+  }, [shHasVerdict, port.host_ip, port.host_port, port.protocol, port.owner, port.internal, port.container_id, port.source, serverId, serverUrl, onProtocolChange]);
 
   const getDotState = () => {
     if (checking) {
@@ -153,35 +141,8 @@ export function PortStatusIndicator({
   const showNoWebUIIndicator = !checking && statusData?.color === 'green' && !dotState.hasWebUI;
 
   if (shHasVerdict) {
-    const comp = shHit.component;
-    const probe = comp.probe || {};
-    const evidence = probe.evidence || {};
-    const failures = Array.isArray(evidence.failures) ? evidence.failures : [];
-    const suppressed = Array.isArray(evidence.suppressed) ? evidence.suppressed : [];
-    const failedHere = failureForPort(port, failures);
-    const suppressedHere = !failedHere ? suppressedForPort(port, suppressed) : null;
-    const ok = probe.ok === true;
-    let probeColor;
-    let summary;
-    let detail;
-    if (suppressedHere) {
-      probeColor = 'gray';
-      summary = 'host-only';
-      detail = 'Bound to 127.0.0.1';
-    } else if (failedHere) {
-      probeColor = 'red';
-      summary = 'unreachable';
-      detail = "Container is running, but the port isn't responding.";
-    } else if (ok) {
-      probeColor = 'green';
-      summary = 'reachable';
-      detail = comp.reason;
-    } else {
-      probeColor = 'red';
-      summary = 'unreachable';
-      detail = humanizeProbeError(probe.error) || comp.reason;
-    }
-    const colorClass = FEAT_COLOR_CLASSES[probeColor];
+    const { color, label, detail } = portHealthStatus(shHit.component, port);
+    const colorClass = FEAT_COLOR_CLASSES[color] || FEAT_COLOR_CLASSES.gray;
     return (
       <TooltipProvider>
         <Tooltip>
@@ -191,7 +152,7 @@ export function PortStatusIndicator({
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            <p className="font-medium">{summary}</p>
+            <p className="font-medium">{label}</p>
             {detail && <p className="text-xs text-slate-400">{detail}</p>}
           </TooltipContent>
         </Tooltip>

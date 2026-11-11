@@ -6,6 +6,7 @@ import { RefreshCw, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { useOverrides } from '@/hooks/useOverrides';
 import { getDisplayHost } from './expanded-view-utils';
 import { humanizeProbeError } from '@/lib/health-copy';
+import { portStatusKey } from '@/lib/port-health';
 
 const COLOR_CLASSES = {
   green: 'bg-green-500',
@@ -49,6 +50,7 @@ function Badge({ children, tone = 'slate' }) {
     blue: 'bg-blue-100 text-blue-700 dark:bg-blue-800/30 dark:text-blue-300',
     green: 'bg-green-100 text-green-700 dark:bg-green-800/30 dark:text-green-300',
     red: 'bg-red-100 text-red-700 dark:bg-red-800/30 dark:text-red-300',
+    yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800/30 dark:text-yellow-300',
   };
   return (
     <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded ${tones[tone] || tones.slate}`}>
@@ -57,18 +59,14 @@ function Badge({ children, tone = 'slate' }) {
   );
 }
 
-function suppressedReasonLabel() {
-  return 'host-only';
-}
-
-function suppressedReasonTooltip(reason) {
+function suppressedReasonTooltip(reason, fallback) {
   switch (reason) {
     case 'host-network':
       return 'Container uses host networking; 127.0.0.1 stays local.';
     case 'no-bridge-ip':
       return 'No bridge IP available to route through.';
     default:
-      return 'Bound to 127.0.0.1';
+      return fallback || 'Bound to 127.0.0.1';
   }
 }
 
@@ -81,21 +79,11 @@ function PortRow({ port, status, displayCtx }) {
   const target = port.target_port && String(port.target_port) !== String(hp) ? ` \u2192 ${port.target_port}` : '';
   const color = status ? status.color : 'gray';
   const suppressed = !!(status && status.suppressed);
-  const label = !status
-    ? 'checking'
-    : suppressed
-      ? suppressedReasonLabel()
-      : color === 'red'
-        ? 'unreachable'
-        : color === 'green'
-          ? 'reachable'
-          : color === 'yellow'
-            ? 'partial'
-            : 'unknown';
+  const label = status ? status.label : 'checking';
   const dotClass = PORT_DOT_CLASS[color] || PORT_DOT_CLASS.gray;
   const tooltip = suppressed
-    ? suppressedReasonTooltip(status.suppressedReason)
-    : (status && status.reason ? status.reason : undefined);
+    ? suppressedReasonTooltip(status.suppressedReason, status.detail)
+    : (status && status.detail ? status.detail : undefined);
   return (
     <div className="flex items-center gap-2 py-1 pl-7 pr-3 text-xs" title={tooltip}>
       <span className={`w-1.5 h-1.5 rounded-full ${dotClass} flex-shrink-0`} />
@@ -113,15 +101,16 @@ function computePortStats(ports, containerId, portStatuses) {
   const myPorts = Array.isArray(ports) && containerId
     ? ports.filter((p) => p && p.container_id === containerId)
     : [];
-  const failingPortCount = myPorts.filter((p) => {
-    const st = portStatuses && portStatuses[`${p.host_ip}:${p.host_port}`];
-    return st && st.color === 'red' && !st.suppressed;
-  }).length;
-  const suppressedPortCount = myPorts.filter((p) => {
-    const st = portStatuses && portStatuses[`${p.host_ip}:${p.host_port}`];
-    return st && st.suppressed;
-  }).length;
-  return { myPorts, portCount: myPorts.length, failingPortCount, suppressedPortCount };
+  const statuses = myPorts.map((p) => portStatuses && portStatuses[portStatusKey(p)]).filter(Boolean);
+  const count = (matches) => statuses.filter(matches).length;
+  return {
+    myPorts,
+    portCount: myPorts.length,
+    failingPortCount: count((st) => st.color === 'red' && !st.suppressed),
+    degradedPortCount: count((st) => st.color === 'yellow'),
+    suppressedPortCount: count((st) => st.suppressed),
+    notCheckedPortCount: count((st) => st.label === 'not checked'),
+  };
 }
 
 function RoleOverrideSelect({ value, component, onChangeRole }) {
@@ -149,9 +138,12 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
   const [expanded, setExpanded] = useState(false);
   const probe = component.probe || {};
   const ok = probe.ok === true;
+  const degraded = ok && probe.severity === 'yellow';
+  const unknown = typeof probe.ok !== 'boolean';
   const err = probe.error;
   const latency = formatLatency(probe.latencyMs);
   const displayRole = component.effectiveRole || component.role;
+  const completed = ok && displayRole === 'job_expected_exit' && probe.evidence?.kind === 'job-completion';
   const roleInfo = SIMPLE_ROLE[displayRole] || SIMPLE_ROLE.unknown;
   const name = component._serviceName || 'component';
   const short = component.containerId ? component.containerId.slice(0, 12) : null;
@@ -159,23 +151,23 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
   const overridden = !!component.overridden;
   const canOverride = !!(component.containerId && component._serviceId && onChangeRole);
   const selectValue = overridden ? component.effectiveRole : 'auto';
-  const { myPorts, portCount, failingPortCount, suppressedPortCount } =
+  const { myPorts, portCount, failingPortCount, degradedPortCount, suppressedPortCount, notCheckedPortCount } =
     computePortStats(ports, component.containerId, portStatuses);
 
   return (
     <div className="border-t border-slate-200 dark:border-slate-700 first:border-t-0">
       <div className="py-3 px-3">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-medium text-slate-900 dark:text-slate-100 truncate">{name}</span>
+        <div className="flex flex-col items-start gap-2 mb-1.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="min-w-0 max-w-full break-words font-medium text-slate-900 dark:text-slate-100">{name}</span>
             {short && (
-              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{short}</span>
+              <span className="flex-shrink-0 text-[10px] font-mono text-slate-400 dark:text-slate-500">{short}</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0">
             <Badge tone={roleInfo.tone}>{roleInfo.label}</Badge>
             {overridden && <Badge tone="blue">overridden</Badge>}
-            <Badge tone={ok ? 'green' : 'red'}>{ok ? 'reachable' : 'unreachable'}</Badge>
+            <Badge tone={unknown || completed ? 'slate' : degraded ? 'yellow' : ok ? 'green' : 'red'}>{completed ? 'completed' : unknown ? 'not assessed' : degraded ? 'degraded' : ok ? 'reachable' : 'unreachable'}</Badge>
           </div>
         </div>
         {explanation && (
@@ -183,11 +175,11 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
             {explanation}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-2 min-w-0">
-            {latency && <span>{latency}</span>}
-            {!ok && err && (
-              <span className="truncate" title={err}>
+        <div className="flex flex-col items-start gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 max-w-full items-start gap-2">
+            {latency && <span className="flex-shrink-0 whitespace-nowrap">{latency}</span>}
+            {(!ok || degraded) && err && (
+              <span className="min-w-0 break-words" title={err}>
                 {latency ? '· ' : ''}{humanizeProbeError(err)}
               </span>
             )}
@@ -206,7 +198,9 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
             <span>
               {portCount} port{portCount === 1 ? '' : 's'}
               {failingPortCount > 0 ? ` · ${failingPortCount} unreachable` : ''}
+              {degradedPortCount > 0 ? ` · ${degradedPortCount} degraded` : ''}
               {suppressedPortCount > 0 ? ` · ${suppressedPortCount} host-only` : ''}
+              {notCheckedPortCount > 0 ? ` · ${notCheckedPortCount} not checked` : ''}
             </span>
           </button>
         )}
@@ -217,7 +211,7 @@ function ComponentRow({ component, onChangeRole, ports, portStatuses, displayCtx
             <PortRow
               key={`${p.host_ip}:${p.host_port}:${p.protocol || 'tcp'}:${i}`}
               port={p}
-              status={portStatuses && portStatuses[`${p.host_ip}:${p.host_port}`]}
+              status={portStatuses && portStatuses[portStatusKey(p)]}
               displayCtx={displayCtx}
             />
           ))}
@@ -235,6 +229,12 @@ function summarize(components) {
   const mainsOk = mains.filter((c) => c.probe && c.probe.ok === true);
   if (mains.length === 0) {
     return `No main service identified (${list.length} component${list.length === 1 ? '' : 's'} found).`;
+  }
+  const unassessed = mains.filter((component) => typeof component.probe?.ok !== 'boolean').length;
+  if (unassessed > 0) return `${unassessed} main component${unassessed === 1 ? '' : 's'} not assessed.`;
+  const degradedMains = mainsOk.filter((c) => c.probe.severity === 'yellow').length;
+  if (mainsOk.length === mains.length && degradedMains > 0) {
+    return `${degradedMains} of ${mains.length} main service${mains.length === 1 ? '' : 's'} reachable with issues.`;
   }
   if (mainsOk.length === mains.length) {
     return `All ${mains.length} main service${mains.length === 1 ? '' : 's'} reachable.`;
@@ -268,9 +268,6 @@ function RoleLegend() {
           ))}
         </div>
       </TooltipProvider>
-      <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-        The dot reflects main services only. Hover a chip for its definition.
-      </p>
     </div>
   );
 }
@@ -408,7 +405,7 @@ export function WhyThisStatusPopover({
               />
             )}
           </div>
-          <DialogDescription className="pt-1 text-slate-600 dark:text-slate-400">
+          <DialogDescription className="pt-1 break-words text-slate-600 dark:text-slate-400">
             <span className="font-medium text-slate-800 dark:text-slate-200">{serviceName}</span>
             <span className="mx-1.5 text-slate-400">·</span>
             <span>{summary}</span>
