@@ -1,4 +1,4 @@
-const { validatePeerUrl } = require("../lib/peer-http");
+const { requestPeer, validatePeerUrl } = require("../lib/peer-http");
 
 function listHandler({ db, logger }) {
   return (req, res) => {
@@ -219,11 +219,35 @@ function reorderHandler({ db, logger }) {
   };
 }
 
+const PEER_CHECK_TIMEOUT_MS = 5000;
+
+function checkUrlHandler({ logger, peerRequestOptions = {} }) {
+  return async (req, res) => {
+    let url;
+    try {
+      url = validatePeerUrl(req.body?.url);
+    } catch (error) {
+      return res.status(400).json({ error: error.message, field: "url" });
+    }
+    try {
+      const response = await requestPeer({ url }, "/api/health", {
+        timeoutMs: PEER_CHECK_TIMEOUT_MS,
+        ...peerRequestOptions,
+      });
+      return res.json({ reachable: response.ok, status: response.status });
+    } catch (error) {
+      logger.debug(`POST /api/servers/check-url: peer unreachable: ${error.message}`);
+      return res.json({ reachable: false, error: error.message });
+    }
+  };
+}
+
 function registerServerRoutes(app, deps) {
   const { requireAuth, validateServerInput } = deps;
   app.get("/api/servers", requireAuth, listHandler(deps));
   app.post("/api/servers", requireAuth, validateServerInput, upsertHandler(deps));
   app.put("/api/servers/order", requireAuth, reorderHandler(deps));
+  app.post("/api/servers/check-url", requireAuth, checkUrlHandler(deps));
 }
 
 module.exports = { registerServerRoutes };

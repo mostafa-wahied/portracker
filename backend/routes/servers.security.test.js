@@ -9,7 +9,7 @@ describe("peer configuration confidentiality", () => {
     db.exec("CREATE TABLE servers (id TEXT PRIMARY KEY,label TEXT,url TEXT,parentId TEXT,type TEXT,unreachable INTEGER,platform_type TEXT,remote_api_key TEXT,position INTEGER)");
     db.peerKeys = createPeerKeyStore(db);
     let handler;
-    registerServerRoutes({ get() {}, put() {}, post: (_route, ...handlers) => { handler = handlers.at(-1); } }, {
+    registerServerRoutes({ get() {}, put() {}, post: (route, ...handlers) => { if (route === "/api/servers") handler = handlers.at(-1); } }, {
       db, logger: { debug() {}, info() {}, error() {} }, requireAuth() {}, validateServerInput() {},
     });
     const save = async body => {
@@ -35,7 +35,7 @@ describe("peer configuration confidentiality", () => {
     const logger = { debug() {}, info() {}, error: jestObject.fn() };
     registerServerRoutes({
       get() {}, put() {},
-      post: (_route, ...handlers) => { handler = handlers.at(-1); },
+      post: (route, ...handlers) => { if (route === "/api/servers") handler = handlers.at(-1); },
     }, {
       db: { prepare: () => { throw new Error("datatype mismatch"); } },
       logger, requireAuth() {}, validateServerInput() {},
