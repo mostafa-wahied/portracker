@@ -4,6 +4,25 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.17] - 2026-11-11
+
+### Fixed
+
+<!-- whatsnew:title=More accurate service health -->
+<!-- whatsnew:description=See each port's own result; review component roles when overall health is unclear. -->
+- **[Service Health]**: Show independent TCP, HTTP, container-health and unchecked evidence instead of copying one port's result to every port. Preserve observed HTTP 5xx responses as degraded. Check up to 24 published TCP endpoints per container within a shared 8-second service-health deadline, including inspection and the representative probe. Keep UDP, explicitly skipped and unfinished checks distinct from failures. Require complete container socket evidence and an unambiguous host-address mapping before concluding that nothing is listening behind Docker's port forwarding.
+
+<!-- whatsnew:hide -->
+- **[Health Status Consistency]**: Separate unknown health from failure, preserve degraded results after role changes, and keep unrelated service results outside explicitly identified cards. Summarize mixed project availability as partial. Do not infer component importance from image names, healthcheck presence or startup ordering; retain explicit roles and show uncertain roles for review. Require evidence before marking a job completed. Stop polling after a missing endpoint, pause unauthorized polling, avoid overlapping requests and expire old results after one minute at the default refresh interval.
+
+<!-- whatsnew:title=Rename the local server -->
+<!-- whatsnew:description=Set a custom name for the built-in local server without entering a peer URL. -->
+- **[Local Server Renaming]**: Allow renaming the local server without entering a peer URL. Preserve its managed address, type and platform, and retain a peer's saved credentials when its destination is unchanged (#120, #121 by @MrSiJo).
+
+<!-- whatsnew:title=Check peer servers from the backend -->
+<!-- whatsnew:description=Add or edit peer servers without browser cross-origin errors blocking valid peers. -->
+- **[Peer Reachability]**: Run the Add/Edit Server reachability check on the backend through the shared peer URL and request validation. Avoid requiring cross-origin browser access just to add a peer while retaining destination checks, timeouts and redirect rejection (#91, #122 by @MrSiJo).
+
 ## [1.3.16] - 2026-11-03
 
 ### Security

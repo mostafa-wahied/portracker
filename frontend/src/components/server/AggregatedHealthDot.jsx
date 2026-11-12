@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useServiceHealth } from "@/hooks/useServiceHealth";
 import { WhyThisStatusPopover } from "./WhyThisStatusPopover";
+import { portHealthStatus, portStatusKey } from "@/lib/port-health";
 
 const COLOR_CLASSES = {
   green: "bg-green-500",
@@ -26,33 +27,11 @@ function deriveStatusesFromComponents(components, ports) {
   components.forEach((c) => {
     if (c && c.containerId) byContainer.set(c.containerId, c);
   });
-  const samePort = (a, b) => Number(a) === Number(b);
-  const matchesEntry = (entry, port) => {
-    if (!entry) return false;
-    if (!samePort(entry.host_port, port.host_port)) return false;
-    if (!entry.host_ip || !port.host_ip) return true;
-    return entry.host_ip === port.host_ip;
-  };
   ports.forEach((port) => {
     if (!port || port.host_ip == null || port.host_port == null) return;
-    const key = `${port.host_ip}:${port.host_port}`;
     const comp = port.container_id ? byContainer.get(port.container_id) : null;
-    if (!comp) return;
-    const probe = comp.probe || {};
-    const evidence = probe.evidence || {};
-    const failures = Array.isArray(evidence.failures) ? evidence.failures : [];
-    const suppressed = Array.isArray(evidence.suppressed) ? evidence.suppressed : [];
-    const failure = failures.find((f) => matchesEntry(f, port));
-    if (failure) {
-      out[key] = { color: 'red', reason: failure.error || 'unreachable', isInternal: !!port.internal };
-      return;
-    }
-    const supp = suppressed.find((s) => matchesEntry(s, port));
-    if (supp) {
-      out[key] = { color: 'gray', suppressed: true, suppressedReason: supp.reason || 'unknown', isInternal: !!port.internal };
-      return;
-    }
-    out[key] = { color: probe.ok === true ? 'green' : 'red', isInternal: !!port.internal };
+    const status = portHealthStatus(comp, port);
+    if (status) out[portStatusKey(port)] = { ...status, isInternal: !!port.internal };
   });
   return out;
 }
@@ -101,6 +80,9 @@ export function AggregatedHealthDot({
     setPortStatuses({});
 
     const checkPort = async (port) => {
+      if (String(port.protocol || 'tcp').toLowerCase() === 'udp') {
+        return { portKey: `${port.host_ip}:${port.host_port}`, color: 'gray', hasWebUI: false, isInternal: !!port.internal };
+      }
       let pingApiUrl = `/api/ping?host_ip=${encodeURIComponent(
         port.host_ip
       )}&host_port=${port.host_port}`;
@@ -148,10 +130,10 @@ export function AggregatedHealthDot({
             isInternal: port.internal || false
           };
         }
-        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true, isInternal: port.internal || false };
+        return { portKey: `${port.host_ip}:${port.host_port}`, color: "gray", hasWebUI: true, isInternal: port.internal || false };
       } catch {
         if (signal.aborted) return null;
-        return { portKey: `${port.host_ip}:${port.host_port}`, color: "red", hasWebUI: true, isInternal: port.internal || false };
+        return { portKey: `${port.host_ip}:${port.host_port}`, color: "gray", hasWebUI: true, isInternal: port.internal || false };
       }
     };
 
@@ -307,7 +289,7 @@ export function AggregatedHealthDot({
           components={shLookup.components}
           ports={ports}
           portStatuses={deriveStatusesFromComponents(shLookup.components, ports)}
-          updatedAt={sh.updatedAt}
+          updatedAt={shLookup.checkedAt ?? sh.updatedAt}
           onRefresh={sh.refresh}
           serverId={serverId}
           serverUrl={serverUrl}

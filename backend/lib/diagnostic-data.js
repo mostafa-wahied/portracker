@@ -4,7 +4,7 @@ const originalFields = new Set(["id", "name", "memory", "vcpus", "cpu", "status"
 const safeErrors = new Set([
   "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN",
   "timeout", "healthcheck-unhealthy", "stale-completion", "docker-api-unavailable", "inspect-failed",
-  "send-failed", "send-threw", "no-valid-host-port", "missing-container-id", "unreachable",
+  "send-failed", "send-threw", "no-valid-host-port", "missing-container-id", "unreachable", "no-listener",
   "Peer response exceeds PEER_MAX_RESPONSE_BYTES; increase this byte limit for a trusted larger inventory",
   "PEER_MAX_RESPONSE_BYTES must be a positive integer byte limit",
   "Sign in on the remote server to view raw diagnostics.",
@@ -13,7 +13,8 @@ const safeErrors = new Set([
 function diagnosticError(error) {
   if (!error || safeErrors.has(error)) return error;
   if (typeof error === "string" && (/^exit-code--?\d{1,10}$/.test(error) ||
-      /^not-exited-(created|running|paused|restarting|removing|exited|dead)$/.test(error))) return error;
+      /^not-exited-(created|running|paused|restarting|removing|exited|dead)$/.test(error) ||
+      /^http-status-5\d\d$/.test(error) || /^ports-closed-\d{1,4}$/.test(error))) return error;
   return "Diagnostic operation failed";
 }
 

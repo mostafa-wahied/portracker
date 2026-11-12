@@ -10,7 +10,7 @@ const MAX_BODY_BYTES = 8192;
 
 function normalizeResult(ok, latencyMs, evidence, error) {
   return {
-    ok: Boolean(ok),
+    ok: typeof ok === 'boolean' ? ok : null,
     latencyMs: latencyMs == null ? null : Math.max(0, Math.round(latencyMs)),
     evidence: evidence || {},
     error: error || null,
@@ -22,7 +22,7 @@ function resolveTimeout(opts) {
   return Math.max(50, Math.min(v, 30000));
 }
 
-function httpRequestOnce(scheme, host, port, path, method, timeoutMs, allowInsecure) {
+function httpRequestOnce(scheme, host, port, path, method, timeoutMs, allowInsecure, signal) {
   return new Promise((resolve) => {
     const started = Date.now();
     const lib = scheme === 'https' ? https : http;
@@ -32,6 +32,7 @@ function httpRequestOnce(scheme, host, port, path, method, timeoutMs, allowInsec
       path: path || '/',
       method,
       timeout: timeoutMs,
+      signal,
       headers: { 'User-Agent': 'PortTracker/1.0', 'Accept': '*/*' },
     };
     if (scheme === 'https' && allowInsecure) opts.rejectUnauthorized = false;
@@ -80,7 +81,8 @@ async function probeHttpLike(scheme, host, port, opts) {
   const allowInsecure = scheme === 'https' && !(opts && opts.strictTls);
   const started = Date.now();
 
-  const head = await httpRequestOnce(scheme, host, port, path, 'HEAD', timeoutMs, allowInsecure);
+  const signal = opts && opts.signal;
+  const head = await httpRequestOnce(scheme, host, port, path, 'HEAD', timeoutMs, allowInsecure, signal);
   if (head && head.statusCode && head.statusCode < 500 && head.statusCode !== 404) {
     return normalizeResult(true, head.latency, {
       kind: scheme,
@@ -91,8 +93,9 @@ async function probeHttpLike(scheme, host, port, opts) {
     }, null);
   }
 
+  if (signal && signal.aborted) return normalizeResult(false, Date.now() - started, { kind: scheme }, 'timeout');
   const remaining = Math.max(50, timeoutMs - (Date.now() - started));
-  const get = await httpRequestOnce(scheme, host, port, path, 'GET', remaining, allowInsecure);
+  const get = await httpRequestOnce(scheme, host, port, path, 'GET', remaining, allowInsecure, signal);
   if (get && get.statusCode && get.statusCode < 500) {
     return normalizeResult(true, get.latency, {
       kind: scheme,
@@ -126,7 +129,7 @@ function probeTcp(host, port, opts) {
   const timeoutMs = resolveTimeout(opts);
   return new Promise((resolve) => {
     const started = Date.now();
-    const socket = new net.Socket();
+    const socket = new net.Socket({ signal: opts && opts.signal });
     let settled = false;
     function finish(ok, error) {
       if (settled) return;
@@ -210,10 +213,10 @@ function probeUdp(host, port, opts) {
 async function probeContainerState(dockerApi, containerId, _opts) {
   const started = Date.now();
   if (!dockerApi || typeof dockerApi.getContainerHealth !== 'function') {
-    return normalizeResult(false, Date.now() - started, { kind: 'container-state' }, 'docker-api-unavailable');
+    return normalizeResult(null, Date.now() - started, { kind: 'container-state' }, 'docker-api-unavailable');
   }
   if (!containerId) {
-    return normalizeResult(false, Date.now() - started, { kind: 'container-state' }, 'missing-container-id');
+    return normalizeResult(null, Date.now() - started, { kind: 'container-state' }, 'missing-container-id');
   }
   try {
     if (typeof dockerApi._ensureConnected === 'function') {
@@ -223,7 +226,7 @@ async function probeContainerState(dockerApi, containerId, _opts) {
     const status = (h && h.status ? String(h.status) : 'unknown').toLowerCase();
     const health = (h && h.health ? String(h.health) : 'none').toLowerCase();
     const running = status === 'running';
-    const healthy = running && (health === 'healthy' || health === 'none' || health === 'unknown' || health === 'starting');
+    const healthy = running && (health === 'healthy' || health === 'none');
     const evidence = {
       kind: 'container-state',
       containerId,
@@ -232,15 +235,18 @@ async function probeContainerState(dockerApi, containerId, _opts) {
       startedAt: h && h.startedAt ? h.startedAt : null,
       restartCount: h && typeof h.restartCount === 'number' ? h.restartCount : null,
     };
+    if (status === 'unknown' || status === 'created' || status === 'restarting' || health === 'starting') {
+      return normalizeResult(null, Date.now() - started, evidence, null);
+    }
     if (!running) {
       return normalizeResult(false, Date.now() - started, evidence, `container-${status}`);
     }
     if (health === 'unhealthy') {
       return normalizeResult(false, Date.now() - started, evidence, 'healthcheck-unhealthy');
     }
-    return normalizeResult(healthy, Date.now() - started, evidence, null);
+    return normalizeResult(healthy ? true : null, Date.now() - started, evidence, null);
   } catch (err) {
-    return normalizeResult(false, Date.now() - started, { kind: 'container-state', containerId }, err && err.message ? err.message : 'inspect-failed');
+    return normalizeResult(null, Date.now() - started, { kind: 'container-state', containerId }, err && err.message ? err.message : 'inspect-failed');
   }
 }
 
@@ -248,10 +254,10 @@ async function probeJobCompletion(dockerApi, containerId, opts) {
   const started = Date.now();
   const maxAgeMs = opts && Number.isFinite(opts.maxAgeMs) ? opts.maxAgeMs : null;
   if (!dockerApi || typeof dockerApi.inspectContainer !== 'function') {
-    return normalizeResult(false, Date.now() - started, { kind: 'job-completion' }, 'docker-api-unavailable');
+    return normalizeResult(null, Date.now() - started, { kind: 'job-completion' }, 'docker-api-unavailable');
   }
   if (!containerId) {
-    return normalizeResult(false, Date.now() - started, { kind: 'job-completion' }, 'missing-container-id');
+    return normalizeResult(null, Date.now() - started, { kind: 'job-completion' }, 'missing-container-id');
   }
   try {
     if (typeof dockerApi._ensureConnected === 'function') {
@@ -276,7 +282,7 @@ async function probeJobCompletion(dockerApi, containerId, opts) {
     };
 
     if (status !== 'exited') {
-      return normalizeResult(false, Date.now() - started, evidence, `not-exited-${status}`);
+      return normalizeResult(null, Date.now() - started, evidence, null);
     }
     if (exitCode !== 0) {
       return normalizeResult(false, Date.now() - started, evidence, `exit-code-${exitCode}`);
@@ -293,7 +299,7 @@ async function probeJobCompletion(dockerApi, containerId, opts) {
     }
     return normalizeResult(true, Date.now() - started, evidence, null);
   } catch (err) {
-    return normalizeResult(false, Date.now() - started, { kind: 'job-completion', containerId }, err && err.message ? err.message : 'inspect-failed');
+    return normalizeResult(null, Date.now() - started, { kind: 'job-completion', containerId }, err && err.message ? err.message : 'inspect-failed');
   }
 }
 

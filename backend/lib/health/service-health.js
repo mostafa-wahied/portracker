@@ -6,39 +6,12 @@ const {
   probeHttp,
   probeHttps,
   probeTcp,
-  probeUdp,
   probeContainerState,
   probeJobCompletion,
-  DEFAULT_TIMEOUT_MS,
 } = require('./probes');
 const { aggregate } = require('./aggregate');
-const { getDockerHostIP } = require('../docker-host');
+const { NO_LISTENER, runWithinBudget, safeLower, resolveProbeHost, onDemandKeysFromDeps, isOnDemandPort, portEntry, closedReason, probeKey, nothingListening, sweepPorts, sweepContext, sweepExternalPorts } = require('./port-sweep');
 
-let cachedDockerHostIp;
-function dockerHostIpFallback() {
-  if (cachedDockerHostIp === undefined) {
-    try {
-      cachedDockerHostIp = getDockerHostIP() || '';
-    } catch (_e) {
-      cachedDockerHostIp = '';
-    }
-  }
-  return cachedDockerHostIp;
-}
-
-function safeLower(v) {
-  return typeof v === 'string' ? v.toLowerCase() : '';
-}
-
-function resolveProbeHost(hostIp) {
-  const h = safeLower(hostIp);
-  const override = (process.env.HOST_OVERRIDE || '').trim();
-  if (h === '' || h === '0.0.0.0' || h === '::' || h === '[::]') {
-    return override || dockerHostIpFallback() || '127.0.0.1';
-  }
-  if (h === '::1') return '::1';
-  return hostIp;
-}
 
 function pickRepresentativePort(ports) {
   const list = Array.isArray(ports) ? ports.filter(Boolean) : [];
@@ -58,27 +31,6 @@ function pickRepresentativePort(ports) {
   return list.slice().sort((a, b) => score(b) - score(a))[0];
 }
 
-function onDemandKeysFromDeps(deps) {
-  const set = new Set();
-  if (!deps) return set;
-  const source = deps.onDemandPorts;
-  if (!source) return set;
-  const push = (v) => { if (typeof v === 'string' && v) set.add(v); };
-  if (source instanceof Set) source.forEach(push);
-  else if (Array.isArray(source)) source.forEach(push);
-  return set;
-}
-
-function isOnDemandPort(port, onDemandSet) {
-  if (!port || !onDemandSet || onDemandSet.size === 0) return false;
-  const cid = port.container_id || '';
-  const hp = port.host_port;
-  if (cid) {
-    if (onDemandSet.has(`${cid}:${hp}`)) return true;
-    if (onDemandSet.has(`${cid.slice(0, 12)}:${hp}`)) return true;
-  }
-  return false;
-}
 
 function groupPortsByContainer(ports) {
   const map = new Map();
@@ -122,194 +74,153 @@ function buildSiblingContext(servicePorts, componentSignals, allSignalsByContain
   };
 }
 
-function isLoopbackHost(hostIp) {
-  const h = safeLower(hostIp || '');
-  return h === '127.0.0.1' || h === '::1' || h === 'localhost';
+
+function portsClosedCode(count) {
+  return `ports-closed-${count}`;
 }
 
-async function tryLoopbackRescue(port, dockerApi, inspectionCache, timeoutMs) {
-  const containerId = port && port.container_id;
-  if (!containerId || !dockerApi || typeof dockerApi.inspectContainer !== 'function') {
-    return { applicable: false };
-  }
-  let inspection = inspectionCache.get(containerId);
-  if (inspection === undefined) {
-    try {
-      inspection = await dockerApi.inspectContainer(containerId);
-    } catch (_e) {
-      void _e;
-      inspection = null;
-    }
-    inspectionCache.set(containerId, inspection);
-  }
-  if (!inspection) return { applicable: false };
-  const networkMode = safeLower(inspection.HostConfig && inspection.HostConfig.NetworkMode);
-  if (networkMode === 'host' || networkMode === 'none') {
-    return { applicable: false, reason: 'host-network', networkMode };
-  }
-  const networks = (inspection.NetworkSettings && inspection.NetworkSettings.Networks) || {};
-  let containerIp = null;
-  for (const info of Object.values(networks)) {
-    const ip = info && info.IPAddress;
-    if (ip && ip !== '0.0.0.0') { containerIp = ip; break; }
-  }
-  if (!containerIp) return { applicable: false, reason: 'no-bridge-ip' };
-  const portsMap = (inspection.NetworkSettings && inspection.NetworkSettings.Ports) || {};
-  const proto = safeLower(port.protocol || 'tcp');
-  let containerPort = null;
-  for (const [spec, bindings] of Object.entries(portsMap)) {
-    if (!bindings) continue;
-    const [cpStr, cproto] = String(spec).split('/');
-    if (safeLower(cproto || 'tcp') !== proto) continue;
-    const matched = bindings.some((b) => {
-      const hp = parseInt(b && b.HostPort, 10);
-      return Number.isFinite(hp) && hp === parseInt(port.host_port, 10);
-    });
-    if (matched) {
-      const n = parseInt(cpStr, 10);
-      if (Number.isFinite(n)) { containerPort = n; break; }
-    }
-  }
-  if (containerPort == null) {
-    const n = parseInt(port.host_port, 10);
-    if (Number.isFinite(n)) containerPort = n;
-  }
-  if (containerPort == null) return { applicable: false, reason: 'no-container-port' };
-  const r = await probeTcp(containerIp, containerPort, { timeoutMs });
-  return { applicable: true, ok: r.ok, error: r.error || null, containerIp, containerPort };
+function uncheckedResult(ports, reasonCode = 'time-limit') {
+  return { ok: null, latencyMs: null, error: null, evidence: { kind: 'not-checked',
+    ports: (ports || []).map((port) => portEntry(port, 'not-checked', 'none', { reasonCode })) } };
 }
 
-async function sweepExternalPorts(groupPorts, opts) {
-  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
-  const onDemandSet = opts && opts.onDemandSet ? opts.onDemandSet : new Set();
-  const dockerApi = opts && opts.dockerApi ? opts.dockerApi : null;
-  const inspectionCache = opts && opts.inspectionCache ? opts.inspectionCache : new Map();
-  const externals = (groupPorts || []).filter((p) => p && p.internal !== true);
-  const failures = [];
-  const suppressed = [];
-  for (const p of externals) {
-    if (isOnDemandPort(p, onDemandSet)) continue;
-    const host = resolveProbeHost(p.host_ip);
-    const port = parseInt(p.host_port, 10);
-    if (!Number.isFinite(port) || port <= 0 || port > 65535) continue;
-    const proto = safeLower(p.protocol || 'tcp');
-    if (proto !== 'tcp') continue;
-    const r = await probeTcp(host, port, { timeoutMs });
-    if (r.ok) continue;
-    if (isLoopbackHost(p.host_ip)) {
-      const rescue = await tryLoopbackRescue(p, dockerApi, inspectionCache, timeoutMs);
-      if (rescue.applicable && rescue.ok) {
-        continue;
-      }
-      if (!rescue.applicable) {
-        suppressed.push({
-          host_ip: p.host_ip || null,
-          host_port: p.host_port,
-          reason: rescue.reason || 'loopback-only-by-design',
-        });
-        continue;
-      }
-      failures.push({
-        host_ip: p.host_ip || null,
-        host_port: p.host_port,
-        error: rescue.error || r.error || 'unreachable',
-        rescue: { containerIp: rescue.containerIp, containerPort: rescue.containerPort },
-      });
-      continue;
-    }
-    const bridgeRescue = await tryLoopbackRescue(p, dockerApi, inspectionCache, timeoutMs);
-    if (bridgeRescue.applicable && bridgeRescue.ok) {
-      continue;
-    }
-    failures.push({
-      host_ip: p.host_ip || null,
-      host_port: p.host_port,
-      error: r.error || 'unreachable',
-    });
+async function probeWithHealthcheck(signals, groupPorts, ctx, hasExternal) {
+  const hc = await runWithinBudget(ctx, (options) => probeContainerState(ctx.dockerApi, signals.containerId, options));
+  if (!hc) return uncheckedResult(groupPorts);
+  if (!hc.ok || !hasExternal) {
+    const ports = (groupPorts || []).map((port) => portEntry(port, 'not-checked', 'none', { reasonCode: 'container-check' }));
+    return { ...hc, evidence: { ...(hc.evidence || {}), ports } };
   }
-  return { failures, suppressed };
+  const sweep = await sweepExternalPorts(groupPorts, ctx);
+  if (sweep.failures.length > 0) {
+    return {
+      ok: true,
+      severity: 'yellow',
+      latencyMs: hc.latencyMs,
+      evidence: { kind: 'partial', healthcheck: hc.evidence, failures: sweep.failures, suppressed: sweep.suppressed, ports: sweep.entries },
+      error: portsClosedCode(sweep.failures.length),
+    };
+  }
+  const evidence = { ...hc.evidence, ports: sweep.entries };
+  if (sweep.suppressed.length > 0) evidence.suppressed = sweep.suppressed;
+  return { ok: hc.ok, severity: hc.severity || null, latencyMs: hc.latencyMs, evidence, error: hc.error || null };
+}
+
+function serverErrorStatus(result) {
+  const evidence = (result && result.evidence) || {};
+  const found = [evidence.getStatus, evidence.headStatus].find((s) => Number.isInteger(s) && s >= 500 && s <= 599);
+  return found || null;
+}
+
+function degradedHttp(result, scheme, status, rep) {
+  return {
+    result: {
+      ok: true,
+      severity: 'yellow',
+      latencyMs: result.latencyMs,
+      evidence: { kind: 'http-error', protocol: scheme, statusCode: status, url: result.evidence && result.evidence.url },
+      error: `http-status-${status}`,
+    },
+    entry: portEntry(rep, 'http-error', scheme, { statusCode: status }),
+  };
+}
+
+async function probeRepresentative(rep, host, port, ctx) {
+  const tcp = await runWithinBudget(ctx, (options) => probeTcp(host, port, options));
+  if (!tcp) return { result: uncheckedResult([rep]), entry: portEntry(rep, 'not-checked', 'none', { reasonCode: 'time-limit' }) };
+  if (!tcp.ok) return { result: tcp, entry: portEntry(rep, 'closed', 'tcp', { reasonCode: closedReason(tcp.error) }) };
+  const open = { result: tcp, entry: portEntry(rep, 'open', 'tcp', { reasonCode: 'time-limit' }) };
+  const absent = await runWithinBudget(ctx, () => nothingListening(rep, ctx));
+  if (absent === true) {
+    return {
+      result: { ok: false, latencyMs: tcp.latencyMs, evidence: { ...(tcp.evidence || {}), listener: 'none' }, error: NO_LISTENER },
+      entry: portEntry(rep, 'closed', 'tcp', { reasonCode: NO_LISTENER }),
+    };
+  }
+  if (ctx.signal.aborted) return open;
+  const https = await runWithinBudget(ctx, (options) => probeHttps(host, port, options));
+  if (!https) return open;
+  if (https.ok) return { result: https, entry: portEntry(rep, 'ok', 'https', { statusCode: https.evidence.statusCode }) };
+  const httpsStatus = serverErrorStatus(https);
+  if (httpsStatus) return degradedHttp(https, 'https', httpsStatus, rep);
+  const http = await runWithinBudget(ctx, (options) => probeHttp(host, port, options));
+  if (!http) return open;
+  if (http.ok) return { result: http, entry: portEntry(rep, 'ok', 'http', { statusCode: http.evidence.statusCode }) };
+  const httpStatus = serverErrorStatus(http);
+  if (httpStatus) return degradedHttp(http, 'http', httpStatus, rep);
+  return { result: tcp, entry: portEntry(rep, 'open', 'tcp+http') };
+}
+
+function mergeSiblingSweep(primary, sweep) {
+  const result = primary.result;
+  const evidence = { ...(result.evidence || {}), ports: [primary.entry].concat(sweep.entries) };
+  if (sweep.suppressed.length > 0) evidence.suppressed = sweep.suppressed;
+  if (sweep.failures.length === 0) return { ...result, evidence };
+  evidence.failures = sweep.failures;
+  if (!result.ok) return { ...result, evidence };
+  return {
+    ...result,
+    severity: 'yellow',
+    evidence,
+    error: result.severity === 'yellow' ? result.error : portsClosedCode(sweep.failures.length),
+  };
+}
+
+async function probePublishedTcp(representative, groupPorts, ctx) {
+  const host = resolveProbeHost(representative.host_ip);
+  const port = parseInt(representative.host_port, 10);
+  const primary = await probeRepresentative(representative, host, port, ctx);
+  const siblings = (groupPorts || []).filter((p) => p && p !== representative && p.internal !== true);
+  const sweep = await sweepPorts(siblings, ctx, [probeKey(representative)]);
+  return mergeSiblingSweep(primary, sweep);
 }
 
 async function pickAndRunProbe(signals, representative, dockerApi, opts, groupPorts) {
-  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
-  const onDemandSet = opts && opts.onDemandSet ? opts.onDemandSet : onDemandKeysFromDeps(opts);
-  const inspectionCache = opts && opts.inspectionCache ? opts.inspectionCache : new Map();
+  const ctx = opts && opts.probeContext ? opts.probeContext : sweepContext({
+    timeoutMs: opts && opts.timeoutMs,
+    onDemandSet: opts && opts.onDemandSet ? opts.onDemandSet : onDemandKeysFromDeps(opts),
+    dockerApi,
+    inspectionCache: opts && opts.inspectionCache,
+    procRoots: opts && opts.procRoots,
+    budgetMs: opts && opts.budgetMs,
+  });
   const hasExternal = Array.isArray(groupPorts) && groupPorts.some((p) => p && p.internal !== true);
-
-  if (signals.hasHealthcheck && signals.containerId) {
-    const hc = await probeContainerState(dockerApi, signals.containerId, { timeoutMs });
-    if (!hc.ok) return hc;
-    if (hasExternal) {
-      const sweep = await sweepExternalPorts(groupPorts, { timeoutMs, onDemandSet, dockerApi, inspectionCache });
-      const failures = sweep.failures || [];
-      const suppressed = sweep.suppressed || [];
-      if (failures.length > 0) {
-        return {
-          ok: true,
-          severity: 'yellow',
-          latencyMs: hc.latencyMs,
-          evidence: { kind: 'partial', healthcheck: hc.evidence, failures, suppressed },
-          error: `Service is running, but ${failures.length} published port${failures.length === 1 ? " isn't" : "s aren't"} responding`,
-        };
-      }
-      if (suppressed.length > 0) {
-        return {
-          ok: hc.ok,
-          severity: hc.severity || null,
-          latencyMs: hc.latencyMs,
-          evidence: { ...hc.evidence, suppressed },
-          error: hc.error || null,
-        };
-      }
-    }
-    return hc;
-  }
-
+  if (signals.hasHealthcheck && signals.containerId) return probeWithHealthcheck(signals, groupPorts, ctx, hasExternal);
   if (signals.containerState === 'exited') {
-    return probeJobCompletion(dockerApi, signals.containerId, { timeoutMs });
+    const result = await runWithinBudget(ctx, (options) => probeContainerState(dockerApi, signals.containerId, options));
+    return result ? { ...result, evidence: { ...(result.evidence || {}), ports: uncheckedResult(groupPorts, 'stopped').evidence.ports } } : uncheckedResult(groupPorts);
   }
-
   if (!hasExternal && signals.containerId) {
-    return probeContainerState(dockerApi, signals.containerId, { timeoutMs });
+    const result = await runWithinBudget(ctx, (options) => probeContainerState(dockerApi, signals.containerId, options));
+    if (!result) return uncheckedResult(groupPorts);
+    return { ...result, evidence: { ...(result.evidence || {}), ports: (groupPorts || []).map((entry) => portEntry(entry, 'not-checked', 'none', { reasonCode: 'internal' })) } };
   }
-
-  const host = resolveProbeHost(representative && representative.host_ip);
-  const port = parseInt(representative && representative.host_port, 10);
+  const checkable = (groupPorts || []).filter((entry) => entry && entry.internal !== true
+    && safeLower(entry.protocol || 'tcp') === 'tcp' && !isOnDemandPort(entry, ctx.onDemandSet));
+  const primary = checkable.includes(representative) ? representative : pickRepresentativePort(checkable);
+  if (!primary) {
+    const sweep = await sweepExternalPorts(groupPorts, ctx);
+    return { ok: null, latencyMs: null, evidence: { kind: 'not-checked', ports: sweep.entries }, error: null };
+  }
+  const port = parseInt(primary.host_port, 10);
   if (!Number.isFinite(port) || port <= 0 || port > 65535) {
-    return {
-      ok: false,
-      latencyMs: null,
-      evidence: { kind: 'invalid-port' },
-      error: 'no-valid-host-port',
-    };
+    return { ok: false, latencyMs: null, evidence: { kind: 'invalid-port' }, error: 'no-valid-host-port' };
   }
-
-  const proto = safeLower(signals.protocol || 'tcp');
-  if (proto === 'udp') {
-    return probeUdp(host, port, { timeoutMs });
-  }
-
-  const tcp = await probeTcp(host, port, { timeoutMs });
-  if (!tcp.ok) return tcp;
-
-  const https = await probeHttps(host, port, { timeoutMs });
-  if (https.ok) return https;
-  const http = await probeHttp(host, port, { timeoutMs });
-  if (http.ok) return http;
-  return tcp;
+  return probePublishedTcp(primary, groupPorts, ctx);
 }
 
 async function computeServiceHealth(service, deps) {
   const dockerApi = deps && deps.dockerApi ? deps.dockerApi : null;
   const overrides = deps && deps.overrides && typeof deps.overrides === 'object' ? deps.overrides : {};
   const ports = Array.isArray(service && service.ports) ? service.ports : [];
+  const inspections = new Map();
+  const probeContext = sweepContext({ ...(deps || {}), dockerApi, inspectionCache: inspections, onDemandSet: onDemandKeysFromDeps(deps) });
 
   if (dockerApi && typeof dockerApi._ensureConnected === 'function') {
-    await dockerApi._ensureConnected().catch(() => null);
+    await runWithinBudget(probeContext, () => dockerApi._ensureConnected().catch(() => null));
   }
 
   const groups = groupPortsByContainer(ports);
-  const inspections = new Map();
   const signalsByContainer = new Map();
   const representativeByContainer = new Map();
 
@@ -320,13 +231,14 @@ async function computeServiceHealth(service, deps) {
     let inspection = null;
     if (containerId && dockerApi && typeof dockerApi.inspectContainer === 'function') {
       try {
-        inspection = await dockerApi.inspectContainer(containerId);
+        inspection = await runWithinBudget(probeContext, () => dockerApi.inspectContainer(containerId));
       } catch (_err) {
         inspection = null;
       }
       inspections.set(key, inspection);
     }
     const sig = extractSignals(representative, inspection, ports);
+    sig.expectedCompletion = sig.expectedCompletion || !!(deps?.expectedCompletionServices?.has(`${sig.composeProject}::${sig.composeService}`));
     signalsByContainer.set(key, sig);
   }
 
@@ -335,21 +247,28 @@ async function computeServiceHealth(service, deps) {
     const representative = representativeByContainer.get(key);
     const siblingCtx = buildSiblingContext(ports, sig, signalsByContainer);
     const overrideRole = sig.containerId && typeof overrides[sig.containerId] === 'string' ? overrides[sig.containerId] : null;
-    const classification = classify(sig, {
+    const autoContext = {
       siblingServices: siblingCtx.siblingServices,
       siblingDependsOnUs: siblingCtx.siblingDependsOnUs,
       serviceHasHttpResponder: siblingCtx.serviceHasHttpResponder,
-      override: overrideRole,
-    });
+    };
+    const autoClassification = classify(sig, autoContext);
+    const classification = overrideRole
+      ? classify(sig, { ...autoContext, override: overrideRole })
+      : autoClassification;
 
     let probe;
     if (classification.role === ROLES.JOB_EXPECTED_EXIT) {
-      probe = { ok: true, latencyMs: null, evidence: { kind: 'job-expected-exit', containerId: sig.containerId }, error: null };
+      const completion = await runWithinBudget(probeContext, (options) => probeJobCompletion(dockerApi, sig.containerId, options));
+      const reason = completion && completion.ok === true ? 'finished-job' : 'job-pending';
+      const skipped = uncheckedResult(groups.get(key), reason).evidence.ports;
+      probe = completion ? { ...completion, evidence: { ...completion.evidence, ports: skipped } } : uncheckedResult(groups.get(key));
     } else {
       const groupPorts = groups.get(key) || [];
       const probeOpts = Object.assign({}, deps || {}, {
         onDemandSet: onDemandKeysFromDeps(deps),
         inspectionCache: inspections,
+        probeContext,
       });
       probe = await pickAndRunProbe(sig, representative, dockerApi, probeOpts, groupPorts);
     }
@@ -359,6 +278,7 @@ async function computeServiceHealth(service, deps) {
       containerId: sig.containerId,
       signals: sig,
       classification,
+      autoClassification,
       probe,
     });
   }

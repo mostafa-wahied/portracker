@@ -1,4 +1,6 @@
-const { computeServiceHealth } = require('../lib/health/service-health');
+const { computeServiceHealth, groupPortsByContainer } = require('../lib/health/service-health');
+const { completionPrerequisites } = require('../lib/health/signals');
+const { portEntry, runWithinBudget, sweepContext } = require('../lib/health/port-sweep');
 const overridesDao = require('../lib/overrides');
 
 const LOCAL_SERVER_ID = 'local';
@@ -18,7 +20,69 @@ function groupPortsByService(ports) {
   return groups;
 }
 
+function unassessedService(service) {
+  return {
+    serviceId: service.serviceId, name: service.name, project: service.project, color: 'gray',
+    reason: 'No current health result.', checkedAt: null, failingComponents: [], evidence: [],
+    components: [...groupPortsByContainer(service.ports)].map(([containerId, ports]) => ({
+      containerId, componentId: containerId, role: 'unknown', ruleId: 'R8', reason: 'Not yet assessed.',
+      autoRole: 'unknown', autoRuleId: 'R8', autoReason: 'Not yet assessed.',
+      probe: { ok: null, severity: null, error: null, latencyMs: null,
+        evidence: { kind: 'not-checked', ports: ports.map((port) => portEntry(port, 'not-checked', 'none', { reasonCode: 'time-limit' })) } },
+    })),
+  };
+}
+
+function serviceFingerprint(service, overrides) {
+  return JSON.stringify(service.ports.map((port) => JSON.stringify([
+    port.container_id, port.host_ip, port.host_port, port.protocol, port.internal, overrides[port.container_id] || null,
+  ])).sort());
+}
+
+function createHealthReader(dockerApi) {
+  const cached = new Map();
+  const attempted = new Map();
+  let pending = null;
+  const scan = async (groups, overrides, debug) => {
+    const services = [...groups.values()];
+    const fingerprints = new Map(services.map((service) => [service.serviceId, serviceFingerprint(service, overrides)]));
+    for (const identity of new Set([...cached.keys(), ...attempted.keys()])) {
+      if (!fingerprints.has(identity) || attempted.get(identity)?.fingerprint !== fingerprints.get(identity)) {
+        cached.delete(identity);
+        attempted.delete(identity);
+      }
+    }
+    if (debug) cached.clear();
+    const context = sweepContext({ dockerApi });
+    const containers = dockerApi && typeof dockerApi.listContainers === 'function'
+      ? await runWithinBudget(context, () => dockerApi.listContainers({ all: true })).catch(() => null) : [];
+    const expectedCompletionServices = completionPrerequisites(containers || []);
+    const ordered = services.slice().sort((left, right) => (attempted.get(left.serviceId)?.at || 0) - (attempted.get(right.serviceId)?.at || 0));
+    for (const service of ordered) {
+      if (Date.now() >= context.deadline) break;
+      const checkedAt = Date.now();
+      attempted.set(service.serviceId, { at: checkedAt, fingerprint: fingerprints.get(service.serviceId) });
+      try {
+        const result = await computeServiceHealth(service, { dockerApi, overrides, expectedCompletionServices,
+          budgetMs: Math.max(0, context.deadline - Date.now()) });
+        if (result.components.some((component) => typeof component.probe.ok === 'boolean')) {
+          cached.set(service.serviceId, { ...result, project: service.project, checkedAt });
+        }
+      } catch { cached.delete(service.serviceId); }
+    }
+    return services.map((service) => {
+      const result = cached.get(service.serviceId);
+      return result && Date.now() - result.checkedAt < 60000 ? result : unassessedService(service);
+    });
+  };
+  return (groups, overrides, debug) => {
+    if (!pending) pending = scan(groups, overrides, debug).finally(() => { pending = null; });
+    return pending;
+  };
+}
+
 function createServicesHandler({ getLocalPortsUsingCollectors, dockerApi, logger, baseDebug }) {
+  const readHealth = createHealthReader(dockerApi);
   return async function servicesHandler(req, res) {
     const debug = req.query.debug === "true";
     const hasDebugQuery = Object.prototype.hasOwnProperty.call(req.query, 'debug');
@@ -27,20 +91,7 @@ function createServicesHandler({ getLocalPortsUsingCollectors, dockerApi, logger
       const localPorts = await getLocalPortsUsingCollectors({ debug });
       const groups = groupPortsByService(localPorts);
       const overrides = overridesDao.getOverridesForServer(LOCAL_SERVER_ID);
-      const services = [];
-      for (const svc of groups.values()) {
-        try {
-          const result = await computeServiceHealth(svc, { dockerApi, overrides });
-          services.push(Object.assign({ project: svc.project }, result));
-        } catch (err) {
-          logger.error(`computeServiceHealth failed for ${svc.serviceId}:`, err.message);
-          services.push({
-            serviceId: svc.serviceId, name: svc.name, project: svc.project,
-            color: 'gray', reason: `error: ${err.message}`,
-            failingComponents: [], components: [], evidence: [],
-          });
-        }
-      }
+      const services = await readHealth(groups, overrides, debug);
       res.json({ services, overrides });
     } catch (error) {
       logger.error("Error in GET /api/services:", error.message);
