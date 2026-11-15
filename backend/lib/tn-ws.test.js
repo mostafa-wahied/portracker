@@ -128,6 +128,26 @@ describe("TrueNAS WebSocket connection lifecycle", () => {
     expect(jestObject.getTimerCount()).toBe(0);
   });
 
+  test("preserves safe ENOMETHOD metadata from API errors for collector fallback", async () => {
+    const pending = connectWs({ apiKey: "test-only", timeoutMs: 100 });
+    await jestObject.advanceTimersByTimeAsync(0);
+    authenticate(sockets[0]);
+    const session = await pending;
+
+    const request = session.requestFn("container.query");
+    const methodMessage = JSON.parse(sockets[0].send.mock.calls.at(-1)[0]);
+    sockets[0].emit("message", Buffer.from(JSON.stringify({
+      msg: "result", id: methodMessage.id,
+      error: { error: 201, errname: "ENOMETHOD", reason: "private diagnostic" },
+    })));
+
+    await expect(request).rejects.toMatchObject({
+      message: "TrueNAS request failed", code: 201, errname: "ENOMETHOD",
+    });
+    session.closeFn();
+    expect(jestObject.getTimerCount()).toBe(0);
+  });
+
   test("rejects in-flight requests on remote close and removes their timers", async () => {
     const pending = connectWs({ apiKey: "test-only", timeoutMs: 100 });
     await jestObject.advanceTimersByTimeAsync(0);
