@@ -104,6 +104,80 @@ describe("bounded TrueNAS enrichment", () => {
     expect(result.ports).toHaveLength(1);
   });
 
+  test("prefers TrueNAS 27 container.query without querying the legacy method", async () => {
+    const collector = fixture();
+    const container = { id: 1, name: "test-lxc", status: { state: "RUNNING" }, memory: 4096 };
+    collector.client = {
+      call: jestObject.fn(async method => method === "container.query" ? [container] : []),
+    };
+
+    const data = await collector._collectEnhancedFeatures();
+    expect(data.failures).toEqual([]);
+    expect(data.containerQueryMethod).toBe("container.query");
+    expect(data.containers).toEqual([container]);
+    expect(collector.client.call).toHaveBeenCalledWith("container.query", [], expect.any(Object));
+    expect(collector.client.call).not.toHaveBeenCalledWith("virt.instance.query", [], expect.any(Object));
+  });
+
+  test("falls back to the legacy LXC method only for ENOMETHOD", async () => {
+    const collector = fixture();
+    const legacy = { id: "legacy-lxc", status: "RUNNING", memory: 4294967296 };
+    const noMethod = Object.assign(new Error("TrueNAS request failed"), { errname: "ENOMETHOD" });
+    collector.client = {
+      call: jestObject.fn(async method => {
+        if (method === "container.query") throw noMethod;
+        if (method === "virt.instance.query") return [legacy];
+        return [];
+      }),
+    };
+
+    const data = await collector._collectEnhancedFeatures();
+    expect(data.failures).toEqual([]);
+    expect(data.containerQueryMethod).toBe("virt.instance.query");
+    expect(data.containers).toEqual([legacy]);
+    expect(collector.client.call).toHaveBeenCalledWith("virt.instance.query", [], expect.any(Object));
+  });
+
+  test("does not fall back to legacy discovery on authorization failures", async () => {
+    const collector = fixture();
+    const unauthorized = Object.assign(new Error("TrueNAS request failed"), { errname: "EACCES" });
+    collector.client = {
+      call: jestObject.fn(async method => {
+        if (method === "container.query") throw unauthorized;
+        return [];
+      }),
+    };
+
+    const data = await collector._collectEnhancedFeatures();
+    expect(data.failures).toEqual(["container.query"]);
+    expect(collector.client.call).not.toHaveBeenCalledWith("virt.instance.query", [], expect.any(Object));
+  });
+
+  test("normalizes TrueNAS 27 LXC status and MiB memory without changing raw data", async () => {
+    const collector = fixture();
+    const container = {
+      id: 10, name: "new-lxc", memory: 4096,
+      status: { state: "SUSPENDED", pid: null, domain_state: "PAUSED" },
+      autostart: true,
+    };
+    collector._ensureTrueNASClient = async () => {};
+    collector._collectEnhancedFeatures = async () => ({
+      vms: [], containers: [container],
+      containerQueryMethod: "container.query", failures: [],
+    });
+
+    const result = await collector.collectAll();
+    expect(result.vms).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: 10,
+      status: "paused",
+      vcpus: null,
+      memory: 4294967296,
+      platform_data: expect.objectContaining({ container_type: "lxc", orig_data: container }),
+    })]));
+    expect(container.memory).toBe(4096);
+    expect(container.status.state).toBe("SUSPENDED");
+  });
+
   test.each([4294967296, 8589934592])("preserves container memory bytes (%i) while converting VM MiB", async containerMemory => {
     const collector = fixture();
     const virtualMachine = { id: "memory-vm", name: "memory-vm", memory: 4096, status: "RUNNING" };
