@@ -241,6 +241,10 @@ Configure `portracker` using environment variables.
 
 For a complete list of all environment variables with detailed explanations, see [`.env.example`](.env.example).
 
+### TrueNAS 27 container compatibility
+
+TrueNAS 27 native LXC container discovery uses the `container.query` API. When that method is unavailable on an older TrueNAS installation, Portracker falls back to `virt.instance.query`. Native container statuses and memory sizes are normalized for the dashboard; Docker application and port discovery are unchanged. Native VMs and LXC containers appear as read-only virtualization entries. An empty container list is expected when there are no native containers configured.
+
 ### TrueNAS Integration
 
 <details>
