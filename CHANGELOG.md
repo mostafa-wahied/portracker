@@ -4,6 +4,13 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+<!-- whatsnew:title=TrueNAS 27 container discovery -->
+<!-- whatsnew:description=Native TrueNAS 27 LXC containers can be discovered through the updated API, while older versions remain supported. -->
+- **[TrueNAS LXC Compatibility]**: Use `container.query` on TrueNAS 27, with a `virt.instance.query` fallback only for unsupported-method responses on older installations. Normalize container status and MiB/byte memory units without changing raw API data. Preserve enriched app, Docker port, and VM discovery (#129).
+
+
 ## [1.3.17] - 2026-11-11
 
 ### Fixed
