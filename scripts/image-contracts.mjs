@@ -279,15 +279,40 @@ async function discoveryContracts() {
   assert.equal(scan.body.enhancedFeaturesStatus.state, 'ready'); assert.equal(scan.body.systemInfo.enhanced, true);
   assert(scan.body.applications.some(item => item.platform_data?.type === 'truenas_app')); assert(scan.body.vms.length > 0);
   assert.equal(scan.body.vms.find(item => item.id === 1).memory, 1073741824, 'VM memory must convert MiB to bytes');
-  for (const [id, memory] of [['contract-lxc-4g', 4294967296], ['contract-lxc-8g', 8589934592]]) {
-    const container = scan.body.vms.find(item => item.id === id);
-    assert.equal(container?.memory, memory, 'Container memory must stay in bytes');
-    assert.equal(container.platform_data.orig_data.memory, memory, 'Raw container memory must be preserved');
+  for (const [id, memoryMiB, state] of [[101, 4096, 'running'], [102, 8192, 'paused']]) {
+    const container = scan.body.vms.find(item => item.id === id && item.platform_data?.container_type === 'lxc');
+    assert(container, `TrueNAS 27 container ${id} missing from scan`);
+    assert.equal(container.memory, memoryMiB * 1024 * 1024, 'TrueNAS 27 container MiB must normalize to bytes');
+    assert.equal(container.platform_data.orig_data.memory, memoryMiB, 'Raw TrueNAS 27 container MiB must be preserved');
+    assert.equal(container.status, state, 'TrueNAS 27 container status object must normalize');
+    assert.equal(container.vcpus, null, 'Unknown TrueNAS 27 LXC CPU count must not be fabricated');
   }
   const peer = await request('/api/servers/contract-a/scan'); assert.equal(peer.status, 200); assert(peer.body.ports.some(port => Number(port.host_port) === 8088));
   await pingContracts();
   const cycle = await request('/api/servers/order', { method: 'PUT', body: { items: [{ id: 'contract-a', parentId: 'contract-b', position: 1 }, { id: 'contract-b', parentId: 'contract-a', position: 0 }] } }); assert.equal(cycle.status, 400);
   record('docker-ports-peer-scan-truenas-and-order-integrity');
+}
+async function legacyContainerContracts() {
+  const setMode = value => docker(['exec', fixture, 'node', '-e',
+    "fetch('http://localhost:8080/container-api?value=' + process.argv[1],{method:'POST'}).then(response=>{if(!response.ok)process.exitCode=1;})",
+    value]);
+  setMode('legacy');
+  try {
+    const scan = await request('/api/servers/local/scan?disableCache=true', { timeout: 60000 });
+    assert.equal(scan.status, 200);
+    assert.equal(scan.body.enhancedFeaturesStatus.state, 'ready', 'Legacy method fallback should not degrade enrichment');
+    for (const [id, memory] of [['contract-lxc-4g', 4294967296], ['contract-lxc-8g', 8589934592]]) {
+      const container = scan.body.vms.find(item => item.id === id && item.platform_data?.container_type === 'lxc');
+      assert(container, `Legacy container ${id} missing after ENOMETHOD fallback`);
+      assert.equal(container.memory, memory, 'Legacy container memory must remain byte-valued');
+      assert.equal(container.platform_data.orig_data.memory, memory, 'Raw legacy container memory must be preserved');
+      assert.equal(container.status, 'running', 'Legacy status strings should normalize');
+      assert.equal(container.vcpus, 2, 'Legacy CPU values should be retained');
+    }
+    record('truenas-legacy-container-api-fallback');
+  } finally {
+    setMode('modern');
+  }
 }
 async function failureContract() {
   docker(['exec', fixture, 'node', '-e', "fetch('http://localhost:8080/mode?value=stall',{method:'POST'}).then(response=>{if(!response.ok)process.exitCode=1;})"]);
@@ -340,7 +365,7 @@ try {
   if (securityBaseline) await verifyUnpatchedSecurityBaseline();
   await seedPreviousRelease(); await startApp(image, true, true); await securityContracts(); await assertPreserved(); record('upgrade-data-and-trust-migration');
   await apiKeyContracts(); await preservationNegativeControl(); await serviceContracts();
-  await discoveryContracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
+  await discoveryContracts(); await legacyContainerContracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
   await failureContract();
   await largeInventoryContracts();
   await authenticatedPeerContracts();
