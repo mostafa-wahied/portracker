@@ -109,7 +109,18 @@ function createSession(socket) {
     let message;
     try { message = JSON.parse(data); } catch { return; }
     if (message.msg === "result") {
-      settle(message.id, message.error ? new Error("TrueNAS request failed") : null, message.result);
+      if (message.error) {
+        // Preserve only the method error code/name for safe feature detection.
+        // Do not include middleware traces or other potentially sensitive details.
+        const error = new Error("TrueNAS request failed");
+        if (typeof message.error === "object") {
+          error.code = message.error.error;
+          error.errname = message.error.errname;
+        }
+        settle(message.id, error);
+      } else {
+        settle(message.id, null, message.result);
+      }
     }
   }
 
