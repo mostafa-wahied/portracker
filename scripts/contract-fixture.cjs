@@ -15,6 +15,7 @@ const inspection = {
   Mounts: [],
 };
 let mode = 'ready';
+let containerApiMode = 'modern';
 let requests = 0;
 let largeInventory = false;
 const sockets = new Set();
@@ -22,7 +23,11 @@ http.createServer((request, response) => {
   const url = new URL(request.url, 'http://fixture');
   const route = url.pathname.replace(/^\/v\d+\.\d+/, '');
   let body;
-  if (route === '/large-inventory' && request.method === 'POST') {
+  if (route === '/container-api' && request.method === 'POST') {
+    const requested = url.searchParams.get('value');
+    if (!['modern', 'legacy'].includes(requested)) { response.writeHead(400); response.end('{}'); return; }
+    containerApiMode = requested; body = { containerApiMode };
+  } else if (route === '/large-inventory' && request.method === 'POST') {
     largeInventory = url.searchParams.get('enabled') === 'true'; body = { largeInventory };
   } else if (route === '/mode' && request.method === 'POST') {
     mode = url.searchParams.get('value');
@@ -69,6 +74,16 @@ new WebSocket.Server({ server: tls }).on('connection', socket => {
     else if (message.method === 'system.info') result = { hostname: 'contract-truenas', version: 'TrueNAS-25.10.4', cores: 4, physmem: 8589934592 };
     else if (message.method === 'app.query') result = [{ id: 'native-app', name: 'native-app', state: 'RUNNING', active_workloads: { used_ports: [] } }];
     else if (message.method === 'vm.query') result = [{ id: 1, name: 'contract-vm', status: { state: 'RUNNING' }, vcpus: 2, memory: 1024 }];
+    else if (message.method === 'container.query') {
+      if (containerApiMode === 'legacy') {
+        socket.send(JSON.stringify({ msg: 'result', id: message.id, error: { error: 201, errname: 'ENOMETHOD', reason: 'Service container not found' } }));
+        return;
+      }
+      result = [
+        { id: 101, name: 'contract-lxc-4g', status: { state: 'RUNNING', pid: 123, domain_state: 'RUNNING' }, memory: 4096, autostart: true },
+        { id: 102, name: 'contract-lxc-8g', status: { state: 'SUSPENDED', pid: null, domain_state: 'PAUSED' }, memory: 8192, autostart: true },
+      ];
+    }
     else if (message.method === 'virt.instance.query') result = [
       { id: 'contract-lxc-4g', name: 'contract-lxc-4g', status: 'RUNNING', cpu: 2, memory: 4294967296 },
       { id: 'contract-lxc-8g', name: 'contract-lxc-8g', status: 'RUNNING', cpu: 2, memory: 8589934592 },
