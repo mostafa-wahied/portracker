@@ -1134,15 +1134,17 @@ class TrueNASCollector extends BaseCollector {
    * @returns {string} Standardized status
    */
   _mapVMStatus(status) {
-    switch (status?.toUpperCase()) {
+    const state = typeof status === "string" ? status : status?.state;
+    switch (state?.toUpperCase()) {
       case "RUNNING":
         return "running";
       case "STOPPED":
         return "stopped";
       case "PAUSED":
+      case "SUSPENDED":
         return "paused";
       default:
-        return status?.toLowerCase() || "unknown";
+        return state?.toLowerCase() || "unknown";
     }
   }
 
@@ -1607,13 +1609,15 @@ class TrueNASCollector extends BaseCollector {
             this.log(`Collected ${realVMs.length} TrueNAS virtual machines`);
           }
           if (enhancedData.containers && enhancedData.containers.length > 0) {
+            const modernContainerAPI = enhancedData.containerQueryMethod === "container.query";
             results.vms.push(...enhancedData.containers.map((vm) => ({
               type: "vm",
               id: vm.id,
               name: vm.name,
               status: this._mapVMStatus(vm.status),
-              vcpus: vm.cpu,
-              memory: vm.memory || null,
+              vcpus: vm.cpu ?? null,
+              // container.query returns MiB; legacy virt.instance.query returns bytes.
+              memory: vm.memory ? (modernContainerAPI ? vm.memory * 1024 * 1024 : vm.memory) : null,
               autostart: vm.autostart,
               platform: "truenas",
               platform_data: {
@@ -2145,6 +2149,7 @@ class TrueNASCollector extends BaseCollector {
       apps: [],
       vms: [],
       containers: [],
+      containerQueryMethod: null,
       failures: [],
     };
     
@@ -2172,7 +2177,7 @@ class TrueNASCollector extends BaseCollector {
         resultKey: 'vms',
       },
       {
-        name: 'virt.instance.query',
+        name: 'container.query',
         timeout: containerQueryTimeout,
         resultKey: 'containers',
       },
@@ -2182,16 +2187,27 @@ class TrueNASCollector extends BaseCollector {
       const startTime = Date.now();
       
       try {
-        const data = await this.client.call(apiCall.name, [], { signal, timeoutMs: apiCall.timeout });
+        let method = apiCall.name;
+        let data;
+        try {
+          data = await this.client.call(method, [], { signal, timeoutMs: apiCall.timeout });
+        } catch (err) {
+          // TrueNAS 27 uses container.query; older SCALE releases may only
+          // support virt.instance.query. Never fall back on auth/permission errors.
+          if (apiCall.resultKey !== 'containers' || err?.errname !== 'ENOMETHOD') throw err;
+          method = 'virt.instance.query';
+          this.logInfo('container.query unavailable; using legacy virt.instance.query');
+          data = await this.client.call(method, [], { signal, timeoutMs: apiCall.timeout });
+        }
         const duration = Date.now() - startTime;
-        
-        this.log(`${apiCall.name} completed in ${duration}ms`);
+
+        this.log(`${method} completed in ${duration}ms`);
         
         if (duration > apiCall.timeout * 0.7) {
           this.logWarn(`${apiCall.name} took ${(duration/1000).toFixed(1)}s (70% of ${apiCall.timeout/1000}s timeout - consider increasing if this becomes frequent)`);
         }
         
-        return { success: true, name: apiCall.name, data, resultKey: apiCall.resultKey, duration };
+        return { success: true, name: method, data, resultKey: apiCall.resultKey, duration };
       } catch (err) {
         const duration = Date.now() - startTime;
         this.logWarn(`${apiCall.name} failed after ${(duration/1000).toFixed(1)}s:`, err.message.substring(0, 100));
@@ -2209,6 +2225,7 @@ class TrueNASCollector extends BaseCollector {
             results.systemInfo = result.data;
           } else {
             results[result.resultKey] = result.data || [];
+            if (result.resultKey === 'containers') results.containerQueryMethod = result.name;
           }
         } else {
           results.failures.push(result.name);
