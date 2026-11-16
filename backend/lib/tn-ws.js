@@ -85,6 +85,12 @@ function withAbort(signal, operation) {
   });
 }
 
+function requestError(details) {
+  const error = new Error("TrueNAS request failed");
+  if (typeof details?.errname === "string") error.errname = details.errname;
+  return error;
+}
+
 function createSession(socket) {
   const pending = new Map();
   let nextId = 0;
@@ -109,7 +115,7 @@ function createSession(socket) {
     let message;
     try { message = JSON.parse(data); } catch { return; }
     if (message.msg === "result") {
-      settle(message.id, message.error ? new Error("TrueNAS request failed") : null, message.result);
+      settle(message.id, message.error ? requestError(message.error) : null, message.result);
     }
   }
 

@@ -65,14 +65,23 @@ new WebSocket.Server({ server: tls }).on('connection', socket => {
     if (mode === 'stall') return;
     if (message.msg === 'connect') { socket.send(JSON.stringify({ msg: 'connected' })); return; }
     let result;
+    const legacy = mode !== 'truenas27';
     if (message.method === 'auth.login_with_api_key') result = mode !== 'reject' && message.params[0] === 'contract-only-key';
     else if (message.method === 'system.info') result = { hostname: 'contract-truenas', version: 'TrueNAS-25.10.4', cores: 4, physmem: 8589934592 };
     else if (message.method === 'app.query') result = [{ id: 'native-app', name: 'native-app', state: 'RUNNING', active_workloads: { used_ports: [] } }];
     else if (message.method === 'vm.query') result = [{ id: 1, name: 'contract-vm', status: { state: 'RUNNING' }, vcpus: 2, memory: 1024 }];
-    else if (message.method === 'virt.instance.query') result = [
+    else if (message.method === 'virt.instance.query' && legacy) result = [
       { id: 'contract-lxc-4g', name: 'contract-lxc-4g', status: 'RUNNING', cpu: 2, memory: 4294967296 },
       { id: 'contract-lxc-8g', name: 'contract-lxc-8g', status: 'RUNNING', cpu: 2, memory: 8589934592 },
     ];
+    else if (message.method === 'container.query' && !legacy) result = [
+      { id: 1, uuid: 'contract-uuid', name: 'contract-lxc-27', description: '', status: { state: 'RUNNING', pid: 4242, domain_state: 'RUNNING' },
+        memory: 2048, cpuset: null, autostart: true, dataset: 'pool/contract-lxc-27', initenv: { CONTRACT_TOKEN: 'contract-sensitive-marker' } },
+    ];
+    else if (message.method === 'container.query' || message.method === 'virt.instance.query') {
+      socket.send(JSON.stringify({ msg: 'result', id: message.id, error: { error: 201, errname: 'ENOMETHOD', type: null, reason: 'Method does not exist', trace: null, extra: null } }));
+      return;
+    }
     else result = [];
     socket.send(JSON.stringify({ msg: 'result', id: message.id, result }));
   });

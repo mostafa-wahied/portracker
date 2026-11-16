@@ -19,6 +19,7 @@ const util = require("util");
 const execAsync = util.promisify(exec);
 const fs = require("fs");
 const { TrueNASClient } = require("../lib/truenas-rpc");
+const { createContainerQuery, mapContainers } = require("../lib/truenas-containers");
 const DockerAPIClient = require("../lib/docker-api");
 const PerformanceTracker = require("../utils/performance-tracker");
 const ProcParser = require("../lib/proc-parser");
@@ -36,6 +37,7 @@ class TrueNASCollector extends BaseCollector {
     this.name = "TrueNAS Collector";
     this.client = null;
     this._clientInitPromise = null;
+    this.containerQuery = createContainerQuery();
     this._collectionInProgress = false;
     this._pendingCollectionPromise = null;
   this.procParser = new ProcParser();
@@ -1129,24 +1131,6 @@ class TrueNASCollector extends BaseCollector {
   }
 
   /**
-   * Map VM status to standardized status
-   * @param {string} status VM status
-   * @returns {string} Standardized status
-   */
-  _mapVMStatus(status) {
-    switch (status?.toUpperCase()) {
-      case "RUNNING":
-        return "running";
-      case "STOPPED":
-        return "stopped";
-      case "PAUSED":
-        return "paused";
-      default:
-        return status?.toLowerCase() || "unknown";
-    }
-  }
-
-  /**
    * Main collection method - with clean API key separation
    * @returns {Promise<Object>} Collection results
    */
@@ -1607,25 +1591,7 @@ class TrueNASCollector extends BaseCollector {
             this.log(`Collected ${realVMs.length} TrueNAS virtual machines`);
           }
           if (enhancedData.containers && enhancedData.containers.length > 0) {
-            results.vms.push(...enhancedData.containers.map((vm) => ({
-              type: "vm",
-              id: vm.id,
-              name: vm.name,
-              status: this._mapVMStatus(vm.status),
-              vcpus: vm.cpu,
-              memory: vm.memory || null,
-              autostart: vm.autostart,
-              platform: "truenas",
-              platform_data: {
-                container_type: "lxc",
-                aliases: vm.aliases,
-                image: vm.image,
-                os: vm.image?.os || "unknown",
-                vnc_enabled: vm.vnc_enabled,
-                storage_pool: vm.storage_pool,
-                orig_data: vm,
-              },
-            })));
+            results.vms.push(...mapContainers(enhancedData.containers, enhancedData.containerMethod));
             this.log(`Collected ${enhancedData.containers.length} TrueNAS LXC containers`);
           }
           if (!failures.length) this.logInfo("Enhanced features collection completed successfully");
@@ -2155,6 +2121,7 @@ class TrueNASCollector extends BaseCollector {
     const vmQueryTimeout = parseInt(process.env.TRUENAS_VM_QUERY_TIMEOUT_MS || '15000', 10);
     const containerQueryTimeout = parseInt(process.env.TRUENAS_CONTAINER_QUERY_TIMEOUT_MS || '15000', 10);
     
+    const containerQuery = this.containerQuery;
     const apiCalls = [
       {
         name: 'system.info',
@@ -2172,9 +2139,10 @@ class TrueNASCollector extends BaseCollector {
         resultKey: 'vms',
       },
       {
-        name: 'virt.instance.query',
+        get name() { return containerQuery.method; },
         timeout: containerQueryTimeout,
         resultKey: 'containers',
+        run: (options) => containerQuery.run(this.client, options),
       },
     ];
     
@@ -2182,7 +2150,8 @@ class TrueNASCollector extends BaseCollector {
       const startTime = Date.now();
       
       try {
-        const data = await this.client.call(apiCall.name, [], { signal, timeoutMs: apiCall.timeout });
+        const options = { signal, timeoutMs: apiCall.timeout };
+        const data = await (apiCall.run ? apiCall.run(options) : this.client.call(apiCall.name, [], options));
         const duration = Date.now() - startTime;
         
         this.log(`${apiCall.name} completed in ${duration}ms`);
@@ -2209,6 +2178,7 @@ class TrueNASCollector extends BaseCollector {
             results.systemInfo = result.data;
           } else {
             results[result.resultKey] = result.data || [];
+            if (result.resultKey === 'containers') results.containerMethod = result.name;
           }
         } else {
           results.failures.push(result.name);

@@ -4,6 +4,22 @@ All notable changes to portracker will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.18] - 2026-11-15
+
+### Security
+
+<!-- whatsnew:hide -->
+- **[Runtime Dependencies]**: Remove the unused axios dependency, which also drops follow-redirects. Update body-parser to 1.20.9, qs to 6.16.1, ip-address to 10.7.6 and @grpc/grpc-js to 1.14.7, addressing published security advisories. Update the vite build tool to 6.4.6.
+
+### Fixed
+
+<!-- whatsnew:title=LXC containers on TrueNAS 27 -->
+<!-- whatsnew:description=Containers now appear on the TrueNAS 27 release candidate; stable TrueNAS versions work as before. -->
+- **[TrueNAS 27 Containers]**: Discover LXC containers on the TrueNAS 27.0 release candidate with `container.query`, and fall back to `virt.instance.query` only when TrueNAS reports that the method does not exist, as on TrueNAS 25.04 to 25.10. Report TrueNAS 27 container memory in bytes and its running state without exposing container environment values (#129).
+
+<!-- whatsnew:hide -->
+- **[TrueNAS Legacy VMs]**: Show legacy VMs from the TrueNAS 25.04 instances feature as VMs instead of LXC containers.
+
 ## [1.3.17] - 2026-11-11
 
 ### Fixed

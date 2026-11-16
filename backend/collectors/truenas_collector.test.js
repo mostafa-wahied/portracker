@@ -136,3 +136,71 @@ describe("bounded TrueNAS enrichment", () => {
     expect(result.vms.every(item => item.memory === null)).toBe(true);
   });
 });
+
+describe("TrueNAS container discovery", () => {
+  function enhancedClient(containers) {
+    return {
+      call: jestObject.fn(async (method) => {
+        if (method in containers) {
+          if (containers[method] instanceof Error) throw containers[method];
+          return containers[method];
+        }
+        return method === "system.info" ? { hostname: "enriched" } : [];
+      }),
+    };
+  }
+
+  function missing() {
+    return Object.assign(new Error("TrueNAS request failed"), { errname: "ENOMETHOD" });
+  }
+
+  test("uses container.query on TrueNAS 27 without calling the removed method", async () => {
+    const collector = fixture();
+    collector.client = enhancedClient({
+      "container.query": [{ id: 1, name: "web", status: { state: "RUNNING", pid: 7, domain_state: "RUNNING" }, memory: 1024 }],
+      "virt.instance.query": missing(),
+    });
+
+    const enhanced = await collector._collectEnhancedFeatures();
+    expect(enhanced).toMatchObject({ failures: [], containerMethod: "container.query" });
+    expect(collector.client.call.mock.calls.map(([method]) => method)).not.toContain("virt.instance.query");
+  });
+
+  test("falls back to virt.instance.query once on TrueNAS 25.10", async () => {
+    const collector = fixture();
+    collector.client = enhancedClient({
+      "container.query": missing(),
+      "virt.instance.query": [{ id: "web", name: "web", status: "RUNNING", memory: 4294967296 }],
+    });
+
+    const first = await collector._collectEnhancedFeatures();
+    const second = await collector._collectEnhancedFeatures();
+    expect(first).toMatchObject({ failures: [], containerMethod: "virt.instance.query" });
+    expect(second.containers).toHaveLength(1);
+    expect(collector.client.call.mock.calls.filter(([method]) => method === "container.query")).toHaveLength(1);
+  });
+
+  test("reports container.query when TrueNAS 27 rejects it for another reason", async () => {
+    const collector = fixture();
+    collector.client = enhancedClient({ "container.query": Object.assign(missing(), { errname: "EACCES" }) });
+
+    const enhanced = await collector._collectEnhancedFeatures();
+    expect(enhanced.failures).toEqual(["container.query"]);
+    expect(collector.client.call.mock.calls.map(([method]) => method)).not.toContain("virt.instance.query");
+  });
+
+  test("shows TrueNAS 27 containers with byte memory and a readable status", async () => {
+    const collector = fixture();
+    collector._ensureTrueNASClient = async () => {};
+    collector._collectEnhancedFeatures = async () => ({
+      vms: [{ id: 1, name: "vm", memory: 1024, status: { state: "RUNNING" } }],
+      containers: [{ id: 1, name: "web", status: { state: "STOPPED", pid: null, domain_state: null }, memory: 512 }],
+      containerMethod: "container.query",
+      failures: [],
+    });
+
+    const result = await collector.collectAll();
+    expect(result.vms.map((item) => item.id)).toEqual([1, "web"]);
+    expect(result.vms[1]).toMatchObject({ status: "stopped", memory: 536870912, platform_data: { container_type: "lxc" } });
+  });
+});
