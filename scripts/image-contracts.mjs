@@ -289,6 +289,19 @@ async function discoveryContracts() {
   const cycle = await request('/api/servers/order', { method: 'PUT', body: { items: [{ id: 'contract-a', parentId: 'contract-b', position: 1 }, { id: 'contract-b', parentId: 'contract-a', position: 0 }] } }); assert.equal(cycle.status, 400);
   record('docker-ports-peer-scan-truenas-and-order-integrity');
 }
+async function trueNas27Contracts() {
+  const mode = value => docker(['exec', fixture, 'node', '-e', `fetch('http://localhost:8080/mode?value=${value}',{method:'POST'}).then(response=>{if(!response.ok)process.exitCode=1;})`]);
+  mode('truenas27');
+  const scan = await request('/api/servers/local/scan?disableCache=true', { timeout: 60000 });
+  mode('ready');
+  assert.equal(scan.status, 200); assert.equal(scan.body.enhancedFeaturesStatus.state, 'ready');
+  const container = scan.body.vms.find(item => item.id === 'contract-lxc-27');
+  assert.equal(container?.status, 'running'); assert.equal(container.memory, 2147483648, 'Container MiB must convert to bytes');
+  assert.equal(container.platform_data.container_type, 'lxc'); assert(!scan.body.vms.some(item => item.id === 'contract-lxc-4g'), 'Removed TrueNAS method used');
+  assert.equal(scan.body.vms.filter(item => item.id === 1).length, 1, 'Container and VM identifiers collided');
+  assert(!JSON.stringify(scan.body).includes('contract-sensitive-marker'), 'Container init environment leaked');
+  record('truenas-27-container-discovery-and-upgrade-fallback');
+}
 async function failureContract() {
   docker(['exec', fixture, 'node', '-e', "fetch('http://localhost:8080/mode?value=stall',{method:'POST'}).then(response=>{if(!response.ok)process.exitCode=1;})"]);
   docker(['restart', app]); await waitReady(); await login();
@@ -340,7 +353,7 @@ try {
   if (securityBaseline) await verifyUnpatchedSecurityBaseline();
   await seedPreviousRelease(); await startApp(image, true, true); await securityContracts(); await assertPreserved(); record('upgrade-data-and-trust-migration');
   await apiKeyContracts(); await preservationNegativeControl(); await serviceContracts();
-  await discoveryContracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
+  await discoveryContracts(); await trueNas27Contracts(); docker(['restart', app]); await waitReady(); await login(); await assertPreserved(); assert.equal((await request('/api/autoxpose/status')).body.connected, true); record('restart-persistence');
   await failureContract();
   await largeInventoryContracts();
   await authenticatedPeerContracts();

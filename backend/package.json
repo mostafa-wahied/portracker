@@ -14,7 +14,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "axios": "^1.19.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.10.0",
     "cookie-parser": "^1.4.6",
@@ -33,7 +32,7 @@
   },
   "overrides": {
     "express": {
-      "qs": "6.16.0"
+      "qs": "6.16.1"
     }
   }
 }

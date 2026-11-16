@@ -211,6 +211,24 @@ describe("TrueNAS real WebSocket transport", () => {
   });
 });
 
+describe("TrueNAS request errors", () => {
+  test("keeps only the TrueNAS error name from a failed request", async () => {
+    const pending = connectWs({ apiKey: "test-only", timeoutMs: 100 });
+    await jestObject.advanceTimersByTimeAsync(0);
+    authenticate(sockets[0]);
+    const session = await pending;
+    const request = session.requestFn("container.query");
+    const { id } = JSON.parse(sockets[0].send.mock.calls.at(-1)[0]);
+    const error = { error: 201, errname: "ENOMETHOD", reason: "Service 'container' not found", trace: { formatted: "fixture-trace" } };
+    sockets[0].emit("message", Buffer.from(JSON.stringify({ msg: "result", id, error })));
+
+    const failure = await request.catch((rejection) => rejection);
+    expect(failure).toMatchObject({ message: "TrueNAS request failed", errname: "ENOMETHOD" });
+    expect(Object.keys(failure)).toEqual(["errname"]);
+    session.closeFn();
+  });
+});
+
 function authenticate(socket, result = true) {
   socket.readyState = WebSocket.OPEN;
   socket.emit("open");

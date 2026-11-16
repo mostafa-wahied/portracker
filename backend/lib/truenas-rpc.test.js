@@ -79,3 +79,16 @@ describe("TrueNAS RPC availability", () => {
     expect(client.connected).toBe(false);
   });
 });
+
+describe("TrueNAS RPC error logging", () => {
+  test.each([["ENOMETHOD", "debug"], ["EACCES", "error"]])("logs %s request failures at %s level", async (errname, level) => {
+    const failure = Object.assign(new Error("TrueNAS request failed"), { errname });
+    connectWs.mockResolvedValue({ requestFn: async () => { throw failure; }, closeFn: jestObject.fn(), isConnected: () => true });
+    const client = new TrueNASClient({ apiKey: "test-only" });
+
+    await expect(client.call("container.query")).rejects.toBe(failure);
+    const other = level === "debug" ? "error" : "debug";
+    expect(client.logger[level]).toHaveBeenCalledWith("TrueNAS RPC Error for method 'container.query'", { err: failure });
+    expect(client.logger[other]).not.toHaveBeenCalledWith("TrueNAS RPC Error for method 'container.query'", expect.anything());
+  });
+});

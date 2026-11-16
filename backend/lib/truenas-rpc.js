@@ -130,7 +130,8 @@ class TrueNASClient {
       if (this.appDebugEnabled) {
         this.logger.warn(`Error calling TrueNAS API method ${method}:`, err.message);
       }
-      this.logger.error(`TrueNAS RPC Error for method '${method}'`, { err });
+      const level = err?.errname === "ENOMETHOD" ? "debug" : "error";
+      this.logger[level](`TrueNAS RPC Error for method '${method}'`, { err });
       throw err;
     }
   }
