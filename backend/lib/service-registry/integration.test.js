@@ -184,7 +184,7 @@ describe('registry cross-layer acceptance independent of the browser', () => {
           .toBe('keep unchanged');
         expect(createRecoveryNotesStore(reopened).get(service.id).text).toBe('start manually');
         expect(reopened.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n)
-          .toBe(7);
+          .toBe(8);
       } finally { reopened.close(); }
     })
   );

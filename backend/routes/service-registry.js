@@ -124,6 +124,7 @@ function createRegistryRouter(registry, {
       if (recoveryNotesStore && process.env.ENABLE_AUTH === 'true') {
         details.recovery = {
           notes: recoveryNotesStore.get(service.id),
+          preferred: recoveryNotesStore.getStart(service.id),
           recipes: buildRecoveryRecipes({
             linuxProvenance: details.linuxProvenance,
             dockerProvenance: details.dockerProvenance,
@@ -134,6 +135,24 @@ function createRegistryRouter(registry, {
     } catch (error) {
       if (error instanceof TypeError) return res.status(400).json({ error: error.message });
       return res.status(500).json({ error: 'Unable to load saved service' });
+    }
+  });
+
+  router.put('/:id/recovery-start', requireAuth, (req, res) => {
+    if (process.env.ENABLE_AUTH !== 'true' || !recoveryNotesStore) {
+      return res.status(403).json({ error: 'Authenticated recovery instructions are disabled' });
+    }
+    try {
+      const updated = recoveryNotesStore.saveStart(
+        req.params.id, req.body?.command, req.body?.cwd, req.body?.version
+      );
+      if (!updated) return res.status(404).json({ error: 'Saved service not found' });
+      res.set('Cache-Control', 'no-store');
+      return res.json({ preferred: updated });
+    } catch (error) {
+      if (error.code === 'start_conflict') return res.status(409).json({ error: error.message });
+      if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: 'Unable to save preferred startup command' });
     }
   });
 

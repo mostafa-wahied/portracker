@@ -34,7 +34,7 @@ const listener = processStartTicks => ({
 
 describe('private Linux provenance registry storage', () => {
   test('migrates alongside legacy registry without overwriting historical entries', () => fixture((db, registry) => {
-    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(7);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(8);
     const item = registry.observe(listener('456789'), { at: 1000 });
     const store = createLinuxProvenanceStore(db);
     store.record(item.id, evidence(), 2000);

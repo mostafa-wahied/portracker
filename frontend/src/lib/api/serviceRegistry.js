@@ -40,6 +40,14 @@ export function forgetRegistryService(id) {
   return request(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+export function saveRegistryPreferredStart(id, command, cwd, version) {
+  return request(`${BASE}/${encodeURIComponent(id)}/recovery-start`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command, cwd, version }),
+  });
+}
+
 export function saveRegistryRecoveryNotes(id, notes, version) {
   return request(`${BASE}/${encodeURIComponent(id)}/recovery-notes`, {
     method: "PUT",

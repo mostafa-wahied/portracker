@@ -221,12 +221,25 @@ describe('authenticated recovery notes API', () => {
       });
       expect(denied.status).toBe(403);
       expect(recoveryNotesStore.get(service.id).text).toBe('private recovery command');
+      recoveryNotesStore.saveStart(service.id, 'cd /secret && pnpm dev', '/home/private', 0);
+      const hidden = await (await fetch(url + '/' + service.id)).json();
+      expect(JSON.stringify(hidden)).not.toContain('cd /secret');
+      const startDenied = await fetch(url + '/' + service.id + '/recovery-start', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'echo test', cwd: '', version: 1 }),
+      });
+      expect(startDenied.status).toBe(403);
+      expect(recoveryNotesStore.getStart(service.id).command).toContain('/secret');
 
       process.env.ENABLE_AUTH = 'true';
       expect((await fetch(url + '/' + service.id)).status).toBe(401);
       expect((await fetch(url + '/' + service.id + '/recovery-notes', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: 'new', version: 1 }),
+      })).status).toBe(401);
+      expect((await fetch(url + '/' + service.id + '/recovery-start', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'test', cwd: '', version: 1 }),
       })).status).toBe(401);
     }
   ));

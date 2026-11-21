@@ -90,6 +90,7 @@ describe('per-service recovery notes and concurrency', () => {
       const registry = createServiceRegistry(db);
       const record = observed(registry);
       createRecoveryNotesStore(db).saveNotes(record.id, 'remember this service', 0, 1000);
+      createRecoveryNotesStore(db).saveStart(record.id, 'pnpm dev', '/home/dev/project', 0, 1000);
       registry.reconcileSource({ source: 'system', complete: true, rows: [], at: 2000 });
       db.close();
 
@@ -101,12 +102,43 @@ describe('per-service recovery notes and concurrency', () => {
           text: 'remember this service', version: 1, updatedAt: 1000,
         });
         expect(after.getService(record.id).status).toBe('offline');
+        const preferred = createRecoveryNotesStore(reopened).getStart(record.id);
+        expect(preferred).toMatchObject({
+          command: 'pnpm dev', cwd: '/home/dev/project', version: 1,
+        });
+        expect(preferred.line).toContain('&& pnpm dev');
       } finally { reopened.close(); }
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('migration v7 is idempotent after reopening the registry', () => fixture((db) => {
+  test('preferred start command is one-line and cwd is shell-quoted without execution', () => fixture((db, registry, store) => {
+    const record = observed(registry);
+    expect(store.getStart(record.id)).toEqual({
+      command: '', cwd: '', version: 0, updatedAt: null, line: '',
+    });
+    const saved = store.saveStart(record.id, 'pnpm dev', "/home/dev/it's my project", 0, 1000);
+    expect(saved).toMatchObject({
+      command: 'pnpm dev', cwd: "/home/dev/it's my project", version: 1,
+    });
+    expect(saved.line).toContain("cd -- '/home/dev/it'");
+    expect(saved.line).toContain('&& pnpm dev');
+    expect(store.get(record.id).text).toBe('');
+    store.saveNotes(record.id, 'manual notes remain separate', 0);
+    expect(store.getStart(record.id).line).toBe(saved.line);
+    expect(db.prepare('SELECT start_command FROM registry_recovery_notes').get().start_command)
+      .toBe('pnpm dev');
+    expect(() => store.saveStart(record.id, 'old', '', 0)).toThrow('changed elsewhere');
+    expect(() => store.saveStart(record.id, 'bad\ncommand', '', 1)).toThrow();
+    expect(() => store.saveStart(record.id, 'cmd', 'relative/path', 1)).toThrow();
+    expect(() => store.saveStart(record.id, 'cmd', '/bad\npath', 1)).toThrow();
+    expect(() => store.saveStart(record.id, 'x'.repeat(2001), '', 1)).toThrow();
+    expect(store.saveStart('not-a-service', 'echo ok', '', 0)).toBeNull();
+    expect(registry.forgetService(record.id)).toBe(true);
+    expect(store.getStart(record.id).command).toBe('');
+  }));
+
+  test('migration v8 is idempotent after reopening the registry', () => fixture((db) => {
     createServiceRegistry(db);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(7);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(8);
   }));
 });

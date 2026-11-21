@@ -64,11 +64,37 @@ evidence. Review them first, make sure you are on the correct Linux/Docker host,
 and verify the service or config file still exists. On NixOS, starting a unit
 does not declaratively enable that unit or persist a change across rebuilds.
 
-## User-authored notes
+## Preferred one-line startup command (upstream issue #136)
 
-An editable, preferred one-line startup command with plain-text read mode and
-Copy/Edit/Save is staged as a follow-up in #136 after this initial inert notes
-and structured copy-only recipe foundation. It must remain non-executable.
+Authenticated History details display a **single copyable startup command** as
+ordinary selectable text, not a read-only input. Click **Edit command** to
+replace that text with one prefilled input; **Save command** persists and
+returns immediately to read mode. **Copy** copies exactly the displayed
+one-line text. A Cancel button discards the current edit. Up to 2,000
+printable characters can be saved; multi-line input is rejected.
+
+On older records with separate working directory and command, the API
+can render a quoted one-liner such as `cd -- '/home/dev/my project' && pnpm dev`.
+When editing, the user explicitly saves the **entire displayed line** as
+one command, without a second directory input. This migrates presentation
+without executing or guessing the command. New preferred lines send
+`cwd: ""` (legacy field retained only for backward compatibility).
+
+With no saved user command, a trusted structured systemd or Compose suggestion
+may appear instead; unknown manual projects are never assigned fabricated
+`npm dev` or `nix develop` arguments. All instructions are historical,
+unverified, copy-only suggestions and must never be executed by Portracker.
+
+- `GET /api/service-registry/:id` exposes `recovery.preferred` only with
+  authenticated recovery opt-in.
+- `PUT /api/service-registry/:id/recovery-start` accepts
+  `{"command":"cd /home/user/project && pnpm dev","cwd":"","version":0}` with
+  separate optimistic concurrency and an HTTP 409 on conflicting edits.
+- Preferred commands survive offline states and logical restarts where the
+  record can be safely reidentified (logical identity follow-up to upstream #132); historical entries with insufficient
+  identity evidence may still require manual linking later.
+
+## User-authored notes
 
 The service detail view contains a plain-text note editor (4,000 characters
 maximum), a Save button and read-only generated suggestions below the
@@ -91,7 +117,7 @@ If clipboard access is unavailable, manually select the command.
 - `DELETE /api/service-registry/:id`: also deletes the saved recovery notes,
   without deleting or stopping any real service.
 
-The per-service notes table is an idempotent SQLite schema v6 addition. Saved
+The notes table was introduced in schema v6 and extended for preferred startup commands in v8. Saved
 notes survive application restarts and offline periods, and do not affect the
 existing live port dashboard or Docker health collection.
 

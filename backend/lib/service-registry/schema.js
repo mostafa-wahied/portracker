@@ -181,8 +181,24 @@ function migrateRegistrySchema(db) {
       .run(5, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(6, Date.now());
+    // Additive v8: preferred one-line startup command is separate from notes.
+    // No raw process argv or environment is read to populate these fields.
+    const noteColumns = db.prepare('PRAGMA table_info(registry_recovery_notes)').all();
+    for (const [name, definition] of [
+      ['start_command', "TEXT NOT NULL DEFAULT ''"],
+      ['start_cwd', "TEXT NOT NULL DEFAULT ''"],
+      ['start_revision', 'INTEGER NOT NULL DEFAULT 0'],
+      ['start_updated_at', 'INTEGER'],
+    ]) {
+      if (!noteColumns.some(column => column.name === name)) {
+        db.exec('ALTER TABLE registry_recovery_notes ADD COLUMN ' + name + ' ' + definition);
+      }
+    }
+
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(7, Date.now());
+    db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
+      .run(8, Date.now());
   });
   migrate();
 }
