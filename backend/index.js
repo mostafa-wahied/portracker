@@ -18,6 +18,9 @@ const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
 const settingsManager = require('./lib/settings-manager');
 const { registerServerRoutes } = require('./routes/servers');
+const { createServiceRegistry } = require('./lib/service-registry/registry');
+const { createRegistryScanner, readRegistryConfig } = require('./lib/service-registry/scanner');
+const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 const { getDockerHostIP } = require('./lib/docker-host');
@@ -470,6 +473,21 @@ if (!settingsManager.initializeSettingsStorage()) {
   process.exit(1);
 }
 
+// Service history is separate from existing live views. An invalid scanner
+// config or inaccessible host/Docker source must not interrupt the monitor.
+let serviceRegistry = null;
+let registryScanner = null;
+let registryScanEnabled = false;
+try {
+  serviceRegistry = createServiceRegistry(db);
+  serviceRegistry.markStale('local');
+  const registryConfig = readRegistryConfig();
+  registryScanner = createRegistryScanner({ registry: serviceRegistry, ...registryConfig, logger });
+  registryScanEnabled = registryConfig.enabled;
+} catch (error) {
+  logger.warn('Historical service scanner unavailable:', error.message);
+}
+
 const app = express();
 
 const corsOrigins = getConfiguredCorsOrigins();
@@ -512,6 +530,12 @@ app.use(['/api/ports', '/api/all-ports', '/api/services', '/api/servers/:id/scan
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
+if (serviceRegistry) {
+  app.use('/api/service-registry', createRegistryRouter(serviceRegistry, { scanEnabled: registryScanEnabled }));
+} else {
+  app.use('/api/service-registry', requireAuth, (_req, res) =>
+    res.status(503).json({ error: 'Historical service registry is unavailable' }));
+}
 app.use('/api/autoxpose', requireAuth, autoxposeRoutes);
 registerServerRoutes(app, { db, logger, requireAuth, validateServerInput });
 
@@ -2506,6 +2530,7 @@ try {
   app.listen(PORT, "0.0.0.0", () => {
     logger.info(`Server is now listening on http://0.0.0.0:${PORT}`);
     logger.info("Full startup message complete.");
+    registryScanner?.start();
   });
 } catch (listenError) {
   logger.fatal("app.listen failed to start:", listenError.message);
