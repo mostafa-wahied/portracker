@@ -109,6 +109,68 @@ describe('source-complete port capture', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
+  test('explicit host proc reads PID 1 net namespace even with few host processes', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'host-proc-netns-'));
+    const previous = process.env.HOST_PROC;
+    try {
+      fs.mkdirSync(path.join(dir, 'net'), { recursive: true });
+      fs.mkdirSync(path.join(dir, '1', 'net'), { recursive: true });
+      const header = '  sl  local_address rem_address st\n';
+      const entry = port => '  0: 0100007F:' + port + ' 00000000:0000 0A ' +
+        '00000000:00000000 00:00000000 00000000 1000 0 12345 1 ' +
+        '0000000000000000 100 0 0 10 0\n';
+      fs.writeFileSync(path.join(dir, 'net', 'tcp'), header + entry('1052'));
+      fs.writeFileSync(path.join(dir, '1', 'net', 'tcp'), header + entry('1051'));
+      fs.writeFileSync(path.join(dir, '1', 'net', 'tcp6'), header);
+      process.env.HOST_PROC = dir;
+      const parser = new ProcParser(dir);
+      parser.isContainerized = false;
+      parser._buildInodeMap = async () => new Map();
+      parser._buildInodeMapForInodes = async () => new Map();
+      const result = await captureHostTcp({ parser, dockerized: true, hostProcTrusted: true });
+      expect(result.complete).toBe(true);
+      expect(result.rows.map(row => row.host_port)).toEqual([4177]);
+    } finally {
+      if (previous === undefined) delete process.env.HOST_PROC;
+      else process.env.HOST_PROC = previous;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('strict TCP snapshot rejects malformed headers and truncated rows', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'strict-tcp-malformed-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'net'), { recursive: true });
+      const file = path.join(dir, 'net', 'tcp');
+      fs.writeFileSync(path.join(dir, 'net', 'tcp6'),
+        '  sl  local_address rem_address st\n');
+      const parser = new ProcParser(dir);
+      parser.isContainerized = false;
+      parser._buildInodeMap = async () => new Map();
+      parser._buildInodeMapForInodes = async () => new Map();
+      fs.writeFileSync(file, 'not a proc net socket table\n');
+      await expect(parser.getTcpPorts({ strict: true }))
+        .rejects.toThrow('Incomplete TCP port snapshot: tcp');
+      fs.writeFileSync(file, '  sl  local_address rem_address st\ntruncated\n');
+      await expect(parser.getTcpPorts({ strict: true }))
+        .rejects.toThrow('Incomplete TCP port snapshot: tcp');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('missing Docker inspect data cannot mark saved containers offline', async () => {
+    const listed = [{ ID: 'abcdef123456', Names: 'site' }];
+    for (const inspection of [{}, { NetworkSettings: {} },
+      { NetworkSettings: { Ports: undefined } }, { NetworkSettings: { Ports: [] } },
+      { NetworkSettings: { Ports: { 'invalid/tcp': [{ HostPort: '3000' }] } } }]) {
+      await expect(captureDockerPublished({
+        dockerApi: {
+          listContainers: async () => listed,
+          inspectContainer: async () => inspection,
+        },
+      })).rejects.toThrow();
+    }
+  });
+
   test('Docker published ports are copied only from successful inspection', async () => {
     const dockerApi = {
       listContainers: async () => [

@@ -47,7 +47,7 @@ environment:
   - HOST_PROC=/host/proc
 ```
 
-Without a trusted host proc mount, Portracker may still record positive observations, but **will not use the incomplete scan to mark other host listeners offline**. On a native NixOS installation, local `/proc/net/tcp*` is the source. If `/proc` or Docker inspection is unavailable, the source is marked unknown.
+When a trusted host proc root is configured, TCP sockets are read from PID 1's network namespace even if that host has few PIDs. Without a trusted host proc mount, Portracker may still record positive observations, but **will not use the incomplete scan to mark other host listeners offline**. On a native NixOS installation, local `/proc/net/tcp*` is the source. If `/proc` or Docker inspection is unavailable, the source is marked unknown.
 
 When testing from a source checkout, build the local Dockerfile rather than
 using the separately published image; confirm the running container contains
@@ -57,7 +57,7 @@ the raw socket to the dashboard process.
 ## Limits and safeguards
 
 - History collection is **off by default**; no automatic command execution, port knocking, browser tab inspection, or generic HTTP probing.
-- Only genuine TCP listeners and published container bindings are saved. Host/source status requires a complete scan; invalid/error-shaped rows invalidate the snapshot.
+- Only genuine TCP listeners and published container bindings are saved. Host/source status requires a complete scan; malformed/truncated procfs rows and missing Docker inspect network data invalidate the snapshot.
 - Scanner uses isolated per-source results and single-flight scheduling; it never consumes the dashboard's merged `/api/ports` payload.
 - Unavailable collectors degrade to unknown. Short-lived servers between polling intervals cannot be reconstructed.
 - Old observations remain indefinitely until explicitly forgotten. Boot IDs are included as part of **provisional native-process identity evidence**, not exposed as a secret or a permanent application ID.

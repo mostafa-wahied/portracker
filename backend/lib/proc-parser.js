@@ -87,7 +87,11 @@ class ProcParser {
 
   /** Get network file path - uses host PID namespace when containerized */
   _getNetworkFilePath(protocol) {
-    if (this.isContainerized) {
+    // An explicitly mounted host /proc must use PID 1's network namespace.
+    // Counting PIDs to detect a container is unreliable on small Linux hosts.
+    const explicitHostProc = process.env.HOST_PROC;
+    if (this.isContainerized ||
+        (explicitHostProc && path.resolve(this.procPath) === path.resolve(explicitHostProc))) {
       return path.join(this.procPath, '1', 'net', protocol);
     }
     return path.join(this.procPath, 'net', protocol);
@@ -122,10 +126,19 @@ class ProcParser {
       try {
         const filePath = this._getNetworkFilePath(file);
         const content = await fs.readFile(filePath, 'utf8');
-  const lines = content.trim().split('\n').slice(1);
-        
-        for (const line of lines) {
+        const lines = content.trim().split('\n');
+        if (strict && !/^\s*sl\s+local_address\s+rem_address\s+st(?:\s|$)/.test(lines[0])) {
+          throw new Error('Malformed TCP snapshot header');
+        }
+        const addressPattern = file === 'tcp'
+          ? /^[a-f0-9]{8}:[a-f0-9]{4}$/i : /^[a-f0-9]{32}:[a-f0-9]{4}$/i;
+
+        for (const line of lines.slice(1)) {
           const parts = line.trim().split(/\s+/);
+          if (strict && (parts.length < 10 || !addressPattern.test(parts[1]) ||
+              !/^[a-f0-9]{2}$/i.test(parts[3]) || !/^\d+$/.test(parts[9]))) {
+            throw new Error('Malformed TCP snapshot row');
+          }
           if (parts.length < 10) continue;
 
           const localAddress = parts[1];

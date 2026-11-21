@@ -71,14 +71,24 @@ async function captureDockerPublished({
         throw new Error('Container without a valid identifier');
       }
       const inspect = await dockerApi.inspectContainer(container.ID);
-      const mappings = inspect.NetworkSettings?.Ports || {};
-      if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) {
+      if (!inspect || typeof inspect !== 'object' ||
+          !inspect.NetworkSettings || typeof inspect.NetworkSettings !== 'object' ||
+          !Object.prototype.hasOwnProperty.call(inspect.NetworkSettings, 'Ports')) {
+        throw new Error('Malformed Docker inspect network metadata');
+      }
+      // A present null Ports value represents no published bindings.
+      // Missing NetworkSettings/Ports is not an authoritative empty snapshot.
+      const mappings = inspect.NetworkSettings.Ports ?? {};
+      if (typeof mappings !== 'object' || Array.isArray(mappings)) {
         throw new Error('Malformed Docker port mapping');
       }
       const itemRows = [];
       for (const [containerSocket, bindings] of Object.entries(mappings)) {
         const [port, protocol] = containerSocket.split('/');
         if (protocol !== 'tcp' || bindings === null) continue;
+        if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+          throw new Error('Malformed Docker published container port');
+        }
         if (!Array.isArray(bindings)) throw new Error('Malformed Docker port bindings');
         for (const binding of bindings) {
           if (!binding || !binding.HostPort) throw new Error('Malformed Docker host binding');
@@ -92,7 +102,6 @@ async function captureDockerPublished({
             internal: false,
           });
         }
-        void port;
       }
       return itemRows;
     }));
