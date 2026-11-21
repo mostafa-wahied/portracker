@@ -212,9 +212,10 @@ export function RegistryHistory({ pinnedOnly = false, onBrowseHistory = null }) 
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <button type="button" onClick={refresh} title="Reload saved history; does not scan"
+          <button type="button" onClick={refresh}
+            title="Reload saved services without scanning. The list also updates every 30 seconds."
             className={FIELD_CLASS + " inline-flex items-center gap-2"}>
-            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Refresh
+            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Reload list
           </button>
           <button type="button" onClick={handleScanNow} disabled={scanning || !scan?.enabled}
             title="Collect current listening services now"

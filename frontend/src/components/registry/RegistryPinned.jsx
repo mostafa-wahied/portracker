@@ -235,13 +235,16 @@ export function RegistryPinned({ onBrowseHistory }) {
             Favorite service groups with all their remembered ports, including offline services.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={refresh} className={FIELD + " flex items-center gap-2"}>
-            <RefreshCw className="h-4 w-4" /> Refresh
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={refresh}
+            title="Reload saved services without scanning. The list also updates every 30 seconds."
+            className={FIELD + " flex items-center gap-2"}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" /> Reload list
           </button>
           <button type="button" onClick={handleScanNow} disabled={scanning || !scan?.enabled}
+            title="Discover currently listening services, then reload the saved list"
             className={FIELD + " flex items-center gap-2 disabled:opacity-50"}>
-            <ScanSearch className="h-4 w-4" /> {scanning ? "Scanning…" : "Scan now"}
+            <ScanSearch className="h-4 w-4" aria-hidden="true" /> {scanning ? "Scanning…" : "Scan now"}
           </button>
         </div>
       </div>

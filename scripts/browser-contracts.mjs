@@ -10,6 +10,7 @@ import { phaseAContracts } from './phase-a-browser-contracts.mjs';
 import { phaseCContracts } from './phase-c-browser-contracts.mjs';
 import { historyHeaderContracts } from './phase-b-browser-contracts.mjs';
 import { assertFlatRegistryDetails } from './phase-3-browser-contracts.mjs';
+import { assertRegistryReloadBehavior } from './registry-reload-browser-contracts.mjs';
 
 async function assertLayout(page) {
   const dimensions = await page.evaluate(() => ({ width: window.innerWidth, content: document.documentElement.scrollWidth }));
@@ -254,6 +255,7 @@ async function registryHistoryNavigation(page, options) {
     await page.getByRole('tab', { name: 'History', exact: true }).click();
     await page.getByRole('heading', { name: 'Service history' }).waitFor();
     await page.getByText('example-unknown', { exact: true }).waitFor();
+    await assertRegistryReloadBehavior(page, '/api/service-registry');
     await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('offline');
     await applyRegistrySearch(page, 'example');
     await page.getByText('Page 1 of 5').waitFor();

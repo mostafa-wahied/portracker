@@ -1,5 +1,6 @@
 import React from "react";
-import { Pin, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
+import { RegistryPinButton } from "./RegistryPinButton";
 import { StatusBadge } from "./RegistryServiceDetails";
 
 const FIELD_CLASS = "rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm";
@@ -10,18 +11,9 @@ export function RegistryHistoryActions({
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
       <StatusBadge status={service.status} />
-      <button type="button" onClick={() => onPinToggle(service)}
-        disabled={pinBusy}
-        aria-label={(service.pinned ? "Unpin " : "Pin ") + service.displayName}
-        aria-pressed={service.pinned}
-        title={service.pinned ? "Unpin service" : "Pin service"}
-        className={"inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:opacity-50 " +
-          (service.pinned
-            ? "border-indigo-300 text-indigo-600 dark:text-indigo-300"
-            : "border-slate-200 dark:border-slate-700 text-slate-500")}>
-        <Pin className="w-4 h-4" fill={service.pinned ? "currentColor" : "none"} aria-hidden="true" />
-        {expanded && <span className="hidden sm:inline">{service.pinned ? "Unpin" : "Pin"}</span>}
-      </button>
+      <RegistryPinButton service={service} onToggle={onPinToggle} busy={pinBusy}
+        compact labelClassName={expanded ? "hidden sm:inline" : "hidden"}
+        ariaLabel={(service.pinned ? "Unpin " : "Pin ") + service.displayName} />
       {expanded && (
         <>
           <button type="button" disabled={forgetting}

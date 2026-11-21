@@ -3,6 +3,7 @@ import { createRegistryHistoryFixture } from './registry-history-fixture.mjs';
 import { assertFlatRegistryDetails } from './phase-3-browser-contracts.mjs';
 import { phase4VisualContracts } from './phase-4-browser-contracts.mjs';
 import { phase5IconHelpContracts } from './phase-5-browser-contracts.mjs';
+import { assertRegistryReloadBehavior } from './registry-reload-browser-contracts.mjs';
 
 export async function phaseCContracts(context, options) {
   const { records, urlPattern, handleRegistryRequest } = createRegistryHistoryFixture();
@@ -20,6 +21,7 @@ export async function phaseCContracts(context, options) {
     await phase5IconHelpContracts(page);
     const group = page.getByRole('button', { name: 'demo-group service group' });
     await group.waitFor();
+    await assertRegistryReloadBehavior(page, '/api/service-registry/pinned-groups');
     assert.equal(await page.locator('[data-pinned-group]').count(), 1,
       'Two verified Compose services should produce one project row');
     assert.equal(await group.getByText('54321', { exact: true }).count(), 1,
@@ -33,7 +35,20 @@ export async function phaseCContracts(context, options) {
     await page.getByRole('button', { name: /^example-service-81\b/ }).waitFor();
     await page.getByRole('region', { name: 'Recovery information' }).waitFor();
     await assertFlatRegistryDetails(page, { docker: true });
-    await page.getByRole('button', { name: 'Unpin selected service' }).click();
+    const selectedUnpin = page.getByRole('button', { name: 'Unpin selected service' });
+    assert.equal(await selectedUnpin.getAttribute('aria-pressed'), 'true');
+    assert.equal(await selectedUnpin.getAttribute('data-registry-pin-state'), 'pinned');
+    assert.equal(await selectedUnpin.isEnabled(), true);
+    const unpinAppearance = await selectedUnpin.evaluate(button => {
+      const style = getComputedStyle(button);
+      return { cursor: style.cursor, opacity: style.opacity, borderWidth: style.borderTopWidth };
+    });
+    assert.equal(unpinAppearance.cursor, 'pointer');
+    assert.equal(unpinAppearance.opacity, '1');
+    assert.notEqual(unpinAppearance.borderWidth, '0px',
+      'The service-details Unpin action must use the outlined style');
+    assert.equal(await selectedUnpin.locator('svg').getAttribute('fill'), 'currentColor');
+    await selectedUnpin.click();
     await group.waitFor();
     await page.getByRole('button', { name: /^example-service-78\b/ })
       .waitFor({ state: 'hidden' });
