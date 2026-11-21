@@ -45,6 +45,23 @@ function migrateRegistrySchema(db) {
       '  ON registry_endpoints (host_ip, host_port, protocol, source);',
       'CREATE INDEX IF NOT EXISTS idx_registry_endpoints_service',
       '  ON registry_endpoints (service_id, last_seen_at DESC);',
+      'CREATE TABLE IF NOT EXISTS registry_icons (',
+      '  hash TEXT PRIMARY KEY,',
+      '  mime TEXT NOT NULL,',
+      '  bytes BLOB NOT NULL,',
+      '  created_at INTEGER NOT NULL',
+      ');',
+      'CREATE TABLE IF NOT EXISTS registry_http_metadata (',
+      '  service_id TEXT PRIMARY KEY REFERENCES registry_services(id) ON DELETE CASCADE,',
+      '  title TEXT,',
+      '  visit_url TEXT,',
+      '  icon_hash TEXT REFERENCES registry_icons(hash),',
+      '  fetched_at INTEGER,',
+      '  last_attempt_at INTEGER NOT NULL,',
+      '  error_code TEXT',
+      ');',
+      'CREATE INDEX IF NOT EXISTS idx_registry_metadata_retry',
+      '  ON registry_http_metadata (last_attempt_at, fetched_at);',
       'CREATE TABLE IF NOT EXISTS registry_scan_state (',
       '  server_id TEXT NOT NULL,',
       "  source TEXT NOT NULL CHECK (source IN ('system', 'docker')),",
@@ -61,6 +78,8 @@ function migrateRegistrySchema(db) {
       .run(1, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(2, Date.now());
+    db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
+      .run(3, Date.now());
   });
   migrate();
 }

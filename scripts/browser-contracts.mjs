@@ -174,7 +174,7 @@ async function remoteDiagnostics(page, options) {
   await page.getByPlaceholder('Search ports, processes...').waitFor();
 }
 
-async function registryHistoryNavigation(page, options) {
+function createRegistryHistoryFixture() {
   const records = Array.from({ length: 105 }, (_, index) => ({
     id: 'history-fixture-' + index,
     serverId: 'local',
@@ -188,6 +188,10 @@ async function registryHistoryNavigation(page, options) {
     previewPort: 3000 + index,
     previewProtocol: 'tcp',
     endpointCount: 1,
+    httpTitle: index === 79 ? 'Verified Local Root' : null,
+    httpRootUrl: index === 79 ? 'http://127.0.0.1:3079/' : null,
+    iconHash: index === 79 ? 'a'.repeat(64) : null,
+    metadataFetchedAt: index === 79 ? 1730000000000 : null,
   }));
   const urlPattern = '**/api/service-registry**';
   const handleRegistryRequest = async route => {
@@ -199,6 +203,13 @@ async function registryHistoryNavigation(page, options) {
       contentType: 'application/json',
       body: JSON.stringify(body),
     });
+    if (suffix.startsWith('/icons/')) {
+      return route.fulfill({
+        status: 200, contentType: 'image/png',
+        headers: { 'x-content-type-options': 'nosniff' },
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WkW3+IAAAAASUVORK5CYII=', 'base64'),
+      });
+    }
     if (suffix === '/scan-status') {
       return json({ enabled: true, sources: [
         { source: 'system', outcome: 'complete', lastSuccessAt: 1730000000000 },
@@ -236,6 +247,11 @@ async function registryHistoryNavigation(page, options) {
     return json({ items: matching.slice(offset, offset + limit), total: matching.length, offset, limit });
   };
 
+  return { records, urlPattern, handleRegistryRequest };
+}
+
+async function registryHistoryNavigation(page, options) {
+  const { records, urlPattern, handleRegistryRequest } = createRegistryHistoryFixture();
   await page.route(urlPattern, handleRegistryRequest);
   try {
     await page.getByRole('tab', { name: 'History', exact: true }).click();
@@ -250,6 +266,8 @@ async function registryHistoryNavigation(page, options) {
     await page.getByText('Page 2 of 5').waitFor();
     await page.getByRole('button', { name: /example-service-79/ }).click();
     await page.getByText('Remembered endpoints').waitFor();
+    await page.getByText('Verified Local Root', { exact: true }).first().waitFor();
+    await page.locator('img[src="/api/service-registry/icons/' + 'a'.repeat(64) + '"]').first().waitFor();
     const forget = page.getByRole('button', { name: 'Forget this history record' });
     page.once('dialog', dialog => dialog.accept());
     await forget.click();

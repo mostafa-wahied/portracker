@@ -6,6 +6,7 @@ const { describe, test, expect, afterAll } = require('@jest/globals');
 const originalDatabasePath = process.env.DATABASE_PATH;
 process.env.DATABASE_PATH = ':memory:';
 const { createServiceRegistry } = require('../lib/service-registry/registry');
+const { createHttpMetadataStore } = require('../lib/service-registry/http-store');
 const { createRegistryRouter } = require('./service-registry');
 const sharedDb = require('../db');
 
@@ -19,14 +20,16 @@ async function withServer(run) {
   const oldAuth = process.env.ENABLE_AUTH;
   const db = new Database(':memory:');
   const registry = createServiceRegistry(db);
+  const httpStore = createHttpMetadataStore(db);
   const app = express();
-  app.use('/api/service-registry', createRegistryRouter(registry));
+  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore }));
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
   try {
     return await run({
       registry,
+      httpStore,
       url: 'http://127.0.0.1:' + server.address().port + '/api/service-registry',
     });
   } finally {
@@ -72,7 +75,38 @@ describe('registry REST API authorization and validation', () => {
     expect((await fetch(url)).status).toBe(401);
     expect((await fetch(url + '/' + record.id)).status).toBe(401);
     expect((await fetch(url + '/scan-status')).status).toBe(401);
+    expect((await fetch(url + '/icons/' + 'a'.repeat(64))).status).toBe(401);
     expect((await fetch(url + '/' + record.id, { method: 'DELETE' })).status).toBe(401);
     expect(registry.getService(record.id)).not.toBeNull();
+  }));
+});
+
+describe('cached HTTP metadata routes', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WkW3+IAAAAASUVORK5CYII=',
+    'base64'
+  );
+  test('history returns verified title and safely served local icon', async () => withServer(async ({ registry, httpStore, url }) => {
+    process.env.ENABLE_AUTH = 'false';
+    const service = registry.observe({
+      host_ip: '127.0.0.1', host_port: 3000, owner: 'node', pid: 555, protocol: 'tcp',
+    });
+    const meta = httpStore.recordSuccess(service.id, {
+      title: 'Real HTML Title',
+      rootUrl: 'http://127.0.0.1:3000/',
+      iconBytes: PNG,
+      iconType: 'image/png',
+    }, Date.now());
+    const list = await fetch(url);
+    expect((await list.json()).items[0].httpTitle).toBe('Real HTML Title');
+    const details = await fetch(url + '/' + service.id);
+    expect((await details.json()).iconHash).toBe(meta.iconHash);
+    const image = await fetch(url + '/icons/' + meta.iconHash);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toContain('image/png');
+    expect(image.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(Buffer.from(await image.arrayBuffer()).equals(PNG)).toBe(true);
+    const invalid = await fetch(url + '/icons/not-a-hash');
+    expect(invalid.status).toBe(404);
   }));
 });

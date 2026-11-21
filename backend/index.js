@@ -20,6 +20,9 @@ const settingsManager = require('./lib/settings-manager');
 const { registerServerRoutes } = require('./routes/servers');
 const { createServiceRegistry } = require('./lib/service-registry/registry');
 const { createRegistryScanner, readRegistryConfig } = require('./lib/service-registry/scanner');
+const { createHttpMetadataStore } = require('./lib/service-registry/http-store');
+const { readHttpMetadataConfig } = require('./lib/service-registry/http-probe');
+const { createHttpMetadataWorker } = require('./lib/service-registry/http-worker');
 const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
@@ -478,11 +481,30 @@ if (!settingsManager.initializeSettingsStorage()) {
 let serviceRegistry = null;
 let registryScanner = null;
 let registryScanEnabled = false;
+let httpMetadataStore = null;
 try {
   serviceRegistry = createServiceRegistry(db);
   serviceRegistry.markStale('local');
+  httpMetadataStore = createHttpMetadataStore(db);
   const registryConfig = readRegistryConfig();
-  registryScanner = createRegistryScanner({ registry: serviceRegistry, ...registryConfig, logger });
+  let onCycle = null;
+  try {
+    const httpConfig = readHttpMetadataConfig();
+    if (httpConfig.missingHost) {
+      logger.warn('HTTP metadata opt-in requires SERVICE_REGISTRY_HTTP_HOST inside Docker');
+    }
+    if (httpConfig.enabled) {
+      const worker = createHttpMetadataWorker({
+        store: httpMetadataStore, enabled: true, host: httpConfig.host, logger,
+      });
+      onCycle = worker.enrich;
+    }
+  } catch (error) {
+    logger.warn('HTTP metadata enrichment unavailable:', error.message);
+  }
+  registryScanner = createRegistryScanner({
+    registry: serviceRegistry, ...registryConfig, logger, onCycle,
+  });
   registryScanEnabled = registryConfig.enabled;
 } catch (error) {
   logger.warn('Historical service scanner unavailable:', error.message);
@@ -531,7 +553,9 @@ app.use(['/api/ports', '/api/all-ports', '/api/services', '/api/servers/:id/scan
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 if (serviceRegistry) {
-  app.use('/api/service-registry', createRegistryRouter(serviceRegistry, { scanEnabled: registryScanEnabled }));
+  app.use('/api/service-registry', createRegistryRouter(serviceRegistry, {
+    scanEnabled: registryScanEnabled, httpStore: httpMetadataStore,
+  }));
 } else {
   app.use('/api/service-registry', requireAuth, (_req, res) =>
     res.status(503).json({ error: 'Historical service registry is unavailable' }));

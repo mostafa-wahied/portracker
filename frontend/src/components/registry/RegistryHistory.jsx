@@ -219,7 +219,22 @@ export function RegistryHistory() {
               aria-pressed={selectedId === service.id}
               className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 text-left hover:border-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 space-y-2">
               <div className="flex items-start justify-between gap-2">
-                <strong className="truncate text-slate-900 dark:text-white">{service.displayName}</strong>
+                <div className="flex items-start gap-2 min-w-0">
+                  {service.iconHash && (
+                    <img alt="" loading="lazy" width="24" height="24"
+                      className="w-6 h-6 flex-none object-contain"
+                      src={"/api/service-registry/icons/" + service.iconHash} />
+                  )}
+                  <div className="min-w-0">
+                    <strong className="block truncate text-slate-900 dark:text-white">
+                      {service.displayName}
+                    </strong>
+                    {service.httpTitle && (
+                      <p className="text-sm truncate text-slate-600 dark:text-slate-300"
+                        title={service.httpTitle}>{service.httpTitle}</p>
+                    )}
+                  </div>
+                </div>
                 <StatusBadge status={service.status} />
               </div>
               <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -261,10 +276,33 @@ export function RegistryHistory() {
           {detail && (
             <>
               <div className="flex flex-wrap gap-2 items-center">
+                {detail.iconHash && (
+                  <img alt="" loading="lazy" width="28" height="28"
+                    className="w-7 h-7 object-contain"
+                    src={"/api/service-registry/icons/" + detail.iconHash} />
+                )}
                 <strong>{detail.displayName}</strong>
                 <StatusBadge status={detail.status} />
                 <span className="text-xs text-slate-500">{detail.identityConfidence} identity</span>
               </div>
+              {detail.httpTitle && (
+                <p className="font-medium text-sm">{detail.httpTitle}</p>
+              )}
+              {detail.httpRootUrl && (
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  HTTP root seen at{" "}
+                  <a className="underline hover:text-indigo-600" href={detail.httpRootUrl}
+                    target="_blank" rel="noopener noreferrer">
+                    {detail.httpRootUrl}
+                  </a>
+                  {" "}(may only be reachable from the Portracker host)
+                </p>
+              )}
+              {detail.metadataFetchedAt && (
+                <p className="text-xs text-slate-500">
+                  Page metadata collected {registryTimestamp(detail.metadataFetchedAt)}
+                </p>
+              )}
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 First seen {registryTimestamp(detail.firstSeenAt)} · Last seen {registryTimestamp(detail.lastSeenAt)}
               </p>
@@ -279,7 +317,7 @@ export function RegistryHistory() {
                 <p className="text-sm text-slate-500">Showing the 20 most recently seen endpoints.</p>
               )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Website title, favicon, provenance and restart hints will appear here when enrichment is enabled.
+                Title/favicon are captured from the HTTP root when metadata probing is enabled. Process provenance and restart hints are future improvements.
               </p>
               <button type="button" disabled={forgetting} onClick={handleForget}
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm border border-red-300 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">

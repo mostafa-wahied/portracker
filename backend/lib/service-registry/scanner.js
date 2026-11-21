@@ -31,6 +31,7 @@ function createRegistryScanner({
   cancel = clearTimeout,
   now = Date.now,
   random = Math.random,
+  onCycle = null,
 }) {
   if (!registry || typeof registry.reconcileSource !== 'function') {
     throw new TypeError('A service registry with reconciliation is required');
@@ -87,6 +88,10 @@ function createRegistryScanner({
           sourceFailures.set(source.name, failures);
           retryAfter.set(source.name, at + Math.min(intervalMs * Math.pow(2, failures), 3600000));
         }
+      }
+      if (onCycle) {
+        try { await onCycle(results); }
+        catch { logger.warn('Registry enrichment failed; listener statuses are unchanged'); }
       }
       return results;
     })();
