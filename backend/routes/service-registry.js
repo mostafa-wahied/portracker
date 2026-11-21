@@ -17,6 +17,7 @@ function createRegistryRouter(registry, { scanEnabled = false } = {}) {
         source: req.query.source,
         search: req.query.search,
         port: req.query.port,
+        seenSince: req.query.seenSince,
       }));
     } catch (error) {
       if (error instanceof TypeError) return res.status(400).json({ error: error.message });

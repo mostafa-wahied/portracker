@@ -16,6 +16,9 @@ function toService(row) {
     lastSeenAt: row.last_seen_at,
     status: row.status,
     endpointCount: row.endpoint_count === undefined ? undefined : row.endpoint_count,
+    previewHostIp: row.preview_host_ip ?? undefined,
+    previewPort: row.preview_port ?? undefined,
+    previewProtocol: row.preview_protocol ?? undefined,
   };
 }
 
@@ -173,6 +176,11 @@ function createServiceRegistry(db) {
       clauses.push("s.display_name LIKE ? ESCAPE '\\'");
       params.push('%' + term + '%');
     }
+    if (filters.seenSince !== undefined) {
+      const since = boundedInteger(filters.seenSince, 'seenSince', 0, 8640000000000000);
+      clauses.push('s.last_seen_at >= ?');
+      params.push(since);
+    }
     if (filters.port !== undefined) {
       const port = normalizePort(filters.port);
       clauses.push('EXISTS (SELECT 1 FROM registry_endpoints e ' +
@@ -185,7 +193,13 @@ function createServiceRegistry(db) {
       .get(...params).total;
     const items = db.prepare(
       'SELECT s.*, (SELECT COUNT(*) FROM registry_endpoints e ' +
-      'WHERE e.service_id = s.id) AS endpoint_count ' +
+      'WHERE e.service_id = s.id) AS endpoint_count, ' +
+      '(SELECT e.host_ip FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC, e.id LIMIT 1) AS preview_host_ip, ' +
+      '(SELECT e.host_port FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC, e.id LIMIT 1) AS preview_port, ' +
+      '(SELECT e.protocol FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC, e.id LIMIT 1) AS preview_protocol ' +
       'FROM registry_services s' + where +
       ' ORDER BY s.last_seen_at DESC, s.id ASC LIMIT ? OFFSET ?'
     ).all(...params, limit, offset).map(toService);

@@ -90,6 +90,12 @@ describe('persistent localhost registry storage', () => {
     expect(registry.listServices({ search: '_' }).total).toBe(1);
     expect(registry.listServices({ search: '%' }).total).toBe(1);
     expect(registry.listServices({ source: 'system', port: 3000 }).total).toBe(3);
+    expect(registry.listServices({ seenSince: 2000 }).total).toBe(2);
+    expect(registry.listServices({ seenSince: 3001 }).total).toBe(0);
+    expect(() => registry.listServices({ seenSince: '-1' })).toThrow('Invalid seenSince');
+    expect(registry.listServices({ port: 3000 }).items[0]).toMatchObject({
+      previewHostIp: '127.0.0.1', previewPort: 3000, previewProtocol: 'tcp',
+    });
     expect(() => registry.listServices({ limit: 101 })).toThrow('Invalid limit');
     expect(() => registry.listServices({ offset: '-1' })).toThrow('Invalid offset');
     expect(() => registry.listServices({ search: 'x'.repeat(101) })).toThrow('Invalid search');
