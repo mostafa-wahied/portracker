@@ -68,6 +68,7 @@ describe("all API route authentication", () => {
     expect(rows).toContain("GET /api/service-registry/icons/:hash");
     expect(rows).toContain("GET /api/service-registry/:id");
     expect(rows).toContain("DELETE /api/service-registry/:id");
+    expect(rows).toContain("PUT /api/service-registry/:id/recovery-notes");
   });
 
   test("fails if a route guard or a mounted-router guard is removed", () => {

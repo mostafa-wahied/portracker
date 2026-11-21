@@ -9,6 +9,7 @@ const { createServiceRegistry } = require('../lib/service-registry/registry');
 const { createHttpMetadataStore } = require('../lib/service-registry/http-store');
 const { createLinuxProvenanceStore } = require('../lib/service-registry/linux-provenance-store');
 const { createDockerProvenanceStore } = require('../lib/service-registry/docker-provenance-store');
+const { createRecoveryNotesStore } = require('../lib/service-registry/recovery-notes');
 const { createRegistryRouter } = require('./service-registry');
 const sharedDb = require('../db');
 
@@ -25,8 +26,10 @@ async function withServer(run) {
   const httpStore = createHttpMetadataStore(db);
   const provenanceStore = createLinuxProvenanceStore(db);
   const dockerProvenanceStore = createDockerProvenanceStore(db);
+  const recoveryNotesStore = createRecoveryNotesStore(db);
   const app = express();
-  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore, provenanceStore, dockerProvenanceStore }));
+  app.use(express.json());
+  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore, provenanceStore, dockerProvenanceStore, recoveryNotesStore }));
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
@@ -36,6 +39,7 @@ async function withServer(run) {
       httpStore,
       provenanceStore,
       dockerProvenanceStore,
+      recoveryNotesStore,
       url: 'http://127.0.0.1:' + server.address().port + '/api/service-registry',
     });
   } finally {
@@ -171,6 +175,39 @@ describe('private Docker/Compose provenance API', () => {
       expect(JSON.stringify(await (await fetch(url)).json())).not.toContain('secret project');
       process.env.ENABLE_AUTH = 'true';
       expect((await fetch(url + '/' + service.id)).status).toBe(401);
+    }
+  ));
+});
+
+
+describe('authenticated recovery notes API', () => {
+  test('anonymous dashboard cannot read hints or submit notes', async () => withServer(
+    async ({ registry, recoveryNotesStore, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const service = registry.observe({
+        host_ip: '127.0.0.1', host_port: 3000, protocol: 'tcp',
+        source: 'system', owner: 'node', pid: 999,
+      });
+      recoveryNotesStore.saveNotes(service.id, 'private recovery command', 0);
+      const read = await fetch(url + '/' + service.id);
+      expect(read.status).toBe(200);
+      const detail = await read.json();
+      expect(detail).not.toHaveProperty('recovery');
+      expect(JSON.stringify(detail)).not.toContain('private recovery command');
+
+      const denied = await fetch(url + '/' + service.id + '/recovery-notes', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: 'new', version: 1 }),
+      });
+      expect(denied.status).toBe(403);
+      expect(recoveryNotesStore.get(service.id).text).toBe('private recovery command');
+
+      process.env.ENABLE_AUTH = 'true';
+      expect((await fetch(url + '/' + service.id)).status).toBe(401);
+      expect((await fetch(url + '/' + service.id + '/recovery-notes', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: 'new', version: 1 }),
+      })).status).toBe(401);
     }
   ));
 });

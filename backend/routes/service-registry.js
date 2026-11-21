@@ -2,9 +2,11 @@
 
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
+const { buildRecoveryRecipes } = require('../lib/service-registry/recovery-recipes');
 
 function createRegistryRouter(registry, {
-  scanEnabled = false, httpStore = null, provenanceStore = null, dockerProvenanceStore = null,
+  scanEnabled = false, httpStore = null, provenanceStore = null,
+  dockerProvenanceStore = null, recoveryNotesStore = null,
 } = {}) {
   const router = express.Router();
 
@@ -71,10 +73,37 @@ function createRegistryRouter(registry, {
       if (dockerProvenanceStore && process.env.ENABLE_AUTH === 'true') {
         details.dockerProvenance = dockerProvenanceStore.get(service.id);
       }
+      if (recoveryNotesStore && process.env.ENABLE_AUTH === 'true') {
+        details.recovery = {
+          notes: recoveryNotesStore.get(service.id),
+          recipes: buildRecoveryRecipes({
+            linuxProvenance: details.linuxProvenance,
+            dockerProvenance: details.dockerProvenance,
+          }),
+        };
+      }
       return res.json(details);
     } catch (error) {
       if (error instanceof TypeError) return res.status(400).json({ error: error.message });
       return res.status(500).json({ error: 'Unable to load saved service' });
+    }
+  });
+
+  router.put('/:id/recovery-notes', requireAuth, (req, res) => {
+    if (process.env.ENABLE_AUTH !== 'true' || !recoveryNotesStore) {
+      return res.status(403).json({ error: 'Authenticated recovery notes are disabled' });
+    }
+    try {
+      const updated = recoveryNotesStore.saveNotes(
+        req.params.id, req.body?.notes, req.body?.version
+      );
+      if (!updated) return res.status(404).json({ error: 'Saved service not found' });
+      res.set('Cache-Control', 'no-store');
+      return res.json({ notes: updated });
+    } catch (error) {
+      if (error.code === 'notes_conflict') return res.status(409).json({ error: error.message });
+      if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: 'Unable to save recovery notes' });
     }
   });
 

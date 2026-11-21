@@ -1,3 +1,4 @@
+import { RegistryRecoveryDetails } from "./RegistryRecoveryDetails";
 import { RegistryDockerProvenance } from "./RegistryDockerProvenance";
 import { RegistryLinuxProvenance } from "./RegistryLinuxProvenance";
 import React, { useCallback, useEffect, useState } from "react";
@@ -310,6 +311,10 @@ export function RegistryHistory() {
               </p>
               <RegistryLinuxProvenance evidence={detail.linuxProvenance} />
               <RegistryDockerProvenance evidence={detail.dockerProvenance} />
+              {detail.recovery && (
+                <RegistryRecoveryDetails key={detail.id}
+                  serviceId={detail.id} recovery={detail.recovery} />
+              )}
               <h3 className="font-medium text-sm">Remembered endpoints</h3>
               <ul className="list-disc pl-5 text-sm space-y-1 text-slate-600 dark:text-slate-300">
                 {detail.endpoints.slice(0, 20).map(ep => (

@@ -210,6 +210,7 @@ function createServiceRegistry(db) {
   const forgetOne = db.transaction((id) => {
     const found = getById.get(id);
     if (!found) return false;
+    db.prepare('DELETE FROM registry_recovery_notes WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_docker_provenance WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_linux_provenance WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_http_metadata WHERE service_id = ?').run(id);

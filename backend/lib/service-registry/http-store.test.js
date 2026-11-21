@@ -32,7 +32,7 @@ describe('persistent HTTP metadata and icon cache', () => {
   test('schema v3 is idempotent and isolated from port/notes history', () => fixture((db, registry) => {
     const entry = observe(registry);
     createServiceRegistry(db);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(5);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(6);
     expect(registry.getService(entry.id).displayName).toBe('node');
   }));
 

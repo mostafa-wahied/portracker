@@ -62,6 +62,13 @@ function migrateRegistrySchema(db) {
       ');',
       'CREATE INDEX IF NOT EXISTS idx_registry_metadata_retry',
       '  ON registry_http_metadata (last_attempt_at, fetched_at);',
+      'CREATE TABLE IF NOT EXISTS registry_recovery_notes (',
+      '  service_id TEXT PRIMARY KEY REFERENCES registry_services(id) ON DELETE CASCADE,',
+      "  notes TEXT NOT NULL DEFAULT '',",
+      '  revision INTEGER NOT NULL DEFAULT 0,',
+      '  updated_at INTEGER,',
+      '  CHECK (length(notes) <= 4000)',
+      ');',
       'CREATE TABLE IF NOT EXISTS registry_docker_provenance (',
       '  service_id TEXT PRIMARY KEY REFERENCES registry_services(id) ON DELETE CASCADE,',
       '  daemon_fingerprint TEXT,',
@@ -115,6 +122,8 @@ function migrateRegistrySchema(db) {
       .run(4, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(5, Date.now());
+    db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
+      .run(6, Date.now());
   });
   migrate();
 }

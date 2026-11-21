@@ -81,15 +81,16 @@ services:
       # Collect every 30s without a browser tab (range: 10s–1h).
       # - SERVICE_REGISTRY_ENABLED=true
       # - SERVICE_REGISTRY_SCAN_INTERVAL_MS=30000
-      # HTTP title/favicon discovery is default-on when the registry is enabled.
-      # Opt out explicitly if desired:
+      # HTTP title/favicon enrichment defaults on; explicit opt-out:
       # - SERVICE_REGISTRY_HTTP_ENABLED=false
       # Optional read-only Linux/systemd attribution (private host paths).
       # Requires ENABLE_AUTH=true; never expose host paths anonymously.
       # - SERVICE_REGISTRY_PROVENANCE_ENABLED=true
       # Optional full read-only Docker/Compose provenance. Requires ENABLE_AUTH=true.
       # - SERVICE_REGISTRY_DOCKER_PROVENANCE_ENABLED=true
-      # Inside Docker auto-detect a trusted private gateway or configure a vetted IP literal.
+      # Optional copy-only recovery hints and versioned user notes; requires auth.
+      # - SERVICE_REGISTRY_RECOVERY_ENABLED=true
+      # Inside Docker use automatic vetted private gateway or explicit safe IP:
       # Do not use 127.0.0.1 to target the host from a bridge container.
       # - SERVICE_REGISTRY_HTTP_HOST=172.17.0.1
       # For reliable host-offline status inside Docker, also uncomment

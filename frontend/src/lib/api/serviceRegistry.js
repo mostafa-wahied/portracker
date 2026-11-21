@@ -35,3 +35,11 @@ export function getRegistryScanStatus(signal) {
 export function forgetRegistryService(id) {
   return request(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+export function saveRegistryRecoveryNotes(id, notes, version) {
+  return request(`${BASE}/${encodeURIComponent(id)}/recovery-notes`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes, version }),
+  });
+}

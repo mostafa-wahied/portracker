@@ -28,6 +28,7 @@ const { readLinuxProvenanceConfig } = require('./lib/service-registry/linux-prov
 const { createLinuxProvenanceStore } = require('./lib/service-registry/linux-provenance-store');
 const { readDockerProvenanceConfig } = require('./lib/service-registry/docker-provenance');
 const { createDockerProvenanceStore } = require('./lib/service-registry/docker-provenance-store');
+const { readRecoveryConfig, createRecoveryNotesStore } = require('./lib/service-registry/recovery-notes');
 const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
@@ -489,11 +490,17 @@ let registryScanEnabled = false;
 let httpMetadataStore = null;
 let linuxProvenanceStore = null;
 let dockerProvenanceStore = null;
+let recoveryNotesStore = null;
 try {
   serviceRegistry = createServiceRegistry(db);
   serviceRegistry.markStale('local');
   httpMetadataStore = createHttpMetadataStore(db);
   const registryConfig = readRegistryConfig();
+  const recoveryConfig = readRecoveryConfig();
+  if (recoveryConfig.requiresAuth) {
+    logger.warn('Recovery notes require ENABLE_AUTH=true; recovery disabled');
+  }
+  if (recoveryConfig.enabled) recoveryNotesStore = createRecoveryNotesStore(db);
   const provenanceConfig = readLinuxProvenanceConfig();
   if (provenanceConfig.requiresAuth) {
     logger.warn('Linux provenance requires ENABLE_AUTH=true; collection disabled');
@@ -582,6 +589,7 @@ if (serviceRegistry) {
     scanEnabled: registryScanEnabled, httpStore: httpMetadataStore,
     provenanceStore: linuxProvenanceStore,
     dockerProvenanceStore,
+    recoveryNotesStore,
   }));
 } else {
   app.use('/api/service-registry', requireAuth, (_req, res) =>
