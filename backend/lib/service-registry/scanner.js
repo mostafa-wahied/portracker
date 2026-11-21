@@ -33,6 +33,7 @@ function createRegistryScanner({
   random = Math.random,
   onCycle = null,
   provenanceStore = null,
+  dockerProvenanceStore = null,
 }) {
   if (!registry || typeof registry.reconcileSource !== 'function') {
     throw new TypeError('A service registry with reconciliation is required');
@@ -68,10 +69,14 @@ function createRegistryScanner({
             complete: snapshot.complete,
             at,
             errorCode: snapshot.complete ? null : 'untrusted_scan_scope',
-            onObservation: provenanceStore && source.name === 'system'
-              ? (serviceId, row, observedAt) => {
-                if (row.provenance) provenanceStore.record(serviceId, row.provenance, observedAt);
-              } : null,
+            onObservation: (serviceId, row, observedAt) => {
+              if (source.name === 'system' && provenanceStore && row.provenance) {
+                provenanceStore.record(serviceId, row.provenance, observedAt);
+              }
+              if (source.name === 'docker' && dockerProvenanceStore && row.docker_provenance) {
+                dockerProvenanceStore.record(serviceId, row.docker_provenance, observedAt);
+              }
+            },
           });
           results.push(result);
           sourceFailures.set(source.name, 0);

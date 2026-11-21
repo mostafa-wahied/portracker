@@ -8,6 +8,7 @@ process.env.DATABASE_PATH = ':memory:';
 const { createServiceRegistry } = require('../lib/service-registry/registry');
 const { createHttpMetadataStore } = require('../lib/service-registry/http-store');
 const { createLinuxProvenanceStore } = require('../lib/service-registry/linux-provenance-store');
+const { createDockerProvenanceStore } = require('../lib/service-registry/docker-provenance-store');
 const { createRegistryRouter } = require('./service-registry');
 const sharedDb = require('../db');
 
@@ -23,8 +24,9 @@ async function withServer(run) {
   const registry = createServiceRegistry(db);
   const httpStore = createHttpMetadataStore(db);
   const provenanceStore = createLinuxProvenanceStore(db);
+  const dockerProvenanceStore = createDockerProvenanceStore(db);
   const app = express();
-  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore, provenanceStore }));
+  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore, provenanceStore, dockerProvenanceStore }));
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
@@ -33,6 +35,7 @@ async function withServer(run) {
       registry,
       httpStore,
       provenanceStore,
+      dockerProvenanceStore,
       url: 'http://127.0.0.1:' + server.address().port + '/api/service-registry',
     });
   } finally {
@@ -137,6 +140,35 @@ describe('private Linux provenance API', () => {
       const list = await fetch(url);
       expect(JSON.stringify(await list.json())).not.toContain('private-project');
 
+      process.env.ENABLE_AUTH = 'true';
+      expect((await fetch(url + '/' + service.id)).status).toBe(401);
+    }
+  ));
+});
+
+
+describe('private Docker/Compose provenance API', () => {
+  test('anonymous history never exposes saved Docker host paths', async () => withServer(
+    async ({ registry, dockerProvenanceStore, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const service = registry.observe({
+        host_ip: '0.0.0.0', host_port: 8080, protocol: 'tcp',
+        source: 'docker', container_id: 'a'.repeat(12), owner: 'demo-web',
+      });
+      dockerProvenanceStore.record(service.id, {
+        containerId: 'a'.repeat(64), containerName: 'demo-web-1',
+        image: 'nginx:stable', networkMode: 'bridge',
+        composeProject: 'demo', composeService: 'web',
+        projectWorkingDir: '/home/private/secret project',
+        configFilePaths: ['/home/private/secret project/docker-compose.yml'],
+        hostFingerprint: 'b'.repeat(64),
+      });
+      const response = await fetch(url + '/' + service.id);
+      expect(response.status).toBe(200);
+      const details = await response.json();
+      expect(details).not.toHaveProperty('dockerProvenance');
+      expect(JSON.stringify(details)).not.toContain('secret project');
+      expect(JSON.stringify(await (await fetch(url)).json())).not.toContain('secret project');
       process.env.ENABLE_AUTH = 'true';
       expect((await fetch(url + '/' + service.id)).status).toBe(401);
     }

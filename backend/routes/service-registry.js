@@ -4,7 +4,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 
 function createRegistryRouter(registry, {
-  scanEnabled = false, httpStore = null, provenanceStore = null,
+  scanEnabled = false, httpStore = null, provenanceStore = null, dockerProvenanceStore = null,
 } = {}) {
   const router = express.Router();
 
@@ -67,6 +67,9 @@ function createRegistryRouter(registry, {
       // The global auth-disabled mode must never expose private host paths.
       if (provenanceStore && process.env.ENABLE_AUTH === 'true') {
         details.linuxProvenance = provenanceStore.get(service.id);
+      }
+      if (dockerProvenanceStore && process.env.ENABLE_AUTH === 'true') {
+        details.dockerProvenance = dockerProvenanceStore.get(service.id);
       }
       return res.json(details);
     } catch (error) {

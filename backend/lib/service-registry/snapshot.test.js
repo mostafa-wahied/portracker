@@ -261,6 +261,78 @@ describe('source-complete port capture', () => {
     });
   });
 
+  test('reuses one Docker inspect per container and captures trusted Compose labels', async () => {
+    let inspections = 0;
+    let infoCalls = 0;
+    const dockerApi = {
+      listContainers: async () => [{ ID: 'a'.repeat(12), Names: 'project-web-1',
+        Image: 'nginx:stable' }],
+      getSystemInfo: async () => { infoCalls++; return { ID: 'AAABBB:CCCDDD:EEEFGG:HHHIII' }; },
+      inspectContainer: async () => {
+        inspections++;
+        return {
+          Id: 'a'.repeat(64), Name: '/project-web-1',
+          Config: { Image: 'nginx:stable', Labels: {
+            'com.docker.compose.project': 'project',
+            'com.docker.compose.service': 'web',
+            'com.docker.compose.project.working_dir': '/home/dev/project',
+          } },
+          NetworkSettings: { Ports: {
+            '80/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }],
+            '9000/tcp': null,
+          } },
+        };
+      },
+    };
+    const snap = await captureDockerPublished({ dockerApi });
+    expect(snap.complete).toBe(true);
+    expect(inspections).toBe(1);
+    expect(infoCalls).toBe(1);
+    expect(snap.rows).toHaveLength(1);
+    expect(snap.rows[0]).toMatchObject({
+      compose_project: 'project', compose_service: 'web',
+      container_id: 'a'.repeat(64), host_port: '8080',
+      docker_provenance: {
+        projectWorkingDir: '/home/dev/project',
+        identityConfidence: 'verified',
+      },
+    });
+    expect(snap.rows[0].docker_host_hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test('unavailable Docker /info does not lose published TCP source coverage', async () => {
+    const snap = await captureDockerPublished({
+      dockerApi: {
+        listContainers: async () => [{ ID: 'a'.repeat(12), Names: 'standalone' }],
+        getSystemInfo: async () => { throw new Error('socket proxy denied info'); },
+        inspectContainer: async () => ({
+          Config: { Image: 'nginx:stable', Labels: {} },
+          NetworkSettings: { Ports: {
+            '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }],
+          } },
+        }),
+      },
+    });
+    expect(snap.complete).toBe(true);
+    expect(snap.rows).toHaveLength(1);
+    expect(snap.rows[0].docker_host_hash).toBeNull();
+    expect(snap.rows[0].docker_provenance.identityConfidence).toBe('provisional');
+  });
+
+  test('host-network and internal-only container metadata never fabricate a host port', async () => {
+    const snap = await captureDockerPublished({
+      dockerApi: {
+        listContainers: async () => [{ ID: 'a'.repeat(12), Names: 'hosted' }],
+        inspectContainer: async () => ({
+          HostConfig: { NetworkMode: 'host' },
+          NetworkSettings: { Ports: { '8000/tcp': null, '9000/udp': null } },
+        }),
+      },
+    });
+    expect(snap.rows).toEqual([]);
+    expect(snap.complete).toBe(true);
+  });
+
   test('Docker API failure never becomes an authoritative empty result', async () => {
     await expect(captureDockerPublished({
       dockerApi: { listContainers: async () => { throw new Error('connection refused'); } },

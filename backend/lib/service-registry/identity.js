@@ -68,6 +68,14 @@ function normalizeObservation(value, serverId = 'local') {
     ? value.boot_id.toLowerCase() : null;
   const startTicks = typeof value.process_start_ticks === 'string' &&
     /^[0-9]{1,20}$/.test(value.process_start_ticks) ? value.process_start_ticks : null;
+  const composeProject = typeof value.compose_project === 'string' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(value.compose_project)
+    ? value.compose_project : null;
+  const composeService = typeof value.compose_service === 'string' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(value.compose_service)
+    ? value.compose_service : null;
+  const dockerHostHash = typeof value.docker_host_hash === 'string' &&
+    /^[a-f0-9]{64}$/.test(value.docker_host_hash) ? value.docker_host_hash : null;
   const containerId = typeof value.container_id === 'string' &&
     /^[a-zA-Z0-9_-]{1,128}$/.test(value.container_id)
     ? value.container_id : null;
@@ -75,8 +83,15 @@ function normalizeObservation(value, serverId = 'local') {
   let identityKey = null;
   let identityConfidence = 'uncertain';
 
-  if (source === 'docker' && containerId) {
-    identityKey = hashedIdentity('docker-container:' + containerId);
+  if (source === 'docker' && dockerHostHash && composeProject && composeService) {
+    // Only labels from an inspected container on a *known Docker daemon*
+    // qualify as a durable Compose service identity across container IDs.
+    identityKey = hashedIdentity('docker-compose:' + dockerHostHash + ':' +
+      composeProject + ':' + composeService);
+    identityConfidence = 'verified';
+  } else if (source === 'docker' && containerId) {
+    identityKey = hashedIdentity('docker-container:' +
+      (dockerHostHash ? dockerHostHash + ':' : '') + containerId);
     identityConfidence = 'provisional';
   } else if (pid !== null) {
     // Only an observation episode, never a verified identity across host boots.

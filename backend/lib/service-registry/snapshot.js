@@ -5,6 +5,7 @@ const path = require('node:path');
 const ProcParser = require('../proc-parser');
 const DockerAPIClient = require('../docker-api');
 const { readLinuxProcessProvenance } = require('./linux-provenance');
+const { extractDockerProvenance, daemonFingerprint } = require('./docker-provenance');
 
 function isDockerized() {
   return fs.existsSync('/.dockerenv');
@@ -87,6 +88,11 @@ async function captureDockerPublished({
     throw new TypeError('Invalid Docker discovery limits');
   }
   const containers = await dockerApi.listContainers();
+  let hostFingerprint = null;
+  if (typeof dockerApi.getSystemInfo === 'function') {
+    try { hostFingerprint = daemonFingerprint(await dockerApi.getSystemInfo()); }
+    catch { /* Restricted socket proxies may not allow /info. */ }
+  }
   if (!Array.isArray(containers) || containers.length > maxContainers) {
     throw new Error('Docker snapshot invalid or exceeds configured limit');
   }
@@ -99,6 +105,7 @@ async function captureDockerPublished({
         throw new Error('Container without a valid identifier');
       }
       const inspect = await dockerApi.inspectContainer(container.ID);
+      const provenance = extractDockerProvenance(container, inspect, hostFingerprint);
       if (!inspect || typeof inspect !== 'object' ||
           !inspect.NetworkSettings || typeof inspect.NetworkSettings !== 'object' ||
           !Object.prototype.hasOwnProperty.call(inspect.NetworkSettings, 'Ports')) {
@@ -127,8 +134,12 @@ async function captureDockerPublished({
             protocol: 'tcp',
             host_ip: binding.HostIp || '0.0.0.0',
             host_port: binding.HostPort,
-            owner: String(container.Names || inspect.Name || 'unknown').replace(/^\/+/, ''),
-            container_id: container.ID,
+            owner: provenance.containerName || 'unknown',
+            container_id: provenance.containerId || container.ID,
+            compose_project: provenance.composeProject,
+            compose_service: provenance.composeService,
+            docker_host_hash: provenance.hostFingerprint,
+            docker_provenance: provenance,
             internal: false,
           });
         }

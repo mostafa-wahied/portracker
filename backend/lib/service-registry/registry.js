@@ -210,6 +210,7 @@ function createServiceRegistry(db) {
   const forgetOne = db.transaction((id) => {
     const found = getById.get(id);
     if (!found) return false;
+    db.prepare('DELETE FROM registry_docker_provenance WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_linux_provenance WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_http_metadata WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_endpoints WHERE service_id = ?').run(id);
@@ -281,7 +282,7 @@ function createServiceRegistry(db) {
       }
       const serviceId = insertObservation(row, { serverId, at });
       observed.add(serviceId);
-      if (onObservation && source === 'system') onObservation(serviceId, row, at);
+      if (onObservation) onObservation(serviceId, row, at);
     }
 
     // When a source is incomplete, prior listening records become unknown;

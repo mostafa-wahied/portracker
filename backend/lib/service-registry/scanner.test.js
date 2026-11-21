@@ -4,6 +4,7 @@ const Database = require('better-sqlite3');
 const { describe, test, expect } = require('@jest/globals');
 const { createServiceRegistry } = require('./registry');
 const { createLinuxProvenanceStore } = require('./linux-provenance-store');
+const { createDockerProvenanceStore } = require('./docker-provenance-store');
 const { createRegistryScanner, readRegistryConfig } = require('./scanner');
 
 function fixture(run) {
@@ -170,6 +171,33 @@ describe('backend registry worker', () => {
     });
     expect(store.get(dockers[0].id)).toBeNull();
     expect(registry.listServices().items[0]).not.toHaveProperty('cwd');
+  }));
+
+  test('Docker inspection provenance follows service identity through reconciliation', async () => fixture(async (db, registry) => {
+    const store = createDockerProvenanceStore(db);
+    const project = { composeProject: 'demo', composeService: 'web',
+      containerId: 'a'.repeat(64), containerName: 'demo-web-1',
+      image: 'nginx:stable', hostFingerprint: 'b'.repeat(64),
+      projectWorkingDir: '/home/dev/project',
+      configFilePaths: ['/home/dev/project/compose.yml'] };
+    const worker = createRegistryScanner({
+      registry, dockerProvenanceStore: store, now: () => 1000,
+      captureHost: async () => ({ source: 'system', complete: true, rows: [] }),
+      captureDocker: async () => ({ source: 'docker', complete: true, rows: [{
+        ...docker(8080, 'a'.repeat(12)),
+        compose_project: 'demo', compose_service: 'web',
+        docker_host_hash: 'b'.repeat(64), docker_provenance: project,
+      }] }),
+    });
+    const result = await worker.scanOnce();
+    expect(result.map(x => x.outcome)).toEqual(['complete', 'complete']);
+    const service = registry.listServices({ source: 'docker' }).items[0];
+    expect(service.identityConfidence).toBe('verified');
+    expect(store.get(service.id)).toMatchObject({
+      composeProject: 'demo', composeService: 'web',
+      projectWorkingDir: '/home/dev/project',
+    });
+    expect(service).not.toHaveProperty('projectWorkingDir');
   }));
 
   test('disabled worker schedules nothing; enabled worker schedules and can stop', () => fixture((_db, registry) => {

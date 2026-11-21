@@ -26,6 +26,8 @@ const { createHttpMetadataWorker } = require('./lib/service-registry/http-worker
 const { captureHostTcp } = require('./lib/service-registry/snapshot');
 const { readLinuxProvenanceConfig } = require('./lib/service-registry/linux-provenance');
 const { createLinuxProvenanceStore } = require('./lib/service-registry/linux-provenance-store');
+const { readDockerProvenanceConfig } = require('./lib/service-registry/docker-provenance');
+const { createDockerProvenanceStore } = require('./lib/service-registry/docker-provenance-store');
 const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
@@ -486,6 +488,7 @@ let registryScanner = null;
 let registryScanEnabled = false;
 let httpMetadataStore = null;
 let linuxProvenanceStore = null;
+let dockerProvenanceStore = null;
 try {
   serviceRegistry = createServiceRegistry(db);
   serviceRegistry.markStale('local');
@@ -497,6 +500,13 @@ try {
   }
   if (registryConfig.enabled && provenanceConfig.enabled) {
     linuxProvenanceStore = createLinuxProvenanceStore(db);
+  }
+  const dockerConfig = readDockerProvenanceConfig();
+  if (dockerConfig.requiresAuth) {
+    logger.warn('Docker Compose provenance requires ENABLE_AUTH=true; private metadata disabled');
+  }
+  if (registryConfig.enabled && dockerConfig.enabled) {
+    dockerProvenanceStore = createDockerProvenanceStore(db);
   }
   let onCycle = null;
   try {
@@ -516,6 +526,7 @@ try {
   registryScanner = createRegistryScanner({
     registry: serviceRegistry, ...registryConfig, logger, onCycle,
     provenanceStore: linuxProvenanceStore,
+    dockerProvenanceStore,
     ...(linuxProvenanceStore ? { captureHost: () =>
       captureHostTcp({ collectProvenance: true }) } : {}),
   });
@@ -570,6 +581,7 @@ if (serviceRegistry) {
   app.use('/api/service-registry', createRegistryRouter(serviceRegistry, {
     scanEnabled: registryScanEnabled, httpStore: httpMetadataStore,
     provenanceStore: linuxProvenanceStore,
+    dockerProvenanceStore,
   }));
 } else {
   app.use('/api/service-registry', requireAuth, (_req, res) =>

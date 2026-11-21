@@ -62,6 +62,23 @@ function migrateRegistrySchema(db) {
       ');',
       'CREATE INDEX IF NOT EXISTS idx_registry_metadata_retry',
       '  ON registry_http_metadata (last_attempt_at, fetched_at);',
+      'CREATE TABLE IF NOT EXISTS registry_docker_provenance (',
+      '  service_id TEXT PRIMARY KEY REFERENCES registry_services(id) ON DELETE CASCADE,',
+      '  daemon_fingerprint TEXT,',
+      '  container_id TEXT,',
+      '  container_name TEXT,',
+      '  image TEXT,',
+      '  network_mode TEXT,',
+      '  compose_project TEXT,',
+      '  compose_service TEXT,',
+      '  project_working_dir TEXT,',
+      '  config_files_json TEXT NOT NULL DEFAULT \'[]\',',
+      "  path_scope TEXT NOT NULL DEFAULT 'docker-host',",
+      "  identity_confidence TEXT NOT NULL CHECK (identity_confidence IN ('verified','provisional')),",
+      '  captured_at INTEGER NOT NULL',
+      ');',
+      'CREATE INDEX IF NOT EXISTS idx_registry_docker_compose',
+      '  ON registry_docker_provenance (compose_project, compose_service);',
       'CREATE TABLE IF NOT EXISTS registry_linux_provenance (',
       '  service_id TEXT PRIMARY KEY REFERENCES registry_services(id) ON DELETE CASCADE,',
       "  kind TEXT NOT NULL CHECK (kind IN ('systemd_system_service','systemd_user_service','session_scope','container','manual','unknown')),",
@@ -96,6 +113,8 @@ function migrateRegistrySchema(db) {
       .run(3, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(4, Date.now());
+    db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
+      .run(5, Date.now());
   });
   migrate();
 }

@@ -224,7 +224,15 @@ function createRegistryHistoryFixture() {
         records.splice(records.indexOf(item), 1);
         return route.fulfill({ status: 204, body: '' });
       }
-      return json({ ...item, linuxProvenance: id === 'history-fixture-79' ? {
+      return json({ ...item, dockerProvenance: id === 'history-fixture-78' ? {
+        composeProject: 'demo', composeService: 'web',
+        containerName: 'demo-web-1', image: 'nginx:stable',
+        networkMode: 'bridge', hostFingerprint: 'a'.repeat(64),
+        projectWorkingDir: '/home/dev/demo',
+        configFilePaths: ['/home/dev/demo/compose.yml'],
+        pathScope: 'docker-host', identityConfidence: 'verified',
+        capturedAt: 1730000000000,
+      } : null, linuxProvenance: id === 'history-fixture-79' ? {
         kind: 'systemd_user_service', confidence: 'observed',
         unitName: 'dev.service', unitScope: 'user',
         pid: 777, uid: 1000, processStartTicks: '876543',
@@ -270,6 +278,9 @@ async function registryHistoryNavigation(page, options) {
       'A failed source scan must remain unknown, never appear under offline');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByText('Page 2 of 5').waitFor();
+    await page.getByRole('button', { name: /example-service-78/ }).click();
+    await page.getByRole('region', { name: 'Docker launch provenance' }).waitFor();
+    await page.getByText('nginx:stable', { exact: true }).waitFor();
     await page.getByRole('button', { name: /example-service-79/ }).click();
     await page.getByText('Remembered endpoints').waitFor();
     await page.getByRole('region', { name: 'Linux launch provenance' }).waitFor();
