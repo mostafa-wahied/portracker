@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import {
+  SERVICE_CARD_CLASS, SERVICE_CARD_HEADER_CLASS, SERVICE_CARD_BODY_CLASS,
+  SERVICE_CARD_TITLE_CLASS, SERVICE_CARD_META_CLASS,
+  ServiceListChevron, ServiceSourceBadge,
+} from "@/components/ui/service-list-visuals";
 import {
   Tooltip,
   TooltipContent,
@@ -76,13 +80,15 @@ export function ServiceCardList({
 
   return (
     <div
-      className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800/50"
+      className={SERVICE_CARD_CLASS}
+      data-service-list-surface="live"
       data-service-name={serviceName}
     >
       <div
         data-service-card-header="true"
+        data-service-list-header
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        className={SERVICE_CARD_HEADER_CLASS + " cursor-pointer"}
       >
         <div className="flex items-center space-x-3">
           {selectionMode && (
@@ -99,7 +105,7 @@ export function ServiceCardList({
           )}
 
           <div className="flex items-center">
-            <ChevronRight className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} />
+            <ServiceListChevron expanded={isExpanded} />
           </div>
 
           {showIcons && <ServiceIcon name={serviceName} source={isDocker ? "docker" : "system"} size={24} />}
@@ -108,16 +114,12 @@ export function ServiceCardList({
 
           <div className="flex flex-col">
             <div className="flex items-center space-x-2">
-              <span className="font-medium text-slate-900 dark:text-slate-100">
+              <span data-service-list-title className={SERVICE_CARD_TITLE_CLASS}>
                 {serviceName}
               </span>
             </div>
-            <div className="flex items-center space-x-2 text-xs text-slate-500 dark:text-slate-400">
-              <span
-                className={`inline-block px-1.5 py-0.5 rounded ${isDocker ? "bg-blue-100 text-blue-700 dark:bg-blue-800/30 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-800/30 dark:text-green-300"}`}
-              >
-                {isDocker ? "docker" : "system"}
-              </span>
+            <div className={"flex items-center space-x-2 " + SERVICE_CARD_META_CLASS}>
+              <ServiceSourceBadge sources={[isDocker ? "docker" : "system"]} />
               <span>
                 {ports.length} port{ports.length !== 1 ? "s" : ""}
               </span>
@@ -175,7 +177,7 @@ export function ServiceCardList({
       </div>
 
       {isExpanded && (
-        <div className="border-t border-slate-200 dark:border-slate-700 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+        <div className={SERVICE_CARD_BODY_CLASS + " animate-in fade-in-0 slide-in-from-top-1 duration-200"}>
           {(() => {
             const containerGroups = new Map();
             ports.forEach((port) => {
