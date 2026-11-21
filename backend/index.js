@@ -23,6 +23,9 @@ const { createRegistryScanner, readRegistryConfig } = require('./lib/service-reg
 const { createHttpMetadataStore } = require('./lib/service-registry/http-store');
 const { readHttpMetadataConfig } = require('./lib/service-registry/http-probe');
 const { createHttpMetadataWorker } = require('./lib/service-registry/http-worker');
+const { captureHostTcp } = require('./lib/service-registry/snapshot');
+const { readLinuxProvenanceConfig } = require('./lib/service-registry/linux-provenance');
+const { createLinuxProvenanceStore } = require('./lib/service-registry/linux-provenance-store');
 const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
@@ -482,11 +485,19 @@ let serviceRegistry = null;
 let registryScanner = null;
 let registryScanEnabled = false;
 let httpMetadataStore = null;
+let linuxProvenanceStore = null;
 try {
   serviceRegistry = createServiceRegistry(db);
   serviceRegistry.markStale('local');
   httpMetadataStore = createHttpMetadataStore(db);
   const registryConfig = readRegistryConfig();
+  const provenanceConfig = readLinuxProvenanceConfig();
+  if (provenanceConfig.requiresAuth) {
+    logger.warn('Linux provenance requires ENABLE_AUTH=true; collection disabled');
+  }
+  if (registryConfig.enabled && provenanceConfig.enabled) {
+    linuxProvenanceStore = createLinuxProvenanceStore(db);
+  }
   let onCycle = null;
   try {
     const httpConfig = readHttpMetadataConfig();
@@ -504,6 +515,9 @@ try {
   }
   registryScanner = createRegistryScanner({
     registry: serviceRegistry, ...registryConfig, logger, onCycle,
+    provenanceStore: linuxProvenanceStore,
+    ...(linuxProvenanceStore ? { captureHost: () =>
+      captureHostTcp({ collectProvenance: true }) } : {}),
   });
   registryScanEnabled = registryConfig.enabled;
 } catch (error) {
@@ -555,6 +569,7 @@ app.use('/api/settings', requireAuth, settingsRoutes);
 if (serviceRegistry) {
   app.use('/api/service-registry', createRegistryRouter(serviceRegistry, {
     scanEnabled: registryScanEnabled, httpStore: httpMetadataStore,
+    provenanceStore: linuxProvenanceStore,
   }));
 } else {
   app.use('/api/service-registry', requireAuth, (_req, res) =>

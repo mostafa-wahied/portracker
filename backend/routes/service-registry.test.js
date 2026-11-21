@@ -7,6 +7,7 @@ const originalDatabasePath = process.env.DATABASE_PATH;
 process.env.DATABASE_PATH = ':memory:';
 const { createServiceRegistry } = require('../lib/service-registry/registry');
 const { createHttpMetadataStore } = require('../lib/service-registry/http-store');
+const { createLinuxProvenanceStore } = require('../lib/service-registry/linux-provenance-store');
 const { createRegistryRouter } = require('./service-registry');
 const sharedDb = require('../db');
 
@@ -21,8 +22,9 @@ async function withServer(run) {
   const db = new Database(':memory:');
   const registry = createServiceRegistry(db);
   const httpStore = createHttpMetadataStore(db);
+  const provenanceStore = createLinuxProvenanceStore(db);
   const app = express();
-  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore }));
+  app.use('/api/service-registry', createRegistryRouter(registry, { httpStore, provenanceStore }));
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
@@ -30,6 +32,7 @@ async function withServer(run) {
     return await run({
       registry,
       httpStore,
+      provenanceStore,
       url: 'http://127.0.0.1:' + server.address().port + '/api/service-registry',
     });
   } finally {
@@ -109,4 +112,33 @@ describe('cached HTTP metadata routes', () => {
     const invalid = await fetch(url + '/icons/not-a-hash');
     expect(invalid.status).toBe(404);
   }));
+});
+
+
+describe('private Linux provenance API', () => {
+  test('never leaks cwd or executable when global authentication is disabled', async () => withServer(
+    async ({ registry, provenanceStore, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const service = registry.observe({
+        host_ip: '127.0.0.1', host_port: 3000, protocol: 'tcp',
+        source: 'system', owner: 'node', pid: 987,
+      });
+      provenanceStore.record(service.id, {
+        kind: 'systemd_user_service', confidence: 'observed',
+        unitName: 'dev.service', unitScope: 'user',
+        pid: 987, startTicks: '998877', uid: 1000,
+        cwd: '/home/dev/private-project', executablePath: '/nix/store/secret/bin/node',
+      }, Date.now());
+      const response = await fetch(url + '/' + service.id);
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result).not.toHaveProperty('linuxProvenance');
+      expect(JSON.stringify(result)).not.toContain('private-project');
+      const list = await fetch(url);
+      expect(JSON.stringify(await list.json())).not.toContain('private-project');
+
+      process.env.ENABLE_AUTH = 'true';
+      expect((await fetch(url + '/' + service.id)).status).toBe(401);
+    }
+  ));
 });

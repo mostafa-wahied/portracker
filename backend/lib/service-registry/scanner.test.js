@@ -3,6 +3,7 @@
 const Database = require('better-sqlite3');
 const { describe, test, expect } = require('@jest/globals');
 const { createServiceRegistry } = require('./registry');
+const { createLinuxProvenanceStore } = require('./linux-provenance-store');
 const { createRegistryScanner, readRegistryConfig } = require('./scanner');
 
 function fixture(run) {
@@ -141,6 +142,34 @@ describe('backend registry worker', () => {
     await Promise.all([first, second]);
     expect(calls).toBe(1);
     expect(registry.listServices().total).toBe(1);
+  }));
+
+  test('links captured Linux provenance to the exact observed service, not Docker ports', async () => fixture(async (db, registry) => {
+    const store = createLinuxProvenanceStore(db);
+    const worker = createRegistryScanner({
+      registry, provenanceStore: store, now: () => 1000,
+      captureHost: async () => ({ source: 'system', complete: true, rows: [{
+        ...system(3000, 4321), process_start_ticks: '123456',
+        provenance: {
+          kind: 'systemd_user_service', confidence: 'observed', unitName: 'dev.service',
+          unitScope: 'user', pid: 4321, uid: 1000, startTicks: '123456',
+          cwd: '/home/dev/app', executablePath: '/nix/store/node/bin/node',
+        },
+      }] }),
+      captureDocker: async () => ({
+        source: 'docker', complete: true,
+        rows: [{ ...docker(8000), provenance: { pid: 7, startTicks: '22' } }],
+      }),
+    });
+    const observations = await worker.scanOnce();
+    expect(observations.map(item => item.outcome)).toEqual(['complete', 'complete']);
+    const natives = registry.listServices({ source: 'system' }).items;
+    const dockers = registry.listServices({ source: 'docker' }).items;
+    expect(store.get(natives[0].id)).toMatchObject({
+      kind: 'systemd_user_service', unitName: 'dev.service',
+    });
+    expect(store.get(dockers[0].id)).toBeNull();
+    expect(registry.listServices().items[0]).not.toHaveProperty('cwd');
   }));
 
   test('disabled worker schedules nothing; enabled worker schedules and can stop', () => fixture((_db, registry) => {

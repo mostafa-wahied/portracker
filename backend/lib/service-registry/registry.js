@@ -210,6 +210,7 @@ function createServiceRegistry(db) {
   const forgetOne = db.transaction((id) => {
     const found = getById.get(id);
     if (!found) return false;
+    db.prepare('DELETE FROM registry_linux_provenance WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_http_metadata WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_endpoints WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_services WHERE id = ?').run(id);
@@ -262,7 +263,7 @@ function createServiceRegistry(db) {
    * from a different source must NEVER be marked offline.
    */
   const reconcile = db.transaction(({ serverId = 'local', source, rows = [],
-    complete = false, at = Date.now(), errorCode = null }) => {
+    complete = false, at = Date.now(), errorCode = null, onObservation = null }) => {
     if (!validServerId(serverId)) throw new TypeError('Invalid server ID');
     if (!['system', 'docker'].includes(source)) throw new TypeError('Invalid scan source');
     if (!Array.isArray(rows) || rows.length > 4096) throw new TypeError('Invalid scan rows');
@@ -278,7 +279,9 @@ function createServiceRegistry(db) {
       if (item.source !== source || item.protocol !== 'tcp' || item.internal) {
         throw new TypeError('Snapshot contains out-of-scope listener');
       }
-      observed.add(insertObservation(row, { serverId, at }));
+      const serviceId = insertObservation(row, { serverId, at });
+      observed.add(serviceId);
+      if (onObservation && source === 'system') onObservation(serviceId, row, at);
     }
 
     // When a source is incomplete, prior listening records become unknown;

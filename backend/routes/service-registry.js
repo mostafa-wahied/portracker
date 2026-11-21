@@ -3,7 +3,9 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 
-function createRegistryRouter(registry, { scanEnabled = false, httpStore = null } = {}) {
+function createRegistryRouter(registry, {
+  scanEnabled = false, httpStore = null, provenanceStore = null,
+} = {}) {
   const router = express.Router();
 
   router.get('/', requireAuth, (req, res) => {
@@ -61,7 +63,12 @@ function createRegistryRouter(registry, { scanEnabled = false, httpStore = null 
       res.set('Cache-Control', 'no-store');
       const service = registry.getService(req.params.id);
       if (!service) return res.status(404).json({ error: 'Saved service not found' });
-      return res.json(httpStore ? { ...service, ...httpStore.getMetadata(service.id) } : service);
+      const details = httpStore ? { ...service, ...httpStore.getMetadata(service.id) } : service;
+      // The global auth-disabled mode must never expose private host paths.
+      if (provenanceStore && process.env.ENABLE_AUTH === 'true') {
+        details.linuxProvenance = provenanceStore.get(service.id);
+      }
+      return res.json(details);
     } catch (error) {
       if (error instanceof TypeError) return res.status(400).json({ error: error.message });
       return res.status(500).json({ error: 'Unable to load saved service' });

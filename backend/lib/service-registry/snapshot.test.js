@@ -43,6 +43,60 @@ describe('source-complete port capture', () => {
     }
   });
 
+  test('provenance is opt-in, per unique PID, and does not affect complete scan status', async () => {
+    const parser = { procPath: '/fake/proc', getTcpPorts: async () => [
+      { host_ip: '127.0.0.1', host_port: 3000, owner: 'node', pid: 7 },
+      { host_ip: '127.0.0.1', host_port: 3001, owner: 'node', pid: 7 },
+      { host_ip: '127.0.0.1', host_port: 3002, owner: 'unknown', pid: null },
+    ] };
+    let reads = 0;
+    const provenanceReader = async (pid, options) => {
+      reads++;
+      expect(pid).toBe(7);
+      expect(options.procRoot).toBe('/fake/proc');
+      return {
+        kind: 'systemd_user_service', unitName: 'dev.service', unitScope: 'user',
+        confidence: 'observed', pid, startTicks: '123456', uid: 1000,
+      };
+    };
+    const snapshot = await captureHostTcp({
+      parser, dockerized: false, collectProvenance: true, provenanceReader,
+    });
+    expect(snapshot.complete).toBe(true);
+    expect(reads).toBe(1);
+    expect(snapshot.rows[0].provenance.unitName).toBe('dev.service');
+    expect(snapshot.rows[1].process_start_ticks).toBe('123456');
+    expect(snapshot.rows[2].provenance).toBeNull();
+    await captureHostTcp({ parser, dockerized: false, collectProvenance: false, provenanceReader });
+    expect(reads).toBe(1);
+  });
+
+  test('Docker without trusted host proc never stores container-local process provenance', async () => {
+    let calls = 0;
+    const snapshot = await captureHostTcp({
+      parser: { getTcpPorts: async () => [
+        { host_ip: '127.0.0.1', host_port: 3000, owner: 'node', pid: 7 },
+      ] },
+      dockerized: true, hostProcTrusted: false, collectProvenance: true,
+      provenanceReader: async () => { calls++; return { startTicks: '123' }; },
+    });
+    expect(snapshot.complete).toBe(false);
+    expect(snapshot.rows[0].provenance).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  test('permission errors during provenance read do not mark host TCP scan failed', async () => {
+    const snapshot = await captureHostTcp({
+      parser: { procPath: '/fake', getTcpPorts: async () => [
+        { host_ip: '127.0.0.1', host_port: 3000, owner: 'node', pid: 7 },
+      ] },
+      dockerized: false, collectProvenance: true,
+      provenanceReader: async () => { throw new Error('permission denied'); },
+    });
+    expect(snapshot.complete).toBe(true);
+    expect(snapshot.rows[0].provenance).toBeNull();
+  });
+
   test('strict /proc parser does not call missing tcp6 a successful empty scan', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'strict-proc-fixture-'));
     try {
@@ -58,7 +112,7 @@ describe('source-complete port capture', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('strict TCP collection accepts an IPv4-only host', async () => {
+  test('strict TCP collection accepts host with IPv4 and no IPv6 stack', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipv4-only-proc-'));
     try {
       fs.mkdirSync(path.join(dir, 'net'), { recursive: true });
@@ -71,7 +125,9 @@ describe('source-complete port capture', () => {
       parser.isContainerized = false;
       parser._buildInodeMap = async () => new Map();
       parser._buildInodeMapForInodes = async () => new Map();
-      const snapshot = await captureHostTcp({ parser, dockerized: true, hostProcTrusted: true });
+      const snapshot = await captureHostTcp({
+        parser, dockerized: true, hostProcTrusted: true,
+      });
       expect(snapshot.complete).toBe(true);
       expect(snapshot.rows).toEqual([expect.objectContaining({
         host_ip: '127.0.0.1', host_port: 4177, protocol: 'tcp',
@@ -79,7 +135,7 @@ describe('source-complete port capture', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('strict TCP collection rejects a missing IPv6 table with IPv6 indicators', async () => {
+  test('strict collection rejects missing IPv6 table if IPv6 interface evidence exists', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipv6-incomplete-proc-'));
     try {
       fs.mkdirSync(path.join(dir, 'net'), { recursive: true });
@@ -94,7 +150,7 @@ describe('source-complete port capture', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('strict TCP collection rejects a missing IPv4 table even on IPv4-only hosts', async () => {
+  test('strict collection rejects missing IPv4 table even without IPv6 support', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipv4-missing-proc-'));
     try {
       fs.mkdirSync(path.join(dir, 'net'), { recursive: true });

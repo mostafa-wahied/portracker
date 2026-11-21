@@ -66,6 +66,8 @@ function normalizeObservation(value, serverId = 'local') {
   const bootId = typeof value.boot_id === 'string' &&
     /^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$/.test(value.boot_id)
     ? value.boot_id.toLowerCase() : null;
+  const startTicks = typeof value.process_start_ticks === 'string' &&
+    /^[0-9]{1,20}$/.test(value.process_start_ticks) ? value.process_start_ticks : null;
   const containerId = typeof value.container_id === 'string' &&
     /^[a-zA-Z0-9_-]{1,128}$/.test(value.container_id)
     ? value.container_id : null;
@@ -78,7 +80,8 @@ function normalizeObservation(value, serverId = 'local') {
     identityConfidence = 'provisional';
   } else if (pid !== null) {
     // Only an observation episode, never a verified identity across host boots.
-    identityKey = hashedIdentity('process:' + source + ':' + (bootId || 'boot-unknown') + ':' + pid + ':' + owner);
+    identityKey = hashedIdentity('process:' + source + ':' + (bootId || 'boot-unknown') +
+      ':' + pid + ':' + (startTicks || 'start-unknown') + ':' + owner);
     identityConfidence = 'provisional';
   } else if (owner !== 'unknown') {
     // Owner text is weak evidence, but distinguishes e.g. nginx from node on

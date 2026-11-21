@@ -81,9 +81,12 @@ services:
       # Collect every 30s without a browser tab (range: 10s–1h).
       # - SERVICE_REGISTRY_ENABLED=true
       # - SERVICE_REGISTRY_SCAN_INTERVAL_MS=30000
-      # HTML title/favicon enrichment is on when the registry is enabled.
-      # Optional explicit opt-out or vetted private IP override:
+      # Optional actual root HTML title/favicon enrichment; disabled by default
+      # HTTP metadata defaults on; use this only to opt out:
       # - SERVICE_REGISTRY_HTTP_ENABLED=false
+      # Optional read-only Linux/systemd attribution (private host paths).
+      # Requires ENABLE_AUTH=true; never expose host paths anonymously.
+      # - SERVICE_REGISTRY_PROVENANCE_ENABLED=true
       # Inside Docker explicitly set a vetted, reachable host gateway IP.
       # Do not use 127.0.0.1 to target the host from a bridge container.
       # - SERVICE_REGISTRY_HTTP_HOST=172.17.0.1

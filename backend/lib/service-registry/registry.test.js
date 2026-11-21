@@ -28,7 +28,7 @@ describe('persistent localhost registry storage', () => {
       db.prepare('INSERT INTO notes_legacy_fixture VALUES (?)').run('my manual notes');
       createServiceRegistry(db);
       createServiceRegistry(db);
-      expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(3);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(4);
       expect(db.prepare('SELECT note FROM notes_legacy_fixture').get().note)
         .toBe('my manual notes');
     } finally { db.close(); }

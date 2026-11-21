@@ -224,7 +224,13 @@ function createRegistryHistoryFixture() {
         records.splice(records.indexOf(item), 1);
         return route.fulfill({ status: 204, body: '' });
       }
-      return json({ ...item, endpoints: [
+      return json({ ...item, linuxProvenance: id === 'history-fixture-79' ? {
+        kind: 'systemd_user_service', confidence: 'observed',
+        unitName: 'dev.service', unitScope: 'user',
+        pid: 777, uid: 1000, processStartTicks: '876543',
+        cwd: '/home/dev/app', executablePath: '/nix/store/node/bin/node',
+        capturedAt: 1730000000000,
+      } : null, endpoints: [
         { id: 'endpoint-' + id, source: item.source, hostIp: item.previewHostIp,
           hostPort: item.previewPort, protocol: 'tcp', lastSeenAt: item.lastSeenAt },
       ] });
@@ -266,6 +272,8 @@ async function registryHistoryNavigation(page, options) {
     await page.getByText('Page 2 of 5').waitFor();
     await page.getByRole('button', { name: /example-service-79/ }).click();
     await page.getByText('Remembered endpoints').waitFor();
+    await page.getByRole('region', { name: 'Linux launch provenance' }).waitFor();
+    await page.getByText('dev.service', { exact: true }).waitFor();
     await page.getByText('Verified Local Root', { exact: true }).first().waitFor();
     await page.locator('img[src="/api/service-registry/icons/' + 'a'.repeat(64) + '"]').first().waitFor();
     const forget = page.getByRole('button', { name: 'Forget this history record' });

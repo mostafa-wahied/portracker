@@ -32,6 +32,7 @@ function createRegistryScanner({
   now = Date.now,
   random = Math.random,
   onCycle = null,
+  provenanceStore = null,
 }) {
   if (!registry || typeof registry.reconcileSource !== 'function') {
     throw new TypeError('A service registry with reconciliation is required');
@@ -67,6 +68,10 @@ function createRegistryScanner({
             complete: snapshot.complete,
             at,
             errorCode: snapshot.complete ? null : 'untrusted_scan_scope',
+            onObservation: provenanceStore && source.name === 'system'
+              ? (serviceId, row, observedAt) => {
+                if (row.provenance) provenanceStore.record(serviceId, row.provenance, observedAt);
+              } : null,
           });
           results.push(result);
           sourceFailures.set(source.name, 0);

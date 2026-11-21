@@ -1,3 +1,4 @@
+import { RegistryLinuxProvenance } from "./RegistryLinuxProvenance";
 import React, { useCallback, useEffect, useState } from "react";
 import { History, RefreshCw, Search, Trash2, X } from "lucide-react";
 import {
@@ -306,6 +307,7 @@ export function RegistryHistory() {
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 First seen {registryTimestamp(detail.firstSeenAt)} · Last seen {registryTimestamp(detail.lastSeenAt)}
               </p>
+              <RegistryLinuxProvenance evidence={detail.linuxProvenance} />
               <h3 className="font-medium text-sm">Remembered endpoints</h3>
               <ul className="list-disc pl-5 text-sm space-y-1 text-slate-600 dark:text-slate-300">
                 {detail.endpoints.slice(0, 20).map(ep => (
@@ -317,7 +319,7 @@ export function RegistryHistory() {
                 <p className="text-sm text-slate-500">Showing the 20 most recently seen endpoints.</p>
               )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Title/favicon are captured from the HTTP root when metadata probing is enabled. Process provenance and restart hints are future improvements.
+                Title/favicon are captured from the HTTP root when enabled. Linux provenance is available only with authenticated opt-in; restart commands are not generated yet.
               </p>
               <button type="button" disabled={forgetting} onClick={handleForget}
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm border border-red-300 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
