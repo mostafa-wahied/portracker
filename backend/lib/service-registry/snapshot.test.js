@@ -171,6 +171,17 @@ describe('source-complete port capture', () => {
     }
   });
 
+  test('Docker discovery bounds cannot disable the batching loop', async () => {
+    const dockerApi = { listContainers: async () => [] };
+    for (const settings of [
+      { concurrency: 0 }, { concurrency: -1 }, { concurrency: 100 },
+      { maxContainers: 0 }, { maxContainers: 10000 },
+    ]) {
+      await expect(captureDockerPublished({ dockerApi, ...settings }))
+        .rejects.toThrow('Invalid Docker discovery limits');
+    }
+  });
+
   test('Docker published ports are copied only from successful inspection', async () => {
     const dockerApi = {
       listContainers: async () => [

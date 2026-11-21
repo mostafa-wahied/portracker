@@ -58,6 +58,10 @@ async function captureDockerPublished({
   maxContainers = 500,
   concurrency = 6,
 } = {}) {
+  if (!Number.isInteger(maxContainers) || maxContainers < 1 || maxContainers > 1000 ||
+      !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
+    throw new TypeError('Invalid Docker discovery limits');
+  }
   const containers = await dockerApi.listContainers();
   if (!Array.isArray(containers) || containers.length > maxContainers) {
     throw new Error('Docker snapshot invalid or exceeds configured limit');
@@ -78,7 +82,11 @@ async function captureDockerPublished({
       }
       // A present null Ports value represents no published bindings.
       // Missing NetworkSettings/Ports is not an authoritative empty snapshot.
-      const mappings = inspect.NetworkSettings.Ports ?? {};
+      if (inspect.NetworkSettings.Ports === undefined) {
+        throw new Error('Malformed Docker inspect port data');
+      }
+      const mappings = inspect.NetworkSettings.Ports === null
+        ? {} : inspect.NetworkSettings.Ports;
       if (typeof mappings !== 'object' || Array.isArray(mappings)) {
         throw new Error('Malformed Docker port mapping');
       }
