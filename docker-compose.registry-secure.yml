@@ -1,0 +1,77 @@
+# Secure, optional Linux/NixOS profile for the official upstream Portracker image.
+# Do NOT merge this file with the legacy docker-compose.yml.
+# Only use an upstream release verified to contain the service-registry PR stack.
+# See docs/service-registry-upstream-deployment.md for backup/migration steps.
+# Reuse the existing SESSION_SECRET and absolute PORTRACKER_DATA_DIR on migration.
+# New installs: generate SESSION_SECRET with a secure random generator.
+# This profile binds the UI to loopback, mounts host proc read-only,
+# and permits Docker inspection only through an internal GET-only API proxy.
+name: portracker-registry
+services:
+  portracker:
+    image: ${PORTRACKER_IMAGE:-mostafawahied/portracker:latest}
+    restart: unless-stopped
+    pid: host
+    cap_add:
+      - SYS_PTRACE
+    ports:
+      - "127.0.0.1:4999:4999"
+    networks:
+      - default
+      - docker-monitor
+    volumes:
+      - ${PORTRACKER_DATA_DIR:-./portracker-data}:/data
+      - /proc:/host/proc:ro
+    environment:
+      NODE_ENV: production
+      PORT: "4999"
+      DATABASE_PATH: /data/portracker.db
+      HOST_PROC: /host/proc
+      # Only a private GET-only API proxy; Portracker NEVER mounts docker.sock.
+      # No depends_on: the dashboard starts even when the proxy is unavailable.
+      DOCKER_HOST: "tcp://docker-api-proxy:2375"
+      ENABLE_AUTH: "true"
+      SESSION_SECRET: "${SESSION_SECRET:?export_SESSION_SECRET_before_running_compose}"
+      SERVICE_REGISTRY_ENABLED: "true"
+      SERVICE_REGISTRY_SCAN_INTERVAL_MS: "30000"
+      SERVICE_REGISTRY_PROVENANCE_ENABLED: "true"
+      SERVICE_REGISTRY_DOCKER_PROVENANCE_ENABLED: "true"
+      SERVICE_REGISTRY_RECOVERY_ENABLED: "true"
+      # Private host gateway auto-detected from the container route table.
+      # Set SERVICE_REGISTRY_HTTP_ENABLED=false to opt out, or supply an
+      # explicit private SERVICE_REGISTRY_HTTP_HOST if auto-detection fails.
+      SERVICE_REGISTRY_HTTP_ENABLED: "${SERVICE_REGISTRY_HTTP_ENABLED:-true}"
+      SERVICE_REGISTRY_HTTP_HOST: "${SERVICE_REGISTRY_HTTP_HOST:-}"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4999/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Read-only Docker inventory: only this proxy has the host Docker socket.
+  # There are NO published ports and the proxy sits on an internal network.
+  # A missing/denied socket must not prevent Portracker's System scan or UI.
+  # Rootless engines: set PORTRACKER_DOCKER_SOCK to your actual socket path.
+  docker-api-proxy:
+    image: tecnativa/docker-socket-proxy:lts
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      INFO: "1"
+      PING: "1"
+      VERSION: "1"
+      POST: "0"
+      EVENTS: "0"
+      AUTH: "0"
+      SECRETS: "0"
+      DISABLE_IPV6: "1"
+    volumes:
+      - type: bind
+        source: ${PORTRACKER_DOCKER_SOCK:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+        read_only: true
+    networks:
+      - docker-monitor
+networks:
+  docker-monitor:
+    internal: true

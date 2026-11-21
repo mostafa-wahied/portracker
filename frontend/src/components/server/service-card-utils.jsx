@@ -1,5 +1,6 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
+import { ServicePortBadge } from "@/components/ui/service-list-visuals";
 import {
   Tooltip,
   TooltipContent,
@@ -41,9 +42,7 @@ export function ClickablePortBadge({ port, serverId, serverUrl, hostOverride }) 
             onClick={(e) => e.stopPropagation()}
             className="group/badge inline-flex items-center space-x-1"
           >
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-800/40 dark:text-indigo-200 text-xs font-medium">
-              {port.host_port}
-            </span>
+            <ServicePortBadge port={port.host_port} />
             <ExternalLink className="h-3 w-3 text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/badge:opacity-100 transition-opacity" />
           </a>
         </TooltipTrigger>
