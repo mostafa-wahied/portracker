@@ -3,6 +3,8 @@
 const { randomUUID } = require('node:crypto');
 const { migrateRegistrySchema } = require('./schema');
 const { normalizeObservation, validServerId, normalizePort } = require('./identity');
+const { createSourceLinks } = require('./source-links');
+const { groupPinnedServices } = require('./pinned-groups');
 
 function toService(row) {
   if (!row) return null;
@@ -11,10 +13,14 @@ function toService(row) {
     serverId: row.server_id,
     displayName: row.display_name,
     source: row.source,
+    sources: row.source === 'docker' && row.linked_system_count > 0
+      ? ['docker', 'system'] : [row.source],
     identityConfidence: row.identity_confidence,
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,
     status: row.status,
+    pinned: Boolean(row.is_pinned),
+    pinnedAt: row.pinned_at ?? null,
     endpointCount: row.endpoint_count === undefined ? undefined : row.endpoint_count,
     previewHostIp: row.preview_host_ip ?? undefined,
     previewPort: row.preview_port ?? undefined,
@@ -55,6 +61,7 @@ function boundedInteger(value, name, fallback, maximum, minimum = 0) {
  */
 function createServiceRegistry(db) {
   migrateRegistrySchema(db);
+  const sourceLinks = createSourceLinks(db);
 
   const findIdentity = db.prepare(
     'SELECT id, status FROM registry_services ' +
@@ -162,6 +169,9 @@ function createServiceRegistry(db) {
   });
 
   const getById = db.prepare('SELECT * FROM registry_services WHERE id = ?');
+  const linkedCount = db.prepare(
+    'SELECT COUNT(*) AS n FROM registry_source_links WHERE docker_service_id = ?'
+  );
   const countRuns = db.prepare(
     'SELECT COUNT(*) AS count FROM registry_process_runs WHERE service_id = ?'
   );
@@ -173,7 +183,8 @@ function createServiceRegistry(db) {
   function getService(id) {
     if (typeof id !== 'string' || id.length > 128) throw new TypeError('Invalid service ID');
     const row = getById.get(id);
-    return row ? { ...toService(row), runCount: countRuns.get(id).count,
+    return row ? { ...toService({ ...row, linked_system_count: linkedCount.get(id).n }),
+      runCount: countRuns.get(id).count,
       endpoints: getEndpoints.all(id).map(toEndpoint) } : null;
   }
 
@@ -185,6 +196,14 @@ function createServiceRegistry(db) {
 
     const clauses = ['s.server_id = ?'];
     const params = [serverId];
+    const pinnedOnly = filters.pinnedOnly;
+    if (pinnedOnly !== undefined && pinnedOnly !== true && pinnedOnly !== false &&
+        pinnedOnly !== 'true' && pinnedOnly !== 'false') {
+      throw new TypeError('Invalid pinnedOnly');
+    }
+    if (pinnedOnly === true || pinnedOnly === 'true') {
+      clauses.push('s.is_pinned = 1');
+    }
     if (filters.status !== undefined) {
       if (!['unknown', 'listening', 'offline'].includes(filters.status)) {
         throw new TypeError('Invalid status');
@@ -240,11 +259,22 @@ function createServiceRegistry(db) {
         'WHERE e.service_id = s.id AND (' + ranges.join(' OR ') + '))');
     }
 
+    // Show the Docker-owned service once in All sources. Keep System-specific
+    // filtering as a diagnostic escape hatch and never hide user-owned state.
+    if (filters.source === undefined) {
+      clauses.push("NOT (s.source = 'system' AND s.is_pinned = 0 " +
+        'AND EXISTS (SELECT 1 FROM registry_source_links l ' +
+        'WHERE l.system_service_id = s.id) ' +
+        'AND NOT EXISTS (SELECT 1 FROM registry_recovery_notes n ' +
+        "WHERE n.service_id = s.id AND (n.notes <> '' OR n.start_command <> '')))");
+    }
     const where = ' WHERE ' + clauses.join(' AND ');
     const count = db.prepare('SELECT COUNT(*) AS total FROM registry_services s' + where)
       .get(...params).total;
     const items = db.prepare(
-      'SELECT s.*, (SELECT COUNT(*) FROM registry_endpoints e ' +
+      'SELECT s.*, (SELECT COUNT(*) FROM registry_source_links l ' +
+      'WHERE l.docker_service_id = s.id) AS linked_system_count, ' +
+      '(SELECT COUNT(*) FROM registry_endpoints e ' +
       'WHERE e.service_id = s.id) AS endpoint_count, ' +
       '(SELECT e.host_ip FROM registry_endpoints e WHERE e.service_id = s.id ' +
       'ORDER BY e.last_seen_at DESC, e.id LIMIT 1) AS preview_host_ip, ' +
@@ -253,15 +283,73 @@ function createServiceRegistry(db) {
       '(SELECT e.protocol FROM registry_endpoints e WHERE e.service_id = s.id ' +
       'ORDER BY e.last_seen_at DESC, e.id LIMIT 1) AS preview_protocol ' +
       'FROM registry_services s' + where +
-      ' ORDER BY s.last_seen_at DESC, s.id ASC LIMIT ? OFFSET ?'
+      (pinnedOnly === true || pinnedOnly === 'true'
+        ? " ORDER BY CASE s.status WHEN 'offline' THEN 0 " +
+          "WHEN 'unknown' THEN 1 ELSE 2 END, s.pinned_at DESC, " +
+          's.last_seen_at DESC, s.id ASC LIMIT ? OFFSET ?'
+        : ' ORDER BY s.last_seen_at DESC, s.id ASC LIMIT ? OFFSET ?')
     ).all(...params, limit, offset).map(toService);
 
     return { items, total: count, limit, offset };
   }
 
+  const pinnedEndpoints = db.prepare(
+    'SELECT e.* FROM registry_endpoints e JOIN registry_services s ON s.id = e.service_id ' +
+    'WHERE s.server_id = ? AND s.is_pinned = 1 ORDER BY e.last_seen_at DESC, e.id'
+  );
+  const pinnedProvenance = db.prepare(
+    'SELECT p.service_id, p.daemon_fingerprint, p.compose_project, ' +
+    'p.compose_service, p.identity_confidence FROM registry_docker_provenance p ' +
+    'JOIN registry_services s ON s.id = p.service_id ' +
+    'WHERE s.server_id = ? AND s.is_pinned = 1'
+  );
+
+  function listPinnedGroups(filters = {}) {
+    const limit = boundedInteger(filters.limit, 'limit', 25, 100, 1);
+    const offset = boundedInteger(filters.offset, 'offset', 0, 1000000);
+    const serverId = filters.serverId === undefined ? 'local' : filters.serverId;
+    if (!validServerId(serverId)) throw new TypeError('Invalid server ID');
+
+    // Reuse the exact History filter and source-correlation semantics. Fetch
+    // complete pinned record pages before grouping so a Compose project can
+    // never be split between pages.
+    const services = [];
+    for (let start = 0; ; start += 100) {
+      const batch = listServices({ ...filters, pinnedOnly: true,
+        limit: 100, offset: start });
+      services.push(...batch.items);
+      if (services.length >= batch.total || batch.items.length === 0) break;
+    }
+    const groups = groupPinnedServices(
+      services, pinnedEndpoints.all(serverId), pinnedProvenance.all(serverId)
+    );
+    return {
+      items: groups.slice(offset, offset + limit), total: groups.length,
+      serviceTotal: services.length, limit, offset,
+    };
+  }
+
+  const updatePin = db.prepare(
+    'UPDATE registry_services SET is_pinned = ?, ' +
+    'pinned_at = CASE WHEN ? = 1 THEN COALESCE(pinned_at, ?) ELSE NULL END, ' +
+    'updated_at = MAX(updated_at, ?) WHERE id = ?'
+  );
+
+  function setPinned(id, pinned, at = Date.now()) {
+    if (typeof id !== 'string' || id.length === 0 || id.length > 128 ||
+        typeof pinned !== 'boolean' || !Number.isSafeInteger(at) || at < 0) {
+      throw new TypeError('Invalid pin update');
+    }
+    const value = pinned ? 1 : 0;
+    const change = updatePin.run(value, value, at, at, id);
+    return change.changes ? getService(id) : null;
+  }
+
   const forgetOne = db.transaction((id) => {
     const found = getById.get(id);
     if (!found) return false;
+    db.prepare('DELETE FROM registry_source_links WHERE system_service_id = ? OR docker_service_id = ?')
+      .run(id, id);
     db.prepare('DELETE FROM registry_process_runs WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_recovery_notes WHERE service_id = ?').run(id);
     db.prepare('DELETE FROM registry_docker_provenance WHERE service_id = ?').run(id);
@@ -368,7 +456,10 @@ function createServiceRegistry(db) {
     observe: (row, options = {}) => getService(insertObservation(row, options)),
     getService,
     listServices,
+    listPinnedGroups,
     forgetService,
+    setPinned,
+    linkDockerProxies: sourceLinks.linkListening,
     markStale,
     getScanStatus,
     reconcileSource: (snapshot) => reconcile(snapshot),

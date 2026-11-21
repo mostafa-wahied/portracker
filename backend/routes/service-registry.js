@@ -7,6 +7,7 @@ const { buildRecoveryRecipes } = require('../lib/service-registry/recovery-recip
 function createRegistryRouter(registry, {
   scanEnabled = false, scanner = null, httpStore = null, provenanceStore = null,
   dockerProvenanceStore = null, recoveryNotesStore = null,
+  getCapabilities = null,
 } = {}) {
   const router = express.Router();
 
@@ -22,6 +23,7 @@ function createRegistryRouter(registry, {
         search: req.query.search,
         port: req.query.port,
         portPrefix: req.query.portPrefix,
+        pinnedOnly: req.query.pinnedOnly,
         seenSince: req.query.seenSince,
       });
       if (httpStore) {
@@ -36,11 +38,41 @@ function createRegistryRouter(registry, {
     }
   });
 
+  // One bounded response for the Pinned Services view. Grouping never
+  // changes ownership of pins, recovery notes, or source-specific history.
+  router.get('/pinned-groups', requireAuth, (req, res) => {
+    try {
+      res.set('Cache-Control', 'no-store');
+      const result = registry.listPinnedGroups({
+        serverId: req.query.serverId, limit: req.query.limit,
+        offset: req.query.offset, status: req.query.status,
+        source: req.query.source, search: req.query.search,
+        portPrefix: req.query.portPrefix, seenSince: req.query.seenSince,
+      });
+      if (httpStore) {
+        result.items = result.items.map(group => ({
+          ...group, services: group.services.map(service =>
+            ({ ...service, ...httpStore.getMetadata(service.id) })),
+        }));
+        result.items.forEach(group => {
+          group.iconHash = group.services.find(service => service.iconHash)?.iconHash || null;
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: 'Unable to list pinned service groups' });
+    }
+  });
+
   router.get('/scan-status', requireAuth, (req, res) => {
     res.set('Cache-Control', 'no-store');
+    const sources = registry.getScanStatus('local');
     res.json({
       enabled: scanEnabled,
-      sources: registry.getScanStatus('local'),
+      sources,
+      ...(typeof getCapabilities === 'function'
+        ? { capabilities: getCapabilities(sources) } : {}),
     });
   });
 
@@ -105,6 +137,22 @@ function createRegistryRouter(registry, {
       return res.send(icon.bytes);
     } catch {
       return res.status(500).json({ error: 'Unable to load cached icon' });
+    }
+  });
+
+  // Bookmark a durable logical service, never a network port or a process PID.
+  router.put('/:id/pin', requireAuth, (req, res) => {
+    try {
+      if (!req.body || typeof req.body.pinned !== 'boolean') {
+        throw new TypeError('Pinned must be a boolean');
+      }
+      const service = registry.setPinned(req.params.id, req.body.pinned);
+      if (!service) return res.status(404).json({ error: 'Saved service not found' });
+      res.set('Cache-Control', 'no-store');
+      return res.json({ id: service.id, pinned: service.pinned, pinnedAt: service.pinnedAt });
+    } catch (error) {
+      if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+      return res.status(500).json({ error: 'Unable to update service pin' });
     }
   });
 

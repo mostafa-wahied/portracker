@@ -44,3 +44,23 @@ reconciliation uses allowlisted systemd unit or manual-project evidence when
 available to preserve notes across genuine application restarts. Weak matches
 remain provisional, and ordinary port reuse must not steal an existing record.
 This behavior supplements upstream #132 and #133.
+
+## Pinned services and source correlation (follow-up)
+
+Pinned Services are a persistent per-service **annotation**, not a new identity
+and not an instruction to start a process. A stopped service remains pinned
+until explicitly unpinned or forgotten. API endpoints provide individual
+pin/unpin and paginated grouped Pinned views; only verified sibling services
+within one Compose project/daemon are visually grouped into a parent row.
+Unverified/native services remain separate. Unpinning one Compose child never
+unpinns another, and grouping does not merge SQLite records or recovery notes.
+
+When the native collector also observes a Docker-published port as a
+`docker-proxy` listener, a validated recent one-to-one source link avoids
+presenting it as a second independent service while keeping each source's
+own status, history and authority. No cross-source identity merge occurs.
+
+Backend capabilities summarize HTTP and Docker readiness with sanitized
+status and timestamps; they must not reveal Docker endpoints, private
+route details, or raw probe/inspect errors. The follow-up frontend stage
+renders these statuses and Pinned controls.

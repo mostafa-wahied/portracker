@@ -28,7 +28,7 @@ describe('persistent localhost registry storage', () => {
       db.prepare('INSERT INTO notes_legacy_fixture VALUES (?)').run('my manual notes');
       createServiceRegistry(db);
       createServiceRegistry(db);
-      expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(8);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(10);
       expect(db.prepare('SELECT note FROM notes_legacy_fixture').get().note)
         .toBe('my manual notes');
     } finally { db.close(); }
@@ -158,6 +158,68 @@ describe('persistent localhost registry storage', () => {
     expect(() => registry.listServices({ port: '3000 OR 1=1' })).toThrow('Invalid port');
   }));
 
+  test('pinning is idempotent, scoped to service ID, sortable, and filterable', () => fixture((db, registry) => {
+    const a = registry.observe(port({ host_port: 4177, pid: 111 }), { at: 1000 });
+    const b = registry.observe(port({ host_port: 4180, pid: 222 }), { at: 2000 });
+    const c = registry.observe(port({ host_port: 4999, pid: 333 }), { at: 3000 });
+    expect(registry.listServices({ pinnedOnly: 'true' }).total).toBe(0);
+    expect(registry.setPinned(a.id, true, 5000)).toMatchObject({
+      id: a.id, pinned: true, pinnedAt: 5000,
+    });
+    expect(registry.setPinned(a.id, true, 9000).pinnedAt).toBe(5000);
+    registry.setPinned(b.id, true, 6000);
+    registry.setPinned(c.id, true, 7000);
+    // A complete scan confirms A is gone. B is uncertain; C still listens.
+    db.prepare("UPDATE registry_services SET status = 'offline' WHERE id = ?").run(a.id);
+    db.prepare("UPDATE registry_services SET status = 'unknown' WHERE id = ?").run(b.id);
+    const pinned = registry.listServices({ pinnedOnly: true });
+    expect(pinned.total).toBe(3);
+    expect(pinned.items.map(item => item.id)).toEqual([a.id, b.id, c.id]);
+    expect(registry.listServices({ pinnedOnly: true, status: 'offline' }).total).toBe(1);
+    expect(registry.listServices({ pinnedOnly: true, portPrefix: '41' }).total).toBe(2);
+    expect(registry.listServices({ pinnedOnly: 'true', limit: 1, offset: 1 }).items)
+      .toHaveLength(1);
+    expect(registry.listServices({ pinnedOnly: false }).total).toBe(3);
+    for (const invalid of ['', '1', 'yes', 1, null]) {
+      expect(() => registry.listServices({ pinnedOnly: invalid })).toThrow('Invalid pinnedOnly');
+    }
+    expect(() => registry.setPinned(a.id, 'true')).toThrow('Invalid pin');
+    expect(() => registry.setPinned(a.id, true, -1)).toThrow('Invalid pin');
+    expect(registry.setPinned('missing-id', true)).toBeNull();
+    expect(registry.setPinned(b.id, false).pinnedAt).toBeNull();
+    expect(registry.listServices({ pinnedOnly: true }).total).toBe(2);
+    expect(registry.forgetService(a.id)).toBe(true);
+    expect(registry.listServices({ pinnedOnly: true }).total).toBe(1);
+  }));
+
+  test('pin remains on same logical process after a full offline/restart cycle', () => fixture((_db, registry) => {
+    const make = (pid, ticks) => ({
+      ...port({ host_port: 4177, pid, owner: 'python3' }),
+      process_start_ticks: ticks,
+      provenance: {
+        kind: 'session_scope', confidence: 'observed', uid: 1000, pid,
+        startTicks: ticks, cwd: '/home/dev/site', executablePath: '/usr/bin/python3',
+      },
+    });
+    registry.reconcileSource({ source: 'system', complete: true, rows: [make(111, '11')], at: 1000 });
+    const original = registry.listServices().items[0];
+    registry.setPinned(original.id, true, 1200);
+    registry.reconcileSource({ source: 'system', complete: true, rows: [], at: 2000 });
+    expect(registry.listServices({ pinnedOnly: true }).items[0].status).toBe('offline');
+    registry.reconcileSource({ source: 'system', complete: true, rows: [make(222, '22')], at: 3000 });
+    expect(registry.listServices({ pinnedOnly: true }).items).toHaveLength(1);
+    expect(registry.getService(original.id)).toMatchObject({
+      pinned: true, pinnedAt: 1200, firstSeenAt: 1000, runCount: 2,
+    });
+    registry.reconcileSource({ source: 'system', complete: true, rows: [], at: 4000 });
+    registry.reconcileSource({ source: 'system', complete: true, rows: [
+      { ...make(333, '33'), provenance: { ...make(333, '33').provenance, cwd: '/home/dev/other' } },
+    ], at: 5000 });
+    expect(registry.listServices().total).toBe(2);
+    expect(registry.listServices({ pinnedOnly: true }).items[0].id).toBe(original.id);
+    expect(registry.listServices({ pinnedOnly: true }).items[0].status).toBe('offline');
+  }));
+
   test('port prefix filters all historical endpoints and composes with status', () => fixture((_db, registry) => {
     const rows = [41, 410, 4177, 4180, 41000, 41999, 4999, 65535].map(
       (host_port, index) => registry.observe(port({ host_port, pid: 200 + index }), { at: index + 1 })
@@ -221,7 +283,9 @@ describe('persistent localhost registry storage', () => {
     const file = path.join(dir, 'registry.sqlite');
     try {
       const db = new Database(file);
-      const first = createServiceRegistry(db).observe(port(), { at: 1000 });
+      const initialRegistry = createServiceRegistry(db);
+      const first = initialRegistry.observe(port(), { at: 1000 });
+      initialRegistry.setPinned(first.id, true, 1200);
       db.close();
 
       const reopened = new Database(file);
@@ -229,6 +293,8 @@ describe('persistent localhost registry storage', () => {
         const registry = createServiceRegistry(reopened);
         expect(registry.getService(first.id).displayName).toBe('node');
         expect(registry.getService(first.id).lastSeenAt).toBe(1000);
+        expect(registry.getService(first.id).pinned).toBe(true);
+        expect(registry.getService(first.id).pinnedAt).toBe(1200);
       } finally { reopened.close(); }
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });

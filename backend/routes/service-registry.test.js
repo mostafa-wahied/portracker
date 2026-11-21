@@ -84,6 +84,44 @@ describe('registry REST API authorization and validation', () => {
     expect((await fetch(url + '/' + record.id)).status).toBe(404);
   }));
 
+  test('pin API updates persisted record and filters pinned-only results', async () => withServer(
+    async ({ registry, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const first = registry.observe({
+        host_ip: '127.0.0.1', host_port: 4177, protocol: 'tcp',
+        owner: 'python3', source: 'system', pid: 111,
+      });
+      const other = registry.observe({
+        host_ip: '127.0.0.1', host_port: 4180, protocol: 'tcp',
+        owner: 'node', source: 'system', pid: 222,
+      });
+      expect((await (await fetch(url + '?pinnedOnly=true')).json()).total).toBe(0);
+      const put = async (id, payload) => fetch(url + '/' + id + '/pin', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const response = await put(first.id, { pinned: true });
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result).toMatchObject({ id: first.id, pinned: true });
+      expect(typeof result.pinnedAt).toBe('number');
+      const repeat = await put(first.id, { pinned: true });
+      expect((await repeat.json()).pinnedAt).toBe(result.pinnedAt);
+      const listed = await (await fetch(url + '?pinnedOnly=true')).json();
+      expect(listed.items.map(s => s.id)).toEqual([first.id]);
+      expect(listed.items[0].pinned).toBe(true);
+      expect((await (await fetch(url + '/' + first.id)).json()).pinned).toBe(true);
+      expect((await (await fetch(url)).json()).total).toBe(2);
+      expect((await fetch(url + '?pinnedOnly=yes')).status).toBe(400);
+      expect((await put(first.id, { pinned: 'true' })).status).toBe(400);
+      expect((await put(first.id, { pinned: null })).status).toBe(400);
+      expect((await put('missing', { pinned: true })).status).toBe(404);
+      expect((await put(first.id, { pinned: false })).status).toBe(200);
+      expect((await (await fetch(url + '?pinnedOnly=true')).json()).total).toBe(0);
+      expect(registry.getService(other.id).pinned).toBe(false);
+    }
+  ));
+
   test('manual POST requires authentication and opt-in; GET refresh never scans', async () => withServer(
     async ({ url }) => {
       process.env.ENABLE_AUTH = 'false';
@@ -105,10 +143,79 @@ describe('registry REST API authorization and validation', () => {
     expect((await fetch(url)).status).toBe(401);
     expect((await fetch(url + '/' + record.id)).status).toBe(401);
     expect((await fetch(url + '/scan-status')).status).toBe(401);
+    expect((await fetch(url + '?pinnedOnly=true')).status).toBe(401);
+    expect((await fetch(url + '/' + record.id + '/pin', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: true }),
+    })).status).toBe(401);
     expect((await fetch(url + '/icons/' + 'a'.repeat(64))).status).toBe(401);
     expect((await fetch(url + '/' + record.id, { method: 'DELETE' })).status).toBe(401);
     expect(registry.getService(record.id)).not.toBeNull();
   }));
+});
+
+
+describe('grouped pinned service API', () => {
+  test('groups verified Compose siblings after filtering; paginates groups, not ports', async () =>
+    withServer(async ({ registry, dockerProvenanceStore, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const daemon = 'd'.repeat(64);
+      const create = (name, number, project = 'alpha') => {
+        const item = registry.observe({
+          host_ip: '127.0.0.1', host_port: number, protocol: 'tcp',
+          source: 'docker', owner: name, container_id: String(number).repeat(12),
+        });
+        dockerProvenanceStore.record(item.id, {
+          containerId: 'a'.repeat(64), containerName: name, image: 'nginx:stable',
+          composeProject: project, composeService: name,
+          hostFingerprint: daemon, projectWorkingDir: '/private/not-in-list',
+        });
+        registry.setPinned(item.id, true, 500);
+        return item;
+      };
+      const a = create('web', 4181);
+      const b = create('worker', 4183);
+      const c = create('other', 4184, 'bravo');
+      const one = await (await fetch(url + '/pinned-groups?limit=1')).json();
+      const all = await (await fetch(url + '/pinned-groups')).json();
+      expect(all).toMatchObject({ total: 2, serviceTotal: 3 });
+      expect(one.items).toHaveLength(1);
+      expect(all.items.find(g => g.name === 'alpha').services.map(s => s.id).sort())
+        .toEqual([a.id, b.id].sort());
+      expect(all.items.find(g => g.name === 'alpha').ports.map(p => p.port))
+        .toEqual([4181, 4183]);
+      expect(all.items.find(g => g.name === 'bravo').services[0].id).toBe(c.id);
+      expect(JSON.stringify(all)).not.toContain('/private/not-in-list');
+      expect((await (await fetch(url + '/pinned-groups?limit=1&offset=1')).json()).items)
+        .toHaveLength(1);
+      expect((await (await fetch(url + '/pinned-groups?portPrefix=4181')).json()).total)
+        .toBe(1);
+      expect((await (await fetch(url + '/pinned-groups?source=system')).json()).total)
+        .toBe(0);
+      expect((await fetch(url + '/pinned-groups?limit=101')).status).toBe(400);
+      expect((await fetch(url + '/pinned-groups?portPrefix=oops')).status).toBe(400);
+    }));
+
+  test('group endpoint is private and preserves independent pin updates', async () =>
+    withServer(async ({ registry, url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const a = registry.observe({
+        host_ip: '127.0.0.1', host_port: 3777, protocol: 'tcp',
+        source: 'system', owner: 'node', pid: 1,
+      });
+      const b = registry.observe({
+        host_ip: '127.0.0.1', host_port: 3778, protocol: 'tcp',
+        source: 'system', owner: 'node', pid: 2,
+      });
+      registry.setPinned(a.id, true, 1500);
+      registry.setPinned(b.id, true, 1500);
+      expect((await (await fetch(url + '/pinned-groups')).json()).total).toBe(2);
+      registry.setPinned(a.id, false, 1600);
+      expect((await (await fetch(url + '/pinned-groups')).json()).total).toBe(1);
+      expect(registry.getService(b.id).pinned).toBe(true);
+      process.env.ENABLE_AUTH = 'true';
+      expect((await fetch(url + '/pinned-groups')).status).toBe(401);
+    }));
 });
 
 describe('cached HTTP metadata routes', () => {

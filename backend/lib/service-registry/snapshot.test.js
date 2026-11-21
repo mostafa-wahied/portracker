@@ -102,6 +102,7 @@ describe('source-complete port capture', () => {
     try {
       fs.mkdirSync(path.join(dir, 'net'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'net', 'tcp'), '  sl  local_address rem_address st\n');
+      // A present IPv6 indicator makes the missing tcp6 table suspicious.
       fs.writeFileSync(path.join(dir, 'net', 'sockstat6'), 'TCP6: inuse 0\n');
       const parser = new ProcParser(dir);
       parser._buildInodeMap = async () => new Map();

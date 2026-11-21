@@ -101,6 +101,13 @@ function createRegistryScanner({
           retryAfter.set(source.name, at + Math.min(intervalMs * Math.pow(2, failures), 3600000));
         }
       }
+      // Only complete native and Docker inventories may corroborate a proxy.
+      // Links preserve distinct source-owned states and survive later failures.
+      if (results.length === 2 && results.every(item => item.outcome === 'complete') &&
+          typeof registry.linkDockerProxies === 'function') {
+        try { registry.linkDockerProxies(now()); }
+        catch { logger.warn('Registry Docker proxy correlation unavailable'); }
+      }
       if (onCycle) {
         try { await onCycle(results); }
         catch { logger.warn('Registry enrichment failed; listener statuses are unchanged'); }

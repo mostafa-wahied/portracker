@@ -137,8 +137,8 @@ describe('per-service recovery notes and concurrency', () => {
     expect(store.getStart(record.id).command).toBe('');
   }));
 
-  test('migration v8 is idempotent after reopening the registry', () => fixture((db) => {
+  test('migration v9 is idempotent after reopening the registry', () => fixture((db) => {
     createServiceRegistry(db);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(8);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(10);
   }));
 });
