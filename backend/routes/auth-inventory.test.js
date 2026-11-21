@@ -9,7 +9,7 @@ const publicRoutes = new Set([
   "GET /api/health", "GET /api/config", "GET /api/changelog", "GET /api/version",
   "GET /api/auth/status", "POST /api/auth/setup", "POST /api/auth/login", "POST /api/auth/logout",
 ]);
-const mounts = { auth: "/api/auth", settings: "/api/settings", autoxpose: "/api/autoxpose" };
+const mounts = { auth: "/api/auth", settings: "/api/settings", autoxpose: "/api/autoxpose", "service-registry": "/api/service-registry" };
 
 function calls(source) {
   const result = [];
@@ -63,6 +63,11 @@ describe("all API route authentication", () => {
     for (const route of publicRoutes) expect(rows).toContain(route);
     expect(rows).toContain("POST /api/servers/:id/generate-port");
     expect(rows).toContain("POST /api/auth/change-password");
+    expect(rows).toContain("GET /api/service-registry");
+    expect(rows).toContain("GET /api/service-registry/scan-status");
+    expect(rows).toContain("GET /api/service-registry/icons/:hash");
+    expect(rows).toContain("GET /api/service-registry/:id");
+    expect(rows).toContain("DELETE /api/service-registry/:id");
   });
 
   test("fails if a route guard or a mounted-router guard is removed", () => {
