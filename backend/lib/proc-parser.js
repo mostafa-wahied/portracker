@@ -93,8 +93,26 @@ class ProcParser {
     return path.join(this.procPath, 'net', protocol);
   }
 
+  // When the host kernel has no IPv6 stack, procfs may expose the IPv4
+  // listener table but no tcp6, sockstat6, or if_inet6 files. This is
+  // an authoritative IPv4-only snapshot, not a failed IPv6 read.
+  // Require BOTH independent IPv6 indicators to be absent. Any other
+  // condition (including access denied) keeps strict mode conservative.
+  async _ipv6TablesUnavailable() {
+    const siblings = ['sockstat6', 'if_inet6'];
+    for (const file of siblings) {
+      try {
+        await fs.access(this._getNetworkFilePath(file));
+        return false;
+      } catch (error) {
+        if (error.code !== 'ENOENT') return false;
+      }
+    }
+    return true;
+  }
+
   /** Parse /proc/net/tcp and /proc/net/tcp6 */
-  async getTcpPorts() {
+  async getTcpPorts({ strict = false } = {}) {
   const ports = [];
   const prelim = [];
   const inodeMap = await this._buildInodeMap();
@@ -138,6 +156,16 @@ class ProcParser {
           prelim.push({ inode: inodeNum });
         }
       } catch (err) {
+        // A kernel built or booted without IPv6 has no tcp6 table. Do not
+        // reject valid IPv4 listeners as long as IPv6 itself is absent.
+        if (file === 'tcp6' && err.code === 'ENOENT' &&
+            await this._ipv6TablesUnavailable()) {
+          this.logger.debug('Host IPv6 socket tables absent; IPv4-only snapshot');
+          continue;
+        }
+        if (strict) {
+          throw new Error(`Incomplete TCP port snapshot: ${file} could not be read`, { cause: err });
+        }
         this.logger.warn(`Warning reading network file ${file}:`, err.message);
       }
     }
