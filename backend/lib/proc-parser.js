@@ -87,14 +87,36 @@ class ProcParser {
 
   /** Get network file path - uses host PID namespace when containerized */
   _getNetworkFilePath(protocol) {
-    if (this.isContainerized) {
+    // An explicitly mounted host /proc must use PID 1's network namespace.
+    // Counting PIDs to detect a container is unreliable on small Linux hosts.
+    const explicitHostProc = process.env.HOST_PROC;
+    if (this.isContainerized ||
+        (explicitHostProc && path.resolve(this.procPath) === path.resolve(explicitHostProc))) {
       return path.join(this.procPath, '1', 'net', protocol);
     }
     return path.join(this.procPath, 'net', protocol);
   }
 
+  // When the host kernel has no IPv6 stack, procfs may expose the IPv4
+  // listener table but no tcp6, sockstat6, or if_inet6 files. This is
+  // an authoritative IPv4-only snapshot, not a failed IPv6 read.
+  // Require BOTH independent IPv6 indicators to be absent. Any other
+  // condition (including access denied) keeps strict mode conservative.
+  async _ipv6TablesUnavailable() {
+    const siblings = ['sockstat6', 'if_inet6'];
+    for (const file of siblings) {
+      try {
+        await fs.access(this._getNetworkFilePath(file));
+        return false;
+      } catch (error) {
+        if (error.code !== 'ENOENT') return false;
+      }
+    }
+    return true;
+  }
+
   /** Parse /proc/net/tcp and /proc/net/tcp6 */
-  async getTcpPorts() {
+  async getTcpPorts({ strict = false } = {}) {
   const ports = [];
   const prelim = [];
   const inodeMap = await this._buildInodeMap();
@@ -104,10 +126,19 @@ class ProcParser {
       try {
         const filePath = this._getNetworkFilePath(file);
         const content = await fs.readFile(filePath, 'utf8');
-  const lines = content.trim().split('\n').slice(1);
-        
-        for (const line of lines) {
+        const lines = content.trim().split('\n');
+        if (strict && !/^\s*sl\s+local_address\s+rem_address\s+st(?:\s|$)/.test(lines[0])) {
+          throw new Error('Malformed TCP snapshot header');
+        }
+        const addressPattern = file === 'tcp'
+          ? /^[a-f0-9]{8}:[a-f0-9]{4}$/i : /^[a-f0-9]{32}:[a-f0-9]{4}$/i;
+
+        for (const line of lines.slice(1)) {
           const parts = line.trim().split(/\s+/);
+          if (strict && (parts.length < 10 || !addressPattern.test(parts[1]) ||
+              !/^[a-f0-9]{2}$/i.test(parts[3]) || !/^\d+$/.test(parts[9]))) {
+            throw new Error('Malformed TCP snapshot row');
+          }
           if (parts.length < 10) continue;
 
           const localAddress = parts[1];
@@ -138,6 +169,16 @@ class ProcParser {
           prelim.push({ inode: inodeNum });
         }
       } catch (err) {
+        // A kernel built or booted without IPv6 has no tcp6 table. Do not
+        // reject valid IPv4 listeners as long as IPv6 itself is absent.
+        if (file === 'tcp6' && err.code === 'ENOENT' &&
+            await this._ipv6TablesUnavailable()) {
+          this.logger.debug('Host IPv6 socket tables absent; IPv4-only snapshot');
+          continue;
+        }
+        if (strict) {
+          throw new Error(`Incomplete TCP port snapshot: ${file} could not be read`, { cause: err });
+        }
         this.logger.warn(`Warning reading network file ${file}:`, err.message);
       }
     }
