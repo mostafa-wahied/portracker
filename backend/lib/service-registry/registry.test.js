@@ -1,0 +1,165 @@
+'use strict';
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const Database = require('better-sqlite3');
+const { describe, expect, test } = require('@jest/globals');
+const { createServiceRegistry } = require('./registry');
+
+function fixture(run) {
+  const db = new Database(':memory:');
+  try { return run(db, createServiceRegistry(db)); }
+  finally { db.close(); }
+}
+
+function port(overrides = {}) {
+  return {
+    host_ip: '127.0.0.1', host_port: 3000, protocol: 'tcp', source: 'system',
+    owner: 'node', pid: 101, ...overrides,
+  };
+}
+
+describe('persistent localhost registry storage', () => {
+  test('idempotent schema migration does not alter legacy tables', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec('CREATE TABLE notes_legacy_fixture (note TEXT)');
+      db.prepare('INSERT INTO notes_legacy_fixture VALUES (?)').run('my manual notes');
+      createServiceRegistry(db);
+      createServiceRegistry(db);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(4);
+      expect(db.prepare('SELECT note FROM notes_legacy_fixture').get().note)
+        .toBe('my manual notes');
+    } finally { db.close(); }
+  });
+
+  test('same observation is idempotent and preserves earliest timestamp', () => fixture((_db, registry) => {
+    const first = registry.observe(port(), { at: 1000 });
+    const again = registry.observe(port(), { at: 2000 });
+    expect(again.id).toBe(first.id);
+    expect(again.firstSeenAt).toBe(1000);
+    expect(again.lastSeenAt).toBe(2000);
+    expect(again.status).toBe('listening');
+    expect(again.endpoints).toHaveLength(1);
+    expect(again.endpoints[0].lastSeenAt).toBe(2000);
+    expect(registry.listServices().total).toBe(1);
+    registry.observe(port(), { at: 1500 });
+    expect(registry.getService(first.id).lastSeenAt).toBe(2000);
+  }));
+
+  test('one observed process can have multiple endpoints', () => fixture((_db, registry) => {
+    const a = registry.observe(port(), { at: 1000 });
+    const b = registry.observe(port({ host_port: 3001 }), { at: 1100 });
+    expect(a.id).toBe(b.id);
+    expect(registry.getService(a.id).endpoints.map(e => e.hostPort)).toEqual([3001, 3000]);
+  }));
+
+  test('detectably different processes reusing a port remain separate', () => fixture((_db, registry) => {
+    const a = registry.observe(port({ pid: 101 }), { at: 1000 });
+    const b = registry.observe(port({ pid: 202 }), { at: 2000 });
+    const c = registry.observe(port({ pid: 303, owner: 'python' }), { at: 3000 });
+    expect(new Set([a.id, b.id, c.id]).size).toBe(3);
+    expect(registry.listServices({ port: 3000 }).total).toBe(3);
+  }));
+
+  test('unidentifiable observations can be explicitly split into uncertain episodes', () => fixture((_db, registry) => {
+    const unknown = port({ owner: 'unknown', pid: null });
+    const a = registry.observe(unknown, { at: 1000 });
+    const sameEpisode = registry.observe(unknown, { at: 1100 });
+    const b = registry.observe(unknown, { at: 4000, startNewEpisode: true });
+    expect(a.id).toBe(sameEpisode.id);
+    expect(b.id).not.toBe(a.id);
+    expect(a.identityConfidence).toBe('uncertain');
+    expect(b.identityConfidence).toBe('uncertain');
+  }));
+
+  test('different monitored hosts are isolated', () => fixture((_db, registry) => {
+    const a = registry.observe(port(), { serverId: 'local', at: 1000 });
+    const b = registry.observe(port(), { serverId: 'peer-1', at: 1000 });
+    expect(a.id).not.toBe(b.id);
+    expect(registry.listServices().total).toBe(1);
+    expect(registry.listServices({ serverId: 'peer-1' }).total).toBe(1);
+  }));
+
+  test('list API uses literal search, safe filters, pagination and stable ordering', () => fixture((_db, registry) => {
+    registry.observe(port({ owner: 'node_foo', pid: 1 }), { at: 1000 });
+    registry.observe(port({ owner: 'python', pid: 2 }), { at: 2000 });
+    registry.observe(port({ owner: 'node%bar', pid: 3 }), { at: 3000 });
+    expect(registry.listServices({ limit: 1, offset: 1 }).items[0].displayName).toBe('python');
+    expect(registry.listServices({ search: '_' }).total).toBe(1);
+    expect(registry.listServices({ search: '%' }).total).toBe(1);
+    expect(registry.listServices({ source: 'system', port: 3000 }).total).toBe(3);
+    expect(registry.listServices({ seenSince: 2000 }).total).toBe(2);
+    expect(registry.listServices({ seenSince: 3001 }).total).toBe(0);
+    expect(() => registry.listServices({ seenSince: '-1' })).toThrow('Invalid seenSince');
+    expect(registry.listServices({ port: 3000 }).items[0]).toMatchObject({
+      previewHostIp: '127.0.0.1', previewPort: 3000, previewProtocol: 'tcp',
+    });
+    expect(() => registry.listServices({ limit: 101 })).toThrow('Invalid limit');
+    expect(() => registry.listServices({ offset: '-1' })).toThrow('Invalid offset');
+    expect(() => registry.listServices({ search: 'x'.repeat(101) })).toThrow('Invalid search');
+    expect(() => registry.listServices({ port: '3000 OR 1=1' })).toThrow('Invalid port');
+  }));
+
+  test('only allowlisted fields are persisted or returned', () => fixture((db, registry) => {
+    const secret = 'DO_NOT_STORE_THIS_SECRET';
+    const observed = registry.observe(port({
+      environment: { API_KEY: secret }, command: 'node --token=' + secret,
+      labels: { secret }, platform_data: { cmdline: secret }, args: [secret],
+    }));
+    const stored = JSON.stringify({
+      services: db.prepare('SELECT * FROM registry_services').all(),
+      endpoints: db.prepare('SELECT * FROM registry_endpoints').all(),
+    });
+    expect(stored).not.toContain(secret);
+    expect(JSON.stringify(observed)).not.toContain(secret);
+    expect(observed).not.toHaveProperty('identityKey');
+  }));
+
+  test('forget removes a specific registry record but not other services', () => fixture((_db, registry) => {
+    const a = registry.observe(port({ pid: 101 }));
+    const b = registry.observe(port({ pid: 202 }));
+    expect(registry.forgetService(a.id)).toBe(true);
+    expect(registry.forgetService(a.id)).toBe(false);
+    expect(registry.getService(a.id)).toBeNull();
+    expect(registry.getService(b.id)).not.toBeNull();
+    expect(registry.listServices().total).toBe(1);
+  }));
+
+  test('malformed observations do not create rows', () => fixture((_db, registry) => {
+    expect(() => registry.observe({ error: 'scanner failed', host_port: 3000 })).toThrow();
+    expect(() => registry.observe(port({ host_ip: 'not-an-ip' }))).toThrow();
+    expect(() => registry.observe(port({ host_port: 65536 }))).toThrow();
+    expect(() => registry.observe(port({ protocol: 'javascript' }))).toThrow();
+    expect(() => registry.observe(port(), { serverId: '../secret' })).toThrow();
+    expect(registry.listServices().total).toBe(0);
+  }));
+
+  test('file-backed history survives database close/reopen', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-history-'));
+    const file = path.join(dir, 'registry.sqlite');
+    try {
+      const db = new Database(file);
+      const first = createServiceRegistry(db).observe(port(), { at: 1000 });
+      db.close();
+
+      const reopened = new Database(file);
+      try {
+        const registry = createServiceRegistry(reopened);
+        expect(registry.getService(first.id).displayName).toBe('node');
+        expect(registry.getService(first.id).lastSeenAt).toBe(1000);
+      } finally { reopened.close(); }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('schema upgrade fails transactionally if a preexisting registry table is incompatible', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec('CREATE TABLE registry_services (id INTEGER PRIMARY KEY)');
+      expect(() => createServiceRegistry(db)).toThrow();
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'registry_endpoints'").get())
+        .toBeUndefined();
+    } finally { db.close(); }
+  });
+});

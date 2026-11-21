@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AppHeader } from "./components/layout/AppHeader";
 import { ServerSection } from "./components/server/ServerSection";
+import { RegistryHistory } from "./components/registry/RegistryHistory";
 import { AppSidebarLayout } from "./components/layout/AppSidebarLayout";
 import { Label } from "@/components/ui/label";
 import { MultipleServerSkeleton } from "./components/server/MultipleServerSkeleton";
@@ -153,6 +154,10 @@ export default function App() {
   const [selectedServer, setSelectedServer] = useState(
     () => localStorage.getItem("selectedServerId") || null
   );
+  const [activeView, setActiveView] = useState(() =>
+    localStorage.getItem("portrackerActiveView") === "history" ? "history" : "live"
+  );
+  useEffect(() => { localStorage.setItem("portrackerActiveView", activeView); }, [activeView]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchScope, setSearchScope] = useState(() => {
@@ -501,6 +506,7 @@ export default function App() {
   }, []);
 
   const handleSelectServer = useCallback((serverId) => {
+    setActiveView("live");
     setSelectedServer(serverId);
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
@@ -845,6 +851,7 @@ export default function App() {
   }, [transformCollectorData, includeUdp, disableCache, stampRefreshed]);
 
   const handleLogoClick = useCallback(() => {
+    setActiveView("live");
     fetchAll();
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
@@ -2026,6 +2033,24 @@ export default function App() {
         >
           <main className="flex-1 overflow-auto">
             <div className="p-6">
+              <nav role="tablist" aria-label="Dashboard views" className="flex gap-2 mb-6">
+                <button type="button" role="tab" aria-selected={activeView === "live"}
+                  onClick={() => setActiveView("live")}
+                  className={"rounded-lg px-4 py-2 text-sm font-semibold " + (activeView === "live"
+                    ? "bg-indigo-600 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200")}>
+                  Live ports
+                </button>
+                <button type="button" role="tab" aria-selected={activeView === "history"}
+                  onClick={() => setActiveView("history")}
+                  className={"rounded-lg px-4 py-2 text-sm font-semibold " + (activeView === "history"
+                    ? "bg-indigo-600 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200")}>
+                  History
+                </button>
+              </nav>
+              {activeView === "history" ? (
+                <div role="tabpanel" aria-label="History view"><RegistryHistory /></div>
+              ) : (
+                <div role="tabpanel" aria-label="Live ports view">
               {loading && (
                 <MultipleServerSkeleton count={selectedServer ? 1 : 2} />
               )}
@@ -2067,6 +2092,8 @@ export default function App() {
 
               {!loading && selectedServer && searchTerm && searchScope === "all" && (
                 <div className="space-y-8 animate-in fade-in-0 duration-300">{renderAllMatchingServers()}</div>
+              )}
+                </div>
               )}
             </div>
           </main>
