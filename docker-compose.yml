@@ -77,6 +77,14 @@ services:
       # Disable caching entirely (not recommended for production)
       # - DISABLE_CACHE=true
       
+      # PERSISTENT LOCAL SERVICE HISTORY (opt-in, server-wide)
+      # Collect every 30s without a browser tab (range: 10s–1h).
+      # - SERVICE_REGISTRY_ENABLED=true
+      # - SERVICE_REGISTRY_SCAN_INTERVAL_MS=30000
+      # For reliable host-offline status inside Docker, also uncomment
+      # the read-only host /proc mount and HOST_PROC above. Without it,
+      # non-authoritative host scans must display unknown, never offline.
+
       # ADVANCED PORT SCANNING (Optional)
       # Include UDP ports in scans (may increase noise and impact performance)
       # - INCLUDE_UDP=true

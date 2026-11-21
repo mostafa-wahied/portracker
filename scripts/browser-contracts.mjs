@@ -174,6 +174,99 @@ async function remoteDiagnostics(page, options) {
   await page.getByPlaceholder('Search ports, processes...').waitFor();
 }
 
+async function registryHistoryNavigation(page, options) {
+  const records = Array.from({ length: 105 }, (_, index) => ({
+    id: 'history-fixture-' + index,
+    serverId: 'local',
+    displayName: index === 104 ? 'example-unknown' : 'example-service-' + index,
+    source: index % 3 === 0 ? 'docker' : 'system',
+    identityConfidence: 'uncertain',
+    firstSeenAt: 1730000000000,
+    lastSeenAt: 1730000000000 + index * 60000,
+    status: index === 104 ? 'unknown' : 'offline',
+    previewHostIp: '127.0.0.1',
+    previewPort: 3000 + index,
+    previewProtocol: 'tcp',
+    endpointCount: 1,
+  }));
+  const urlPattern = '**/api/service-registry**';
+  const handleRegistryRequest = async route => {
+    const req = route.request();
+    const uri = new URL(req.url());
+    const suffix = uri.pathname.replace('/api/service-registry', '');
+    const json = (body, status = 200) => route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+    if (suffix === '/scan-status') {
+      return json({ enabled: true, sources: [
+        { source: 'system', outcome: 'complete', lastSuccessAt: 1730000000000 },
+        { source: 'docker', outcome: 'failed', lastSuccessAt: 1729990000000 },
+      ] });
+    }
+    if (suffix && suffix !== '/') {
+      const id = decodeURIComponent(suffix.slice(1));
+      const item = records.find(row => row.id === id);
+      if (!item) return json({ error: 'Saved service not found' }, 404);
+      if (req.method() === 'DELETE') {
+        records.splice(records.indexOf(item), 1);
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return json({ ...item, endpoints: [
+        { id: 'endpoint-' + id, source: item.source, hostIp: item.previewHostIp,
+          hostPort: item.previewPort, protocol: 'tcp', lastSeenAt: item.lastSeenAt },
+      ] });
+    }
+    const filters = uri.searchParams;
+    const search = (filters.get('search') || '').toLowerCase();
+    const source = filters.get('source');
+    const status = filters.get('status');
+    const port = filters.get('port');
+    const since = Number(filters.get('seenSince') || 0);
+    const matching = records.filter(row =>
+      (!search || row.displayName.toLowerCase().includes(search)) &&
+      (!source || row.source === source) &&
+      (!status || row.status === status) &&
+      (!port || row.previewPort === Number(port)) &&
+      (!since || row.lastSeenAt >= since)
+    ).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+    const offset = Number(filters.get('offset') || 0);
+    const limit = Number(filters.get('limit') || 24);
+    return json({ items: matching.slice(offset, offset + limit), total: matching.length, offset, limit });
+  };
+
+  await page.route(urlPattern, handleRegistryRequest);
+  try {
+    await page.getByRole('tab', { name: 'History', exact: true }).click();
+    await page.getByRole('heading', { name: 'Service history' }).waitFor();
+    await page.getByText('example-unknown', { exact: true }).waitFor();
+    await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('offline');
+    await page.getByRole('textbox', { name: 'Search saved service names' }).fill('example');
+    await page.getByText('Page 1 of 5').waitFor();
+    assert.equal(await page.getByText('example-unknown', { exact: true }).count(), 0,
+      'A failed source scan must remain unknown, never appear under offline');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByText('Page 2 of 5').waitFor();
+    await page.getByRole('button', { name: /example-service-79/ }).click();
+    await page.getByText('Remembered endpoints').waitFor();
+    const forget = page.getByRole('button', { name: 'Forget this history record' });
+    page.once('dialog', dialog => dialog.accept());
+    await forget.click();
+    await page.getByText('Page 1 of 5').waitFor();
+    assert.equal(records.length, 104, 'Forgetting must delete only the selected saved history row');
+    await page.screenshot({
+      path: path.join(options.artifacts, options.viewport.width + '-history.png'),
+      fullPage: true,
+      animations: 'disabled',
+    });
+    await page.getByRole('tab', { name: 'Live ports', exact: true }).click();
+    await page.getByPlaceholder('Search ports, processes...').waitFor();
+  } finally {
+    await page.unroute(urlPattern, handleRegistryRequest);
+  }
+}
+
 async function viewportContract(browser, options) {
   const context = await browser.newContext({ viewport: options.viewport, reducedMotion: 'reduce' });
   const page = await context.newPage();
@@ -197,6 +290,7 @@ async function viewportContract(browser, options) {
     await page.getByText('18080', { exact: true }).first().waitFor();
     await search.fill('');
     await memoryLabels(page, options);
+    await registryHistoryNavigation(page, options);
     await releaseNotice(page, options.noticePlan.freshVersion);
     await settings(page);
     await peerWarning(page, options);
