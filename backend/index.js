@@ -18,6 +18,18 @@ const settingsRoutes = require('./routes/settings');
 const autoxposeRoutes = require('./routes/autoxpose');
 const settingsManager = require('./lib/settings-manager');
 const { registerServerRoutes } = require('./routes/servers');
+const { createServiceRegistry } = require('./lib/service-registry/registry');
+const { createRegistryScanner, readRegistryConfig } = require('./lib/service-registry/scanner');
+const { createHttpMetadataStore } = require('./lib/service-registry/http-store');
+const { readHttpMetadataConfig } = require('./lib/service-registry/http-probe');
+const { createHttpMetadataWorker } = require('./lib/service-registry/http-worker');
+const { captureHostTcp } = require('./lib/service-registry/snapshot');
+const { readLinuxProvenanceConfig } = require('./lib/service-registry/linux-provenance');
+const { createLinuxProvenanceStore } = require('./lib/service-registry/linux-provenance-store');
+const { readDockerProvenanceConfig } = require('./lib/service-registry/docker-provenance');
+const { createDockerProvenanceStore } = require('./lib/service-registry/docker-provenance-store');
+const { readRecoveryConfig, createRecoveryNotesStore } = require('./lib/service-registry/recovery-notes');
+const { createRegistryRouter } = require('./routes/service-registry');
 const recoveryManager = require('./lib/recovery-manager');
 const { enrichComposeLabelsOnPorts: enrichComposeLabelsOnPortsImpl } = require('./lib/docker/compose-attribution');
 const { getDockerHostIP } = require('./lib/docker-host');
@@ -470,6 +482,66 @@ if (!settingsManager.initializeSettingsStorage()) {
   process.exit(1);
 }
 
+// Service history is separate from existing live views. An invalid scanner
+// config or inaccessible host/Docker source must not interrupt the monitor.
+let serviceRegistry = null;
+let registryScanner = null;
+let registryScanEnabled = false;
+let httpMetadataStore = null;
+let linuxProvenanceStore = null;
+let dockerProvenanceStore = null;
+let recoveryNotesStore = null;
+try {
+  serviceRegistry = createServiceRegistry(db);
+  serviceRegistry.markStale('local');
+  httpMetadataStore = createHttpMetadataStore(db);
+  const registryConfig = readRegistryConfig();
+  const recoveryConfig = readRecoveryConfig();
+  if (recoveryConfig.requiresAuth) {
+    logger.warn('Recovery notes require ENABLE_AUTH=true; recovery disabled');
+  }
+  if (recoveryConfig.enabled) recoveryNotesStore = createRecoveryNotesStore(db);
+  const provenanceConfig = readLinuxProvenanceConfig();
+  if (provenanceConfig.requiresAuth) {
+    logger.warn('Linux provenance requires ENABLE_AUTH=true; collection disabled');
+  }
+  if (registryConfig.enabled && provenanceConfig.enabled) {
+    linuxProvenanceStore = createLinuxProvenanceStore(db);
+  }
+  const dockerConfig = readDockerProvenanceConfig();
+  if (dockerConfig.requiresAuth) {
+    logger.warn('Docker Compose provenance requires ENABLE_AUTH=true; private metadata disabled');
+  }
+  if (registryConfig.enabled && dockerConfig.enabled) {
+    dockerProvenanceStore = createDockerProvenanceStore(db);
+  }
+  let onCycle = null;
+  try {
+    const httpConfig = readHttpMetadataConfig();
+    if (httpConfig.missingHost) {
+      logger.warn('HTTP metadata opt-in requires SERVICE_REGISTRY_HTTP_HOST inside Docker');
+    }
+    if (httpConfig.enabled) {
+      const worker = createHttpMetadataWorker({
+        store: httpMetadataStore, enabled: true, host: httpConfig.host, logger,
+      });
+      onCycle = worker.enrich;
+    }
+  } catch (error) {
+    logger.warn('HTTP metadata enrichment unavailable:', error.message);
+  }
+  registryScanner = createRegistryScanner({
+    registry: serviceRegistry, ...registryConfig, logger, onCycle,
+    provenanceStore: linuxProvenanceStore,
+    dockerProvenanceStore,
+    ...(linuxProvenanceStore ? { captureHost: () =>
+      captureHostTcp({ collectProvenance: true }) } : {}),
+  });
+  registryScanEnabled = registryConfig.enabled;
+} catch (error) {
+  logger.warn('Historical service scanner unavailable:', error.message);
+}
+
 const app = express();
 
 const corsOrigins = getConfiguredCorsOrigins();
@@ -512,6 +584,17 @@ app.use(['/api/ports', '/api/all-ports', '/api/services', '/api/servers/:id/scan
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
+if (serviceRegistry) {
+  app.use('/api/service-registry', createRegistryRouter(serviceRegistry, {
+    scanEnabled: registryScanEnabled, scanner: registryScanner, httpStore: httpMetadataStore,
+    provenanceStore: linuxProvenanceStore,
+    dockerProvenanceStore,
+    recoveryNotesStore,
+  }));
+} else {
+  app.use('/api/service-registry', requireAuth, (_req, res) =>
+    res.status(503).json({ error: 'Historical service registry is unavailable' }));
+}
 app.use('/api/autoxpose', requireAuth, autoxposeRoutes);
 registerServerRoutes(app, { db, logger, requireAuth, validateServerInput });
 
@@ -2506,6 +2589,7 @@ try {
   app.listen(PORT, "0.0.0.0", () => {
     logger.info(`Server is now listening on http://0.0.0.0:${PORT}`);
     logger.info("Full startup message complete.");
+    registryScanner?.start();
   });
 } catch (listenError) {
   logger.fatal("app.listen failed to start:", listenError.message);
