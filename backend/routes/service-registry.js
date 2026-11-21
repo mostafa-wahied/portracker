@@ -5,7 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { buildRecoveryRecipes } = require('../lib/service-registry/recovery-recipes');
 
 function createRegistryRouter(registry, {
-  scanEnabled = false, httpStore = null, provenanceStore = null,
+  scanEnabled = false, scanner = null, httpStore = null, provenanceStore = null,
   dockerProvenanceStore = null, recoveryNotesStore = null,
 } = {}) {
   const router = express.Router();
@@ -21,6 +21,7 @@ function createRegistryRouter(registry, {
         source: req.query.source,
         search: req.query.search,
         port: req.query.port,
+        portPrefix: req.query.portPrefix,
         seenSince: req.query.seenSince,
       });
       if (httpStore) {
@@ -41,6 +42,53 @@ function createRegistryRouter(registry, {
       enabled: scanEnabled,
       sources: registry.getScanStatus('local'),
     });
+  });
+
+  // Manual collection is distinct from Refresh and from legacy live scans.
+  // Origin middleware and requireAuth protect this POST; never accept targets.
+  let currentManualScan = null;
+  let lastManualStart = 0;
+  const manualCooldownMs = 3000;
+  router.post('/scan', requireAuth, async (_req, res) => {
+    if (process.env.ENABLE_AUTH !== 'true') {
+      return res.status(403).json({ error: 'Manual scanning requires authentication' });
+    }
+    if (!scanEnabled || typeof scanner?.scanOnce !== 'function') {
+      return res.status(409).json({ error: 'Background discovery is disabled' });
+    }
+
+    const now = Date.now();
+    if (!currentManualScan && now - lastManualStart < manualCooldownMs) {
+      res.set('Retry-After', String(Math.ceil(
+        (manualCooldownMs - (now - lastManualStart)) / 1000
+      )));
+      return res.status(429).json({ error: 'Scan just completed; please try again shortly' });
+    }
+    if (!currentManualScan) {
+      lastManualStart = now;
+      // Scanner has its own single-flight guard for concurrent scheduled jobs.
+      try {
+        currentManualScan = Promise.resolve(scanner.scanOnce({ manual: true }));
+      } catch {
+        return res.status(503).json({ error: 'Unable to run service discovery' });
+      }
+    }
+    const scan = currentManualScan;
+    try {
+      const results = await scan;
+      res.set('Cache-Control', 'no-store');
+      return res.json({
+        results: results.map(item => ({
+          source: item.source, outcome: item.outcome,
+          count: item.count, at: item.at,
+        })),
+        sources: registry.getScanStatus('local'),
+      });
+    } catch {
+      return res.status(503).json({ error: 'Unable to run service discovery' });
+    } finally {
+      if (currentManualScan === scan) currentManualScan = null;
+    }
   });
 
   router.get('/icons/:hash', requireAuth, (req, res) => {

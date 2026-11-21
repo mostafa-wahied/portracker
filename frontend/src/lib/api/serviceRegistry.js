@@ -32,6 +32,10 @@ export function getRegistryScanStatus(signal) {
   return request(`${BASE}/scan-status`, { signal });
 }
 
+export function scanRegistryNow() {
+  return request(`${BASE}/scan`, { method: "POST" });
+}
+
 export function forgetRegistryService(id) {
   return request(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

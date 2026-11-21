@@ -105,8 +105,8 @@ describe('per-service recovery notes and concurrency', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('migration v6 is idempotent after reopening the registry', () => fixture((db) => {
+  test('migration v7 is idempotent after reopening the registry', () => fixture((db) => {
     createServiceRegistry(db);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(6);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM registry_schema_versions').get().n).toBe(7);
   }));
 });

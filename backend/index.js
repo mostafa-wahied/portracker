@@ -586,7 +586,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 if (serviceRegistry) {
   app.use('/api/service-registry', createRegistryRouter(serviceRegistry, {
-    scanEnabled: registryScanEnabled, httpStore: httpMetadataStore,
+    scanEnabled: registryScanEnabled, scanner: registryScanner, httpStore: httpMetadataStore,
     provenanceStore: linuxProvenanceStore,
     dockerProvenanceStore,
     recoveryNotesStore,

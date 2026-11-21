@@ -14,6 +14,14 @@ export function parseRegistryPortFilter(value) {
   return port >= 1 && port <= 65535 ? port : null;
 }
 
+// History accepts a decimal port prefix, not a whole port. The exact-port
+// parser above remains available to callers that need equality semantics.
+export function parseRegistryPortPrefix(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  return /^[1-9][0-9]{0,4}$/.test(text) && Number(text) <= 65535 ? text : null;
+}
+
 export function registryPageCount(total, pageSize = PAGE_SIZE) {
   return Math.max(1, Math.ceil(Math.max(0, Number(total) || 0) / pageSize));
 }

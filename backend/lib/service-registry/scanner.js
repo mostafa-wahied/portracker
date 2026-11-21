@@ -49,13 +49,15 @@ function createRegistryScanner({
   const sourceFailures = new Map();
   const retryAfter = new Map();
 
-  async function runOnce() {
+  async function runOnce({ manual = false } = {}) {
     if (running) return running;
     const job = (async () => {
       const results = [];
       for (const source of sources) {
         const at = now();
-        if (at < (retryAfter.get(source.name) || 0)) continue;
+        // Explicit user scans can retry a source during its periodic backoff.
+        // The same in-flight job is shared with the scheduler.
+        if (!manual && at < (retryAfter.get(source.name) || 0)) continue;
         try {
           const snapshot = await source.capture();
           if (!snapshot || snapshot.source !== source.name ||

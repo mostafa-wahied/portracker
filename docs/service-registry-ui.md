@@ -34,3 +34,13 @@ This feature does **not** automatically fetch website page titles/favicons (#134
 ## Validation
 
 Backend Jest verifies paginated preview fields and authentication; frontend Node tests verify status/port/page formatting; browser contracts exercise History-to-Live navigation and mobile/desktop layouts. The upstream PR checks include AMD64/ARM64 image/browser contracts. Screenshots of key states are useful for manual review.
+
+## Follow-up: manual scan, stable native identity and prefix filtering
+
+The History view can request a backend **Scan now** operation while preserving
+source-scoped failure handling and single-flight scheduling. Port search supports
+partial digit prefixes (not only a complete port number), and logical identity
+reconciliation uses allowlisted systemd unit or manual-project evidence when
+available to preserve notes across genuine application restarts. Weak matches
+remain provisional, and ordinary port reuse must not steal an existing record.
+This behavior supplements upstream #132 and #133.

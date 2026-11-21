@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  PAGE_SIZE, parseRegistryPortFilter, registryPageCount,
+  PAGE_SIZE, parseRegistryPortFilter, parseRegistryPortPrefix, registryPageCount,
   registryStatusLabel, registryTimestamp,
 } from "./registry-utils.mjs";
 
@@ -19,6 +19,17 @@ test("port search accepts only real TCP ports", () => {
   assert.equal(parseRegistryPortFilter(""), null);
   for (const value of ["0", "65536", "999999", "3000 OR 1=1", "abc"]) {
     assert.equal(parseRegistryPortFilter(value), null);
+  }
+});
+
+test("port prefix allows partial numeric input while retaining exact-port parser", () => {
+  for (const prefix of ["4", "41", "417", "4177", "65", "65535"]) {
+    assert.equal(parseRegistryPortPrefix(prefix), prefix);
+  }
+  assert.equal(parseRegistryPortPrefix(" 41 "), "41");
+  assert.equal(parseRegistryPortPrefix(""), null);
+  for (const bad of ["0", "041", "65536", "99999", "123456", "abc", "4%"]) {
+    assert.equal(parseRegistryPortPrefix(bad), null);
   }
 });
 

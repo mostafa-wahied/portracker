@@ -145,6 +145,24 @@ describe('backend registry worker', () => {
     expect(registry.listServices().total).toBe(1);
   }));
 
+  test('manual scans bypass a failed source periodic backoff without overlapping work', async () => fixture(async (_db, registry) => {
+    let time = 1000;
+    let calls = 0;
+    const worker = createRegistryScanner({
+      registry, now: () => time, intervalMs: 30000,
+      captureHost: async () => ({ source: 'system', complete: true, rows: [system(4177)] }),
+      captureDocker: async () => { calls += 1; throw new Error('socket unavailable'); },
+    });
+    expect((await worker.scanOnce()).map(item => item.outcome)).toEqual(['complete', 'failed']);
+    time = 2000;
+    expect((await worker.scanOnce()).map(item => item.source)).toEqual(['system']);
+    expect(calls).toBe(1);
+    expect((await worker.scanOnce({ manual: true })).map(item => item.outcome))
+      .toEqual(['complete', 'failed']);
+    expect(calls).toBe(2);
+    expect(registry.listServices({ port: 4177, status: 'listening' }).total).toBe(1);
+  }));
+
   test('links captured Linux provenance to the exact observed service, not Docker ports', async () => fixture(async (db, registry) => {
     const store = createLinuxProvenanceStore(db);
     const worker = createRegistryScanner({

@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const net = require('node:net');
+const path = require('node:path');
 
 const SOURCE_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const SERVER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/;
@@ -38,6 +39,50 @@ function normalizePort(value) {
 
 function hashedIdentity(material) {
   return crypto.createHash('sha256').update(material).digest('hex');
+}
+
+// This is a logical service hint, NOT an assertion that two process
+// invocations have identical argv or environment. Unlike a PID fingerprint,
+// it survives a restart when trusted cgroup or project evidence matches.
+function safeAbsolute(value) {
+  return typeof value === 'string' && path.isAbsolute(value) && value.length <= 1024 &&
+    !Array.from(value).some(ch => ch.codePointAt(0) < 32 || ch.codePointAt(0) === 127);
+}
+
+function computeLogicalIdentity(value, { serverId, hostIp, hostPort, protocol }) {
+  if (value.source !== 'system' || !value.provenance ||
+      typeof value.provenance !== 'object') return null;
+  const info = value.provenance;
+  const uid = Number.isSafeInteger(info.uid) && info.uid >= 0 ? info.uid : null;
+  const validUnit = typeof info.unitName === 'string' &&
+    /^[A-Za-z0-9:_.@-]{1,200}\.service$/.test(info.unitName) &&
+    !/^user@[0-9]+\.service$/.test(info.unitName);
+  const systemUnit = info.kind === 'systemd_system_service' && info.unitScope === 'system';
+  const userUnit = info.kind === 'systemd_user_service' && info.unitScope === 'user';
+  if (info.confidence === 'observed' && validUnit &&
+      (systemUnit || (userUnit && uid !== null))) {
+    return {
+      key: hashedIdentity(JSON.stringify([
+        'native-systemd-v1', serverId, info.unitScope, userUnit ? uid : null, info.unitName,
+      ])),
+      confidence: 'verified',
+    };
+  }
+
+  // Interpreter/executable identity alone is NOT enough: python, node and
+  // other executables often host unrelated apps. Include uid + cwd + the
+  // exact listening endpoint, and only match an inactive prior record.
+  if ((info.kind === 'manual' || info.kind === 'session_scope') &&
+      uid !== null && safeAbsolute(info.cwd) && safeAbsolute(info.executablePath)) {
+    return {
+      key: hashedIdentity(JSON.stringify([
+        'native-dev-v1', serverId, uid, info.cwd, info.executablePath,
+        hostIp, hostPort, protocol,
+      ])),
+      confidence: 'provisional',
+    };
+  }
+  return null;
 }
 
 /**
@@ -105,6 +150,8 @@ function normalizeObservation(value, serverId = 'local') {
       hostIp + ':' + hostPort + ':' + protocol);
   }
 
+  const logical = computeLogicalIdentity(value, { serverId, hostIp, hostPort, protocol });
+
   return {
     serverId,
     hostIp,
@@ -114,9 +161,10 @@ function normalizeObservation(value, serverId = 'local') {
     owner,
     internal: value.internal === true ? 1 : 0,
     identityKey,
-    identityConfidence,
+    identityConfidence: logical?.confidence || identityConfidence,
+    logicalKey: logical?.key || null,
     displayName: owner === 'unknown' ? 'Port ' + hostPort : owner,
   };
 }
 
-module.exports = { normalizeObservation, cleanLabel, validServerId, normalizePort };
+module.exports = { normalizeObservation, computeLogicalIdentity, cleanLabel, validServerId, normalizePort };

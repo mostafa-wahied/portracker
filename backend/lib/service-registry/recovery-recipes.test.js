@@ -25,18 +25,18 @@ describe('copy-only recovery recipe generator', () => {
     expect(recipes.map(r => r.type)).toEqual([
       'systemd-start', 'systemd-status', 'systemd-journal',
     ]);
-    expect(recipes[0].command).toContain("'systemctl' 'start' 'my-api.service'");
-    expect(recipes[0].command).not.toContain("'--user'");
-    expect(recipes[1].command).toContain("'status'");
-    expect(recipes[2].command).toContain("'journalctl' '-u'");
+    expect(recipes[0].command).toBe('systemctl start my-api.service');
+    expect(recipes[0].command).not.toContain('--user');
+    expect(recipes[1].command).toBe('systemctl status my-api.service');
+    expect(recipes[2].command).toBe('journalctl -u my-api.service');
     expect(recipes[0].hostScope).toBe('linux-host');
   });
 
   test('systemd user services get only user-scoped commands', () => {
     const recipes = buildRecoveryRecipes({ linuxProvenance: userUnit() });
     expect(recipes).toHaveLength(3);
-    expect(recipes[0].command).toContain("'systemctl' '--user' 'start'");
-    expect(recipes[2].command).toContain("'journalctl' '--user' '-u'");
+    expect(recipes[0].command).toBe('systemctl --user start my-dev.service');
+    expect(recipes[2].command).toBe('journalctl --user -u my-dev.service');
   });
 
   test('interactive session, missing unit, and misleading systemd names produce no start', () => {
@@ -57,10 +57,10 @@ describe('copy-only recovery recipe generator', () => {
     expect(recipes[0].type).toBe('compose-up');
     expect(recipes[0].confidence).toBe('unverified');
     expect(recipes[0].hostScope).toBe('docker-host');
-    expect(recipes[0].command).toContain("'docker' 'compose'");
-    expect(recipes[0].command).toContain("'--project-directory' '/home/dev/my project'");
-    expect(recipes[0].command).toContain("'-f' '/home/dev/my project/compose.yml'");
-    expect(recipes[0].command).toContain("'-p' 'my-project' 'up' '-d' 'web'");
+    expect(recipes[0].command).toContain('docker compose');
+    expect(recipes[0].command).toContain("--project-directory '/home/dev/my project'");
+    expect(recipes[0].command).toContain("-f '/home/dev/my project/compose.yml'");
+    expect(recipes[0].command).toContain('-p my-project up -d web');
     expect(recipes[0].caveats.join(' ')).toContain('Verify');
   });
 
@@ -82,8 +82,8 @@ describe('copy-only recovery recipe generator', () => {
     } });
     expect(recipes).toHaveLength(1);
     expect(recipes[0].type).toBe('docker-inspect');
-    expect(recipes[0].command).toContain("'docker' 'inspect'");
-    expect(recipes[0].command).not.toContain("'start'");
+    expect(recipes[0].command).toContain('docker inspect');
+    expect(recipes[0].command).not.toContain('start');
     expect(buildRecoveryRecipes({ dockerProvenance: {
       containerId: 'old-invalid',
     } })).toEqual([]);
@@ -96,6 +96,16 @@ describe('copy-only recovery recipe generator', () => {
     expect(shell.status).toBe(0);
     expect(shell.stdout).toBe(dangerous);
     expect(quoteShellArg(dangerous)).toContain("'\\''");
+    expect(renderCommand(['systemctl', '--user', 'start', 'my-dev.service']))
+      .toBe('systemctl --user start my-dev.service');
+    for (const unsafe of ['hello world', "it's", '$(touch BAD)', '`echo BAD`', 'a;b', 'a&b', 'a|b', '*', '$HOME', 'a\\b']) {
+      const command = renderCommand(['printf', '%s', unsafe]);
+      const result = spawnSync('sh', ['-c', command], { encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(unsafe);
+    }
+    expect(quoteShellArg('path with spaces')).toBe("'path with spaces'");
+    expect(quoteShellArg('normal-name.service')).toBe('normal-name.service');
     expect(() => quoteShellArg('hello\nworld')).toThrow('Invalid command argument');
     expect(() => quoteShellArg('\0')).toThrow('Invalid command argument');
   });

@@ -69,6 +69,13 @@ describe('registry REST API authorization and validation', () => {
     expect(scanStatus.status).toBe(200);
     expect(await scanStatus.json()).toEqual({ enabled: false, sources: [] });
 
+    const prefix = await fetch(url + '?portPrefix=30');
+    expect(prefix.status).toBe(200);
+    expect((await prefix.json()).total).toBe(1);
+    expect((await fetch(url + '?portPrefix=4')).status).toBe(200);
+    expect((await fetch(url + '?portPrefix=12%25')).status).toBe(400);
+    expect((await fetch(url + '?port=3000&portPrefix=30')).status).toBe(400);
+
     const invalid = await fetch(url + '?limit=1000');
     expect(invalid.status).toBe(400);
 
@@ -76,6 +83,19 @@ describe('registry REST API authorization and validation', () => {
     expect(deleted.status).toBe(204);
     expect((await fetch(url + '/' + record.id)).status).toBe(404);
   }));
+
+  test('manual POST requires authentication and opt-in; GET refresh never scans', async () => withServer(
+    async ({ url }) => {
+      process.env.ENABLE_AUTH = 'false';
+      const denied = await fetch(url + '/scan', { method: 'POST' });
+      expect(denied.status).toBe(403);
+      const refresh = await fetch(url + '/scan-status');
+      expect(refresh.status).toBe(200);
+      expect((await refresh.json()).enabled).toBe(false);
+      process.env.ENABLE_AUTH = 'true';
+      expect((await fetch(url + '/scan', { method: 'POST' })).status).toBe(401);
+    }
+  ));
 
   test('history reads and destructive forget require auth when configured', async () => withServer(async ({ registry, url }) => {
     process.env.ENABLE_AUTH = 'true';

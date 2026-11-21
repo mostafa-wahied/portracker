@@ -11,6 +11,9 @@ function quoteShellArg(value) {
       Array.from(value).some(ch => ch.codePointAt(0) < 32 || ch.codePointAt(0) === 127)) {
     throw new TypeError('Invalid command argument');
   }
+  // Bare shell-safe arguments are easier to read and paste. All other tokens
+  // retain POSIX single-quote escaping; never evaluate raw shell fragments.
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 

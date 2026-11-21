@@ -1,5 +1,7 @@
 'use strict';
 
+const { computeLogicalIdentity } = require('./identity');
+
 /**
  * Separate opt-in history schema: leaves legacy notes, custom names and
  * ignores untouched (those tables are keyed by endpoint, not app identity).
@@ -112,6 +114,61 @@ function migrateRegistrySchema(db) {
 
     ].join('\n'));
 
+    // Additive v7: existing databases had no stable logical service key.
+    // Never combine or delete old rows during migration; only seed keys from
+    // individually recorded, allowlisted provenance.
+    const columns = db.prepare('PRAGMA table_info(registry_services)').all();
+    if (!columns.some(column => column.name === 'logical_identity_key')) {
+      db.exec('ALTER TABLE registry_services ADD COLUMN logical_identity_key TEXT');
+    }
+    db.exec([
+      'CREATE INDEX IF NOT EXISTS idx_registry_services_logical',
+      '  ON registry_services (server_id, source, logical_identity_key, status);',
+      'CREATE TABLE IF NOT EXISTS registry_process_runs (',
+      '  service_id TEXT NOT NULL REFERENCES registry_services(id) ON DELETE CASCADE,',
+      '  run_key TEXT NOT NULL,',
+      '  first_seen_at INTEGER NOT NULL,',
+      '  last_seen_at INTEGER NOT NULL,',
+      '  PRIMARY KEY (service_id, run_key)',
+      ');',
+    ].join('\n'));
+    // Preserve historical run evidence from existing provisional process rows.
+    db.prepare(
+      'INSERT OR IGNORE INTO registry_process_runs ' +
+      '(service_id, run_key, first_seen_at, last_seen_at) ' +
+      'SELECT id, identity_key, first_seen_at, last_seen_at FROM registry_services ' +
+      "WHERE source = 'system' AND identity_confidence = 'provisional' AND identity_key IS NOT NULL"
+    ).run();
+    const previous = db.prepare(
+      'SELECT s.id, s.server_id, p.kind, p.confidence, p.unit_name, p.unit_scope, ' +
+      'p.uid, p.cwd, p.executable_path, ' +
+      '(SELECT e.host_ip FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC LIMIT 1) AS host_ip, ' +
+      '(SELECT e.host_port FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC LIMIT 1) AS host_port, ' +
+      '(SELECT e.protocol FROM registry_endpoints e WHERE e.service_id = s.id ' +
+      'ORDER BY e.last_seen_at DESC LIMIT 1) AS protocol ' +
+      'FROM registry_services s JOIN registry_linux_provenance p ON p.service_id = s.id ' +
+      "WHERE s.source = 'system' AND s.logical_identity_key IS NULL"
+    ).all();
+    const backfill = db.prepare(
+      'UPDATE registry_services SET logical_identity_key = ? WHERE id = ?'
+    );
+    for (const row of previous) {
+      const logical = computeLogicalIdentity({
+        source: 'system',
+        provenance: {
+          kind: row.kind, confidence: row.confidence,
+          unitName: row.unit_name, unitScope: row.unit_scope,
+          uid: row.uid, cwd: row.cwd, executablePath: row.executable_path,
+        },
+      }, {
+        serverId: row.server_id, hostIp: row.host_ip,
+        hostPort: row.host_port, protocol: row.protocol,
+      });
+      if (logical) backfill.run(logical.key, row.id);
+    }
+
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(1, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
@@ -124,6 +181,8 @@ function migrateRegistrySchema(db) {
       .run(5, Date.now());
     db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
       .run(6, Date.now());
+    db.prepare('INSERT OR IGNORE INTO registry_schema_versions (version, applied_at) VALUES (?, ?)')
+      .run(7, Date.now());
   });
   migrate();
 }

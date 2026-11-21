@@ -2,15 +2,16 @@ import { RegistryRecoveryDetails } from "./RegistryRecoveryDetails";
 import { RegistryDockerProvenance } from "./RegistryDockerProvenance";
 import { RegistryLinuxProvenance } from "./RegistryLinuxProvenance";
 import React, { useCallback, useEffect, useState } from "react";
-import { History, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { History, RefreshCw, ScanSearch, Search, Trash2, X } from "lucide-react";
 import {
   getRegistryService,
   getRegistryServices,
   getRegistryScanStatus,
+  scanRegistryNow,
   forgetRegistryService,
 } from "../../lib/api/serviceRegistry";
 import {
-  PAGE_SIZE, parseRegistryPortFilter, registryPageCount,
+  PAGE_SIZE, parseRegistryPortPrefix, registryPageCount,
   registryStatusLabel, registryTimestamp,
 } from "../../lib/registry-utils.mjs";
 
@@ -70,6 +71,9 @@ export function RegistryHistory() {
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState("");
   const [forgetting, setForgetting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState("");
+  const [scanError, setScanError] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => { setPage(0); setSearch(query.trim()); }, 300);
@@ -81,7 +85,7 @@ export function RegistryHistory() {
     return () => clearInterval(timer);
   }, []);
 
-  const parsedPort = parseRegistryPortFilter(portText);
+  const parsedPort = parseRegistryPortPrefix(portText);
   const invalidPort = Boolean(portText.trim()) && parsedPort === null;
 
   useEffect(() => {
@@ -92,7 +96,7 @@ export function RegistryHistory() {
     Promise.all([
       getRegistryServices({
         limit: PAGE_SIZE, offset: page * PAGE_SIZE, serverId: "local",
-        status, source, search, port: parsedPort,
+        status, source, search, portPrefix: parsedPort,
         seenSince: lastSeenWindow ? Date.now() - Number(lastSeenWindow) * 86400000 : null,
       }, controller.signal),
       getRegistryScanStatus(controller.signal),
@@ -120,6 +124,24 @@ export function RegistryHistory() {
   }, [selectedId, version]);
 
   const refresh = useCallback(() => setVersion(value => value + 1), []);
+  const handleScanNow = useCallback(async () => {
+    if (scanning || !scan?.enabled) return;
+    setScanning(true);
+    setScanMessage("");
+    setScanError("");
+    try {
+      const result = await scanRegistryNow();
+      setScanMessage("Scan finished: " + (result.results || []).map(item =>
+        item.source + " " + item.outcome
+      ).join(" · "));
+      refresh();
+    } catch (error) {
+      setScanError(error.message || "Unable to start manual scan");
+      refresh();
+    } finally {
+      setScanning(false);
+    }
+  }, [scanning, scan?.enabled, refresh]);
   const handleForget = useCallback(async () => {
     if (!selectedId || forgetting) return;
     if (!window.confirm("Permanently forget this saved history record? The running service will not be stopped.")) return;
@@ -150,12 +172,23 @@ export function RegistryHistory() {
             Remembered TCP listeners on this Portracker host, including services that are no longer running.
           </p>
         </div>
-        <button type="button" onClick={refresh} className={FIELD_CLASS + " inline-flex items-center gap-2"}>
-          <RefreshCw className="w-4 h-4" aria-hidden="true" /> Refresh
-        </button>
+        <div className="flex flex-wrap gap-2 items-center">
+          <button type="button" onClick={refresh} title="Reload saved history; does not scan"
+            className={FIELD_CLASS + " inline-flex items-center gap-2"}>
+            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Refresh
+          </button>
+          <button type="button" onClick={handleScanNow} disabled={scanning || !scan?.enabled}
+            title="Collect current listening services now"
+            className={FIELD_CLASS + " inline-flex items-center gap-2 disabled:opacity-50"}>
+            <ScanSearch className="w-4 h-4" aria-hidden="true" />
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
       </div>
 
       <ScanSummary scan={scan} />
+      {scanMessage && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{scanMessage}</p>}
+      {scanError && <p role="alert" className="text-sm text-red-600">{scanError}</p>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" aria-label="History filters">
         <label className="text-sm space-y-1">
@@ -168,9 +201,9 @@ export function RegistryHistory() {
           </span>
         </label>
         <label className="text-sm space-y-1">
-          <span className="text-slate-600 dark:text-slate-300">Port</span>
+          <span className="text-slate-600 dark:text-slate-300">Port (starts with)</span>
           <input aria-label="Filter by port" inputMode="numeric" maxLength={5} value={portText}
-            placeholder="Any port" onChange={e => { setPortText(e.target.value); setPage(0); }}
+            placeholder="e.g. 41" onChange={e => { setPortText(e.target.value); setPage(0); }}
             className={FIELD_CLASS + " w-full"} />
         </label>
         <label className="text-sm space-y-1">
@@ -205,7 +238,7 @@ export function RegistryHistory() {
         </label>
       </div>
 
-      {invalidPort && <p role="alert" className="text-sm text-red-600">Enter a TCP port from 1 to 65535.</p>}
+      {invalidPort && <p role="alert" className="text-sm text-red-600">Enter a numeric port prefix (1–5 digits, 1–65535).</p>}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {loading && <p role="status" className="text-sm text-slate-500">Loading service history…</p>}
 
@@ -309,6 +342,11 @@ export function RegistryHistory() {
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 First seen {registryTimestamp(detail.firstSeenAt)} · Last seen {registryTimestamp(detail.lastSeenAt)}
               </p>
+              {detail.runCount > 1 && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Observed process runs: {detail.runCount} (logical service retained across restarts)
+                </p>
+              )}
               <RegistryLinuxProvenance evidence={detail.linuxProvenance} />
               <RegistryDockerProvenance evidence={detail.dockerProvenance} />
               {detail.recovery && (
@@ -326,7 +364,7 @@ export function RegistryHistory() {
                 <p className="text-sm text-slate-500">Showing the 20 most recently seen endpoints.</p>
               )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Title/favicon are captured from the HTTP root when enabled. Linux provenance is available only with authenticated opt-in; restart commands are not generated yet.
+                Title/favicon are captured from the HTTP root when enabled. Linux provenance and copy-only recovery suggestions require authenticated opt-in; no commands are executed.
               </p>
               <button type="button" disabled={forgetting} onClick={handleForget}
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm border border-red-300 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
