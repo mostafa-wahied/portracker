@@ -38,6 +38,21 @@ By auto-discovering services on your systems, portracker provides a live, accura
 
 <sub>\*_Note: VMs discovered on TrueNAS with the optional API key are shown in read-only mode. To enable full monitoring, deploy a portracker instance on each VM and add it as a separate server._</sub>
 
+## Secure Linux/NixOS service-registry deployment
+
+After the persistent History, provenance, pins and recovery contributions ship
+in an official Docker release, use the optional
+[secure registry Compose profile](docker-compose.registry-secure.yml) with an
+authenticated, loopback-bound dashboard and an internal read-only Docker API
+proxy. This profile keeps SQLite data in a caller-selected persistent directory.
+
+**Upgrading from a fork:** Do not replace the image until you have verified a
+published upstream release containing the features. Preserve the existing
+database path and session secret, stop the old container before taking a
+backup, and follow the [migration and NixOS guide](docs/service-registry-upstream-deployment.md).
+The profile is standalone; do not merge it with the legacy Compose example.
+
+---
 ## Deployment
 
 Deployment is designed to be simple using Docker.
