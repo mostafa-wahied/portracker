@@ -22,6 +22,7 @@ const { createServiceRegistry } = require('./lib/service-registry/registry');
 const { createRegistryScanner, readRegistryConfig } = require('./lib/service-registry/scanner');
 const { createHttpMetadataStore } = require('./lib/service-registry/http-store');
 const { readHttpMetadataConfig } = require('./lib/service-registry/http-probe');
+const { readDiscoveryCapabilities } = require('./lib/service-registry/discovery-capabilities');
 const { createHttpMetadataWorker } = require('./lib/service-registry/http-worker');
 const { captureHostTcp } = require('./lib/service-registry/snapshot');
 const { readLinuxProvenanceConfig } = require('./lib/service-registry/linux-provenance');
@@ -491,6 +492,9 @@ let httpMetadataStore = null;
 let linuxProvenanceStore = null;
 let dockerProvenanceStore = null;
 let recoveryNotesStore = null;
+let httpMetadataWorker = null;
+let httpMetadataConfig = { requested: true, enabled: false, mode: 'unknown',
+  reason: 'not_initialized' };
 try {
   serviceRegistry = createServiceRegistry(db);
   serviceRegistry.markStale('local');
@@ -518,17 +522,20 @@ try {
   let onCycle = null;
   try {
     const httpConfig = readHttpMetadataConfig();
+    httpMetadataConfig = httpConfig;
     if (httpConfig.missingHost) {
-      logger.warn('HTTP metadata opt-in requires SERVICE_REGISTRY_HTTP_HOST inside Docker');
+      logger.warn('HTTP metadata: no validated private Docker gateway found; collection skipped');
     }
     if (httpConfig.enabled) {
-      const worker = createHttpMetadataWorker({
+      httpMetadataWorker = createHttpMetadataWorker({
         store: httpMetadataStore, enabled: true, host: httpConfig.host, logger,
       });
-      onCycle = worker.enrich;
+      onCycle = httpMetadataWorker.enrich;
     }
-  } catch (error) {
-    logger.warn('HTTP metadata enrichment unavailable:', error.message);
+  } catch {
+    httpMetadataConfig = { requested: true, enabled: false, mode: 'invalid',
+      reason: 'invalid_configuration' };
+    logger.warn('HTTP metadata disabled: configuration is not a safe private IP');
   }
   registryScanner = createRegistryScanner({
     registry: serviceRegistry, ...registryConfig, logger, onCycle,
@@ -590,6 +597,11 @@ if (serviceRegistry) {
     provenanceStore: linuxProvenanceStore,
     dockerProvenanceStore,
     recoveryNotesStore,
+    getCapabilities: scanSources => readDiscoveryCapabilities({
+      scanEnabled: registryScanEnabled, scanSources,
+      http: httpMetadataConfig, httpWorker: httpMetadataWorker,
+      dockerHost: process.env.DOCKER_HOST || null,
+    }),
   }));
 } else {
   app.use('/api/service-registry', requireAuth, (_req, res) =>

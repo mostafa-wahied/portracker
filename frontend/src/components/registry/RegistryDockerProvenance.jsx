@@ -1,11 +1,11 @@
 import React from "react";
+import { RegistryDetailSection } from "./RegistryDetailSection";
 import { registryTimestamp } from "../../lib/registry-utils.mjs";
 
 export function RegistryDockerProvenance({ evidence }) {
   if (!evidence) return null;
   return (
-    <section aria-label="Docker launch provenance" className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-      <h3 className="font-medium text-sm">Docker / Compose provenance</h3>
+    <RegistryDetailSection label="Docker launch provenance" title="Docker / Compose provenance">
       <p className="text-sm text-slate-600 dark:text-slate-300">
         {evidence.identityConfidence} identity · Inspected {registryTimestamp(evidence.capturedAt)}
       </p>
@@ -43,6 +43,6 @@ export function RegistryDockerProvenance({ evidence }) {
         Observed Docker metadata may be stale after container removal. Config paths are
         on the Docker host, not necessarily mounted into Portracker. No start or stop command is run.
       </p>
-    </section>
+    </RegistryDetailSection>
   );
 }

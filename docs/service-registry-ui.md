@@ -62,5 +62,21 @@ own status, history and authority. No cross-source identity merge occurs.
 
 Backend capabilities summarize HTTP and Docker readiness with sanitized
 status and timestamps; they must not reveal Docker endpoints, private
-route details, or raw probe/inspect errors. The follow-up frontend stage
-renders these statuses and Pinned controls.
+route details, or raw probe/inspect errors. The History and Pinned frontend views render capability status and controls.
+
+## Inline details, first-load stability and consistent presentation
+
+Live Ports supplies the shared visual reference for the History and Pinned
+lists. A row expands **immediately below the selected service** and clicking
+it again collapses it. Important actions (Pin/Unpin, Forget, Close) belong
+beside the listening/status indication rather than inside deeply nested
+cards. Recovery commands are ordinary copyable text in read mode, with a
+prefilled input visible only during Edit and returning to plain text after
+Save or Cancel.
+
+Pinned entries load on the first visit, including offline records. Background
+polling must preserve expanded state and scroll position rather than jumping
+the page to the top. Partial-name and port-prefix filtering, explicit Scan Now,
+source and status distinctions, loading/error/empty states and keyboard/mobile
+interactions are covered by browser contracts. The frontend never executes
+saved recovery text or attempts its own privileged source scan.

@@ -24,6 +24,14 @@ export function getRegistryServices(filters = {}, signal) {
   return request(`${BASE}?${query.toString()}`, { signal });
 }
 
+export function getRegistryPinnedGroups(filters = {}, signal) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== "" && value !== null && value !== undefined) query.set(key, String(value));
+  }
+  return request(`${BASE}/pinned-groups?${query.toString()}`, { signal });
+}
+
 export function getRegistryService(id, signal) {
   return request(`${BASE}/${encodeURIComponent(id)}`, { signal });
 }
@@ -34,6 +42,14 @@ export function getRegistryScanStatus(signal) {
 
 export function scanRegistryNow() {
   return request(`${BASE}/scan`, { method: "POST" });
+}
+
+export function setRegistryServicePinned(id, pinned) {
+  return request(`${BASE}/${encodeURIComponent(id)}/pin`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pinned }),
+  });
 }
 
 export function forgetRegistryService(id) {

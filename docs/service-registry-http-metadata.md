@@ -64,5 +64,19 @@ Jest fixtures exercise real local HTML/title/favicons, relative and fallback
 icons, same-origin redirect policy, invalid hosts, MIME confusion, large
 responses, TLS errors, cache preservation and worker backoff/concurrency.
 Native AMD64/ARM64 image/browser contracts should also run on the final
-upstream PR head. Follow-up UX/capability-status enhancements will make
-probe readiness and error categories visible in History/Pinned.
+upstream PR head. History and Pinned show sanitized discovery capabilities, including safe HTTP
+mode, last attempt/success and last successfully cached favicon timestamp.
+
+## Dashboard discovery support
+
+Expand the **Discovery capabilities** section in History/Pinned to inspect
+HTTP and Docker readiness independently. The status intentionally does not
+expose a Docker socket URL, credentials, private bridge gateway or raw error.
+A local icon may be absent when an editor requires login, redirects to a
+different origin or only serves a favicon behind a route prefix. The UI then
+shows a generic terminal/editor glyph rather than a falsely verified logo.
+
+The hostname/IP in an observed root URL is the backend's probe target and may
+not be usable from a remote browser. For host-loopback-only NixOS services,
+consider a native deployment or narrowly configured local access, never a
+publicly exposed Docker socket or blanket firewall exception.

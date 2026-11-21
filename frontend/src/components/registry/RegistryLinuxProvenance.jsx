@@ -1,4 +1,5 @@
 import React from "react";
+import { RegistryDetailSection } from "./RegistryDetailSection";
 import { registryTimestamp } from "../../lib/registry-utils.mjs";
 
 const KINDS = {
@@ -13,8 +14,7 @@ const KINDS = {
 export function RegistryLinuxProvenance({ evidence }) {
   if (!evidence) return null;
   return (
-    <section aria-label="Linux launch provenance" className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-      <h3 className="font-medium text-sm">Linux launch provenance</h3>
+    <RegistryDetailSection label="Linux launch provenance" title="Linux launch provenance">
       <p className="text-sm text-slate-600 dark:text-slate-300">
         {KINDS[evidence.kind] || "Unattributed process"} · {evidence.confidence} evidence
         {" · "}Captured {registryTimestamp(evidence.capturedAt)}
@@ -39,6 +39,6 @@ export function RegistryLinuxProvenance({ evidence }) {
         {" "}{evidence.processStartTicks}. This is a saved observation, not a verified
         startup command; no action is executed.
       </p>
-    </section>
+    </RegistryDetailSection>
   );
 }

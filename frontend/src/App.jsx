@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { AppHeader } from "./components/layout/AppHeader";
 import { ServerSection } from "./components/server/ServerSection";
 import { RegistryHistory } from "./components/registry/RegistryHistory";
+import { RegistryPinned } from "./components/registry/RegistryPinned";
 import { AppSidebarLayout } from "./components/layout/AppSidebarLayout";
 import { Label } from "@/components/ui/label";
 import { MultipleServerSkeleton } from "./components/server/MultipleServerSkeleton";
@@ -54,6 +55,8 @@ export default function App() {
   const { shouldShowButton: shouldShowWhatsNewButton, handleShow: handleShowWhatsNew, getModalProps: getWhatsNewModalProps } = useWhatsNew();
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedPortsRef = useRef(false);
+  const latestPortsRequestRef = useRef(0);
   const [error, setError] = useState(null);
   const [hostOverride, setHostOverride] = useState(null);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
@@ -155,7 +158,8 @@ export default function App() {
     () => localStorage.getItem("selectedServerId") || null
   );
   const [activeView, setActiveView] = useState(() =>
-    localStorage.getItem("portrackerActiveView") === "history" ? "history" : "live"
+    ["live", "history", "pinned"].includes(localStorage.getItem("portrackerActiveView"))
+      ? localStorage.getItem("portrackerActiveView") : "live"
   );
   useEffect(() => { localStorage.setItem("portrackerActiveView", activeView); }, [activeView]);
 
@@ -669,9 +673,11 @@ export default function App() {
   const { stampRefreshed, onOpenAddServer: handleOpenAddServer } = sidebarLayout;
 
   const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setPortSuggestions({});
+    const requestId = ++latestPortsRequestRef.current;
+    if (!hasLoadedPortsRef.current) {
+      setLoading(true);
+      setPortSuggestions({});
+    }
 
     const scanParams = new URLSearchParams();
     if (includeUdp) scanParams.set('includeUdp', 'true');
@@ -823,9 +829,12 @@ export default function App() {
         })
       );
 
+      if (requestId !== latestPortsRequestRef.current) return;
       setGroups(enrichedServers);
       stampRefreshed(enrichedServers);
-      setTimeout(() => setLoading(false), 300);
+      hasLoadedPortsRef.current = true;
+      setError(null);
+      setLoading(false);
     } catch (error) {
       logger.error("Error in fetchAll:", error);
 
@@ -836,15 +845,19 @@ export default function App() {
         const fallbackResponse = await fetch("/api/all-ports");
         if (fallbackResponse.ok) {
           const legacyData = await fallbackResponse.json();
+          if (requestId !== latestPortsRequestRef.current) return;
           setGroups(legacyData);
           stampRefreshed(legacyData);
-          setTimeout(() => setLoading(false), 300);
+          hasLoadedPortsRef.current = true;
+          setError(null);
+          setLoading(false);
           return;
         }
       } catch (fallbackError) {
         logger.error("Even fallback API failed:", fallbackError);
       }
 
+      if (requestId !== latestPortsRequestRef.current) return;
       setError(error.toString());
       setLoading(false);
     }
@@ -2031,14 +2044,20 @@ export default function App() {
           sidebarLayout={sidebarLayout}
           onOpenAddServer={handleOpenAddServer}
         >
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 min-h-0 min-w-0 overflow-auto">
             <div className="p-6">
-              <nav role="tablist" aria-label="Dashboard views" className="flex gap-2 mb-6">
+              <nav role="tablist" aria-label="Dashboard views" className="flex flex-wrap gap-2 mb-6">
                 <button type="button" role="tab" aria-selected={activeView === "live"}
                   onClick={() => setActiveView("live")}
                   className={"rounded-lg px-4 py-2 text-sm font-semibold " + (activeView === "live"
                     ? "bg-indigo-600 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200")}>
                   Live ports
+                </button>
+                <button type="button" role="tab" aria-selected={activeView === "pinned"}
+                  onClick={() => setActiveView("pinned")}
+                  className={"rounded-lg px-4 py-2 text-sm font-semibold " + (activeView === "pinned"
+                    ? "bg-indigo-600 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200")}>
+                  Pinned
                 </button>
                 <button type="button" role="tab" aria-selected={activeView === "history"}
                   onClick={() => setActiveView("history")}
@@ -2049,6 +2068,10 @@ export default function App() {
               </nav>
               {activeView === "history" ? (
                 <div role="tabpanel" aria-label="History view"><RegistryHistory /></div>
+              ) : activeView === "pinned" ? (
+                <div role="tabpanel" aria-label="Pinned services view">
+                  <RegistryPinned onBrowseHistory={() => setActiveView("history")} />
+                </div>
               ) : (
                 <div role="tabpanel" aria-label="Live ports view">
               {loading && (
